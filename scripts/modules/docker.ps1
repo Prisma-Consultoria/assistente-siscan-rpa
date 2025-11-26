@@ -28,21 +28,28 @@ function Module-Main {
 
     if ($registry -and $token) {
         Write-Host "Logando no registro privado (nao sera mostrado o token)..."
-        try {
-            $secureToken = ConvertTo-SecureString $token -AsPlainText -Force
-            $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
-            $plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+            try {
+                $secureToken = ConvertTo-SecureString $token -AsPlainText -Force
+                $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
+                $plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+                [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+                # Trim whitespace/newlines that might come from copy/paste
+                if ($plain) { $plain = $plain.Trim() }
 
             # GHCR (GitHub Container Registry)
-            if ($registry -like '*ghcr.io*') {
+                if ($registry -like '*ghcr.io*') {
                 if (-not $registryUser) { Write-Warning "GHCR geralmente requer um usuario (GitHub username)." }
                 $argList = @('login', 'ghcr.io', '--username', $registryUser, '--password-stdin')
-                try {
-                    ($plain + "`n") | & docker @argList 2>&1 | ForEach-Object { Write-Verbose $_ }
-                    if ($LASTEXITCODE -ne 0) { Write-Error "docker login ghcr.io falhou"; return $false }
-                }
-                catch { Write-Warning ("docker login ghcr.io failed: {0}" -f $_) }
+                    # write token to a temp file and redirect stdin to docker to capture output reliably
+                    $tf = [System.IO.Path]::GetTempFileName()
+                    try {
+                        Set-Content -Path $tf -Value $plain -NoNewline -Encoding ASCII
+                        $out = Get-Content -Raw -Path $tf | & docker @argList 2>&1
+                        Write-LogDebug ("docker login ghcr.io output: {0}" -f ($out -join " | "))
+                        if ($LASTEXITCODE -ne 0) { Write-LogWarn ("docker login ghcr.io failed: {0}" -f ($out -join " | ")); return $false }
+                    }
+                    catch { Write-LogWarn ("docker login ghcr.io exception: {0}" -f $_) }
+                    finally { Remove-Item -Path $tf -Force -ErrorAction SilentlyContinue }
             }
             # Azure ACR
             elseif ($registry -like '*.azurecr.io*') {
@@ -56,10 +63,16 @@ function Module-Main {
                     if ($registryUser) {
                         $argList = @('login', $registry, '--username', $registryUser, '--password-stdin')
                         try {
-                            ($plain + "`n") | & docker @argList 2>&1 | ForEach-Object { Write-Verbose $_ }
-                            if ($LASTEXITCODE -ne 0) { Write-Error "docker login para ACR falhou"; return $false }
+                            $tf = [System.IO.Path]::GetTempFileName()
+                            try {
+                                Set-Content -Path $tf -Value $plain -NoNewline -Encoding ASCII
+                                $out = Get-Content -Raw -Path $tf | & docker @argList 2>&1
+                                Write-LogDebug ("docker login ACR output: {0}" -f ($out -join " | "))
+                                if ($LASTEXITCODE -ne 0) { Write-Error "docker login para ACR falhou"; return $false }
+                            }
+                            finally { Remove-Item -Path $tf -Force -ErrorAction SilentlyContinue }
                         }
-                        catch { Write-Warning ("docker login ACR failed: {0}" -f $_) }
+                        catch { Write-LogWarn ("docker login ACR failed: {0}" -f $_) }
                     }
                 }
             }
@@ -69,10 +82,17 @@ function Module-Main {
                     $pw = & aws ecr get-login-password 2>$null
                     $argList = @('login', $registry, '--username', 'AWS', '--password-stdin')
                     try {
-                        ($pw + "`n") | & docker @argList 2>&1 | ForEach-Object { Write-Verbose $_ }
-                        if ($LASTEXITCODE -ne 0) { Write-Warning "docker login ECR falhou" }
+                        if ($pw) { $pw = $pw.Trim() }
+                        $tf = [System.IO.Path]::GetTempFileName()
+                        try {
+                            Set-Content -Path $tf -Value $pw -NoNewline -Encoding ASCII
+                            $out = Get-Content -Raw -Path $tf | & docker @argList 2>&1
+                            Write-LogDebug ("docker login ECR output: {0}" -f ($out -join " | "))
+                            if ($LASTEXITCODE -ne 0) { Write-Warning "docker login ECR falhou: $($out -join ' | ')" }
+                        }
+                        finally { Remove-Item -Path $tf -Force -ErrorAction SilentlyContinue }
                     }
-                    catch { Write-Warning ("docker login ECR failed: {0}" -f $_) }
+                    catch { Write-LogWarn ("docker login ECR failed: {0}" -f $_) }
                 }
                 else { Write-Warning "AWS CLI não encontrado; não foi possível autenticar no ECR" }
             }
@@ -81,16 +101,28 @@ function Module-Main {
                     if ($registryUser) {
                         $argList = @('login', $registry, '--username', $registryUser, '--password-stdin')
                         try {
-                            ($plain + "`n") | & docker @argList 2>&1 | ForEach-Object { Write-Verbose $_ }
-                            if ($LASTEXITCODE -ne 0) { Write-Error "docker login falhou"; return $false }
+                            $tf = [System.IO.Path]::GetTempFileName()
+                            try {
+                                Set-Content -Path $tf -Value $plain -NoNewline -Encoding ASCII
+                                $out = Get-Content -Raw -Path $tf | & docker @argList 2>&1
+                                Write-LogDebug ("docker login output: {0}" -f ($out -join " | "))
+                                if ($LASTEXITCODE -ne 0) { Write-Error "docker login falhou: $($out -join ' | ')"; return $false }
+                            }
+                            finally { Remove-Item -Path $tf -Force -ErrorAction SilentlyContinue }
                         }
-                        catch { Write-Warning ("docker login failed: {0}" -f $_) }
+                        catch { Write-LogWarn ("docker login failed: {0}" -f $_) }
                     }
                     else {
                         $argList = @('login', $registry, '--username', 'oauth2', '--password-stdin')
                         try {
-                            ($plain + "`n") | & docker @argList 2>&1 | ForEach-Object { Write-Verbose $_ }
-                            if ($LASTEXITCODE -ne 0) { Write-Warning "docker login com usuário 'oauth2' falhou; você pode precisar fornecer usuário específico." }
+                            $tf = [System.IO.Path]::GetTempFileName()
+                            try {
+                                Set-Content -Path $tf -Value $plain -NoNewline -Encoding ASCII
+                                $out = Get-Content -Raw -Path $tf | & docker @argList 2>&1
+                                Write-LogDebug ("docker login oauth2 output: {0}" -f ($out -join " | "))
+                                if ($LASTEXITCODE -ne 0) { Write-Warning "docker login com usuário 'oauth2' falhou; você pode precisar fornecer usuário específico. Details: $($out -join ' | ')" }
+                            }
+                            finally { Remove-Item -Path $tf -Force -ErrorAction SilentlyContinue }
                         }
                         catch { Write-Warning ("docker login oauth2 failed: {0}" -f $_) }
                     }

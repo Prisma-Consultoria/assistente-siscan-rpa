@@ -244,12 +244,29 @@ function Cleanup-OldImages {
 function Main {
     Write-Host "Assistente SISCan RPA - Instalador" -ForegroundColor Cyan
 
-    # Registry info
-    $registry = Read-Host -Prompt 'Registry URL (ex: ghcr.io or registry.example.com)'
-    $registryUser = Read-Host -Prompt 'Registry usuario (se aplicavel, deixe em branco para token-only)'
-    $token = Read-Secret -Prompt 'Token para imagem privada (entrada oculta)'
+    # Ask for the image only (example: ghcr.io/unanimad/djud-backend:cache-latest)
+    $defaultImage = 'prisma-consultoria/assistente-siscan-rpa:latest'
+    $imageInput = Read-Host -Prompt "Imagem a ser usada (ex: ghcr.io/usuario/repo:tag) (pressione Enter para usar padrao: $defaultImage)"
+    if ($imageInput -and $imageInput.Trim() -ne '') {
+        $imageToUse = $imageInput.Trim()
+    }
+    else { $imageToUse = $defaultImage }
 
-    # SISCan credentials
+    # Derive registry host from the image (if present) so we can attempt login
+    $registry = '' ; $registryUser = '' ; $token = ''
+    if ($imageToUse -match '^(?<host>[^/]+)\/(?<rest>.+)$') {
+        $registryHost = $matches['host']
+        if ($registryHost -match '\.' -or $registryHost -match ':' -or $registryHost -eq 'localhost') { $registry = $registryHost }
+    }
+
+    # If a registry host was detected, prompt for auth info (token/user) as needed
+    if ($registry) {
+        Write-Host ("Registry inferido: {0}" -f $registry) -ForegroundColor Cyan
+        $registryUser = Read-Host -Prompt 'Registry usuario (se aplicavel, deixe em branco para token-only)'
+        $token = Read-Secret -Prompt 'Token para imagem privada (entrada oculta)'
+    }
+
+    # SISCan credentials (always ask)
     $siscanUser = Read-Host -Prompt 'SISCan usuario'
     $siscanPass = Read-Secret -Prompt 'SISCan senha (entrada oculta)'
 
@@ -261,17 +278,7 @@ function Main {
         SiscanPass = $siscanPass;
         RepoBase = $RepoBase;
         CacheDir = $CacheDir;
-    }
-
-    # Optional: allow tester or operator to specify an explicit image/tag
-    $defaultImage = "$registry/prisma-consultoria/assistente-siscan-rpa:latest"
-    $imageInput = Read-Host -Prompt "Imagem a ser usada (pressione Enter para usar padrao: $defaultImage)"
-    if ($imageInput -and $imageInput.Trim() -ne '') {
-        $moduleArgs.Image = $imageInput.Trim()
-        $imageToUse = $moduleArgs.Image
-    }
-    else {
-        $imageToUse = $defaultImage
+        Image = $imageToUse;
     }
 
     # Inform which image/version will be used
