@@ -1,0 +1,15 @@
+# scripts/checksums.txt
+# This file contains SHA256 checksums for module files in `scripts/modules/`.
+# It is used by the installer to verify integrity before executing modules.
+# To generate/refresh this file locally, run one of:
+#
+#   Bash:
+#     ./scripts/generate-checksums.sh
+#
+#   PowerShell:
+#     pwsh ./scripts/generate-checksums.ps1
+#
+# After running the generator the file will contain lines like:
+# <sha256sum>  <filename>
+# Example:
+# e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docker.sh

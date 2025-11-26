@@ -1,0 +1,169 @@
+<#
+install.ps1 - Remote installer bootstrap for Assistente SISCan RPA
+
+Usage:
+  irm "https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.ps1" | iex
+
+Design goals:
+- Minimal bootstrap executed by end users
+- Secure prompts for tokens/credentials (never logged)
+- Modular modules fetched from `scripts/modules/*.ps1`
+- Fallback to cached modules if network fails
+#>
+
+param(
+    [string]$RepoBase = 'https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main',
+    [string]$CacheDir = "$env:ProgramData\AssistenteSISCan\installer-cache",
+    [string]$Version = ''
+)
+
+Set-StrictMode -Version Latest
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+
+function Ensure-Directory {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { New-Item -ItemType Directory -Path $Path -Force | Out-Null }
+}
+
+Ensure-Directory -Path $CacheDir
+
+function Download-Module {
+    param(
+        [string]$ModulePath,
+        [string]$Destination
+    )
+    $url = "$RepoBase/$ModulePath"
+    try {
+        Invoke-RestMethod -Uri $url -OutFile $Destination -ErrorAction Stop
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-Checksums {
+    param([string]$RepoBase, [string]$CacheDir)
+    $checksumsUrl = "$RepoBase/scripts/checksums.txt"
+    $dest = Join-Path $CacheDir 'checksums.txt'
+    try {
+        Invoke-RestMethod -Uri $checksumsUrl -OutFile $dest -ErrorAction Stop
+        return $dest
+    }
+    catch {
+        return $null
+    }
+}
+
+function Verify-FileChecksum {
+    param([string]$FilePath, [string]$ChecksumsPath)
+    if (-not (Test-Path $ChecksumsPath)) { return $true }
+    $lines = Get-Content $ChecksumsPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    $fileName = Split-Path $FilePath -Leaf
+    foreach ($l in $lines) {
+        # expected format: SHA256  filename
+        $parts = $l -split '\s+' | Where-Object { $_ -ne '' }
+        if ($parts.Count -ge 2 -and $parts[1] -eq $fileName) {
+            $expected = $parts[0]
+            $actual = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash.ToLower()
+            if ($actual -ne $expected.ToLower()) {
+                Write-Warning "Checksum mismatch for $fileName (expected $expected, got $actual)"
+                return $false
+            }
+            return $true
+        }
+    }
+    # no entry -> allow
+    return $true
+}
+
+function Read-Secret {
+    param([string]$Prompt)
+    $secure = Read-Host -AsSecureString -Prompt $Prompt
+    $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try { [Runtime.InteropServices.Marshal]::PtrToStringAuto($ptr) }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+}
+
+function Load-And-Run-Module {
+    param(
+        [string]$ModuleRelPath,
+        [hashtable]$Args
+    )
+    $leaf = Split-Path $ModuleRelPath -Leaf
+    $dest = Join-Path $CacheDir $leaf
+
+    # Try download fresh module; if fails and cached exists, use cache
+    $checksumsFile = Get-Checksums -RepoBase $RepoBase -CacheDir $CacheDir
+    if (-not (Download-Module -ModulePath $ModuleRelPath -Destination $dest)) {
+        if (-not (Test-Path $dest)) {
+            Write-Warning "Failed to download $ModuleRelPath and no cache present."
+            return $false
+        }
+        else { Write-Verbose "Using cached module $leaf" }
+    }
+
+    # If checksums file available, verify integrity
+    if ($checksumsFile) {
+        if (-not (Verify-FileChecksum -FilePath $dest -ChecksumsPath $checksumsFile)) {
+            Write-Error "Checksum verification failed for $leaf. Aborting module load."
+            return $false
+        }
+    }
+
+    try {
+        . $dest
+        if (Get-Command -Name Module-Main -ErrorAction SilentlyContinue) {
+            Module-Main -Args $Args
+            return $true
+        }
+        else {
+            Write-Warning "Module $ModuleRelPath does not implement Module-Main"
+            return $false
+        }
+    }
+    catch {
+        Write-Warning "Error executing module $ModuleRelPath: $_"
+        return $false
+    }
+}
+
+function Main {
+    Write-Host "Assistente SISCan RPA - Instalador" -ForegroundColor Cyan
+
+    # Registry info
+    $registry = Read-Host -Prompt 'Registry URL (ex: ghcr.io or registry.example.com)'
+    $registryUser = Read-Host -Prompt 'Registry usuário (se aplicável, deixe em branco para token-only)'
+    $token = Read-Secret -Prompt 'Token para imagem privada (entrada oculta)'
+
+    # SISCan credentials
+    $siscanUser = Read-Host -Prompt 'SISCan usuário'
+    $siscanPass = Read-Secret -Prompt 'SISCan senha (entrada oculta)'
+
+    $args = @{
+        Registry = $registry;
+        RegistryUser = $registryUser;
+        Token = $token;
+        SiscanUser = $siscanUser;
+        SiscanPass = $siscanPass;
+        RepoBase = $RepoBase;
+        CacheDir = $CacheDir;
+    }
+
+    # Validate Docker and Compose and perform registry login
+    if (-not (Load-And-Run-Module -ModuleRelPath 'scripts/modules/docker.ps1' -Args $args)) {
+        Write-Error "Docker validation module failed. Aborting."
+        exit 1
+    }
+
+    # Pull image, configure volumes and deploy
+    if (-not (Load-And-Run-Module -ModuleRelPath 'scripts/modules/siscan.ps1' -Args $args)) {
+        Write-Error "SISCan deployment module failed. Aborting."
+        exit 1
+    }
+
+    Write-Host "Instalação concluída." -ForegroundColor Green
+}
+
+try { Main }
+catch { Write-Error "Instalador falhou: $_" }
