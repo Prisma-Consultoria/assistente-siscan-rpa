@@ -40,7 +40,7 @@ services:
     $compose = $compose -replace '\{IMAGE\}',$image -replace '\{SISCAN_USER\}',$siscanUser -replace '\{SISCAN_PASS\}',$siscanPass -replace '\{DATA_DIR\}',$dataDir
     $compose | Out-File -FilePath $composeFile -Encoding UTF8 -Force
 
-    Write-Host "Iniciando serviço via docker compose..."
+    Write-Host "Iniciando servico via docker compose..."
     try { docker compose -f $composeFile up -d --remove-orphans } catch { Write-Warning "docker compose up falhou: $_" }
 
     return $true

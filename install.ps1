@@ -14,6 +14,7 @@ Design goals:
 param(
     [string]$RepoBase = 'https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main',
     [string]$CacheDir = "$env:ProgramData\AssistenteSISCan\installer-cache",
+    [switch]$DebugMode,
     [string]$Version = ''
 )
 
@@ -36,6 +37,12 @@ function Ensure-Directory {
 
 Ensure-Directory -Path $CacheDir
 
+# Load logger (prefer local core module)
+if (Test-Path "$PSScriptRoot\scripts\core\logger.ps1") { . "$PSScriptRoot\scripts\core\logger.ps1" }
+else { Write-Verbose "Logger not found locally" }
+Initialize-Logger -CacheDir $CacheDir -Debug:$DebugMode
+Write-LogInfo "Installer started (DebugMode=$DebugMode)"
+
 function Download-Module {
     param(
         [string]$ModulePath,
@@ -44,9 +51,11 @@ function Download-Module {
     $url = "$RepoBase/$ModulePath"
     try {
         Invoke-RestMethod -Uri $url -OutFile $Destination -ErrorAction Stop
+        Write-LogInfo "Downloaded module $ModulePath to $Destination"
         return $true
     }
     catch {
+        Write-LogWarn "Failed to download module $ModulePath from $url: $_"
         return $false
     }
 }
@@ -126,11 +135,12 @@ function Load-And-Run-Module {
         }
     }
 
+    Write-LogInfo "Loading module $ModuleRelPath (localPreferred)"
     # Try download fresh module; if fails and cached exists, use cache
     $checksumsFile = Get-Checksums -RepoBase $RepoBase -CacheDir $CacheDir
     if (-not (Download-Module -ModulePath $ModuleRelPath -Destination $dest)) {
         if (-not (Test-Path $dest)) {
-            Write-Warning "Failed to download $ModuleRelPath and no cache present."
+            Write-LogError "Failed to download $ModuleRelPath and no cache present."
             return $false
         }
         else { Write-Verbose "Using cached module $leaf" }
@@ -145,19 +155,43 @@ function Load-And-Run-Module {
     }
 
     try {
+        Write-LogInfo "Executing module $dest"
         . $dest
         if (Get-Command -Name Module-Main -ErrorAction SilentlyContinue) {
-            Module-Main -ModuleArgs $ModuleArgs
-            return $true
+            # Do not log sensitive args; only presence
+            Write-LogDebug "Calling Module-Main for $ModuleRelPath (sensitive values redacted)"
+            $result = Module-Main -ModuleArgs $ModuleArgs
+            Write-LogInfo "Module $ModuleRelPath executed (result=$result)"
+            return $result
         }
         else {
-            Write-Warning "Module $ModuleRelPath does not implement Module-Main"
+            Write-LogWarn "Module $ModuleRelPath does not implement Module-Main"
             return $false
         }
     }
     catch {
-        Write-Warning ("Error executing module {0}: {1}" -f $ModuleRelPath, $_)
+        Write-LogWarn ("Error executing module {0}: {1}" -f $ModuleRelPath, $_)
         return $false
+    }
+}
+
+function Cleanup-InstallerCache {
+    param(
+        [int]$OlderThanDays = 7,
+        [switch]$Force
+    )
+    # Remove files older than specified days, unless -Force which removes all
+    Write-LogInfo "Cleanup requested (OlderThanDays=$OlderThanDays, Force=$Force)"
+    if (-not (Test-Path $CacheDir)) { Write-LogInfo "CacheDir does not exist: $CacheDir"; return }
+    if ($Force) {
+        Write-LogWarn "Removing entire cache directory $CacheDir (Force)"
+        Get-ChildItem -Path $CacheDir -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        return
+    }
+    $cutoff = (Get-Date).AddDays(-1 * $OlderThanDays)
+    Get-ChildItem -Path $CacheDir -File -Recurse | Where-Object { $_.LastWriteTime -lt $cutoff } | ForEach-Object {
+        Write-LogInfo "Removing old cache file: $($_.FullName)"
+        Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -166,11 +200,11 @@ function Main {
 
     # Registry info
     $registry = Read-Host -Prompt 'Registry URL (ex: ghcr.io or registry.example.com)'
-    $registryUser = Read-Host -Prompt 'Registry usuário (se aplicável, deixe em branco para token-only)'
+    $registryUser = Read-Host -Prompt 'Registry usuario (se aplicavel, deixe em branco para token-only)'
     $token = Read-Secret -Prompt 'Token para imagem privada (entrada oculta)'
 
     # SISCan credentials
-    $siscanUser = Read-Host -Prompt 'SISCan usuário'
+    $siscanUser = Read-Host -Prompt 'SISCan usuario'
     $siscanPass = Read-Secret -Prompt 'SISCan senha (entrada oculta)'
 
     $moduleArgs = @{
@@ -185,7 +219,7 @@ function Main {
 
     # Validate Docker and Compose and perform registry login
     if (-not (Load-And-Run-Module -ModuleRelPath 'scripts/modules/docker.ps1' -ModuleArgs $moduleArgs)) {
-        Write-Error "Docker validation module failed. Aborting."
+        Write-LogError "Docker validation module failed. Aborting."
         exit 1
     }
 
@@ -195,8 +229,9 @@ function Main {
         exit 1
     }
 
-    Write-Host "Instalação concluída." -ForegroundColor Green
+    Write-Host "Instalacao concluida." -ForegroundColor Green
+    Write-LogInfo "Installer finished successfully"
 }
 
 try { Main }
-catch { Write-Error ("Instalador falhou: {0}" -f $_) }
+catch { Write-LogError ("Instalador falhou: {0}" -f $_); throw }

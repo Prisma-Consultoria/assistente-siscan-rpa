@@ -27,7 +27,7 @@ function Module-Main {
     if (-not $composeFound) { Write-Error "Docker Compose não encontrado. Instale Docker Compose."; return $false }
 
     if ($registry -and $token) {
-        Write-Host "Logando no registro privado (não será mostrado o token)..."
+        Write-Host "Logando no registro privado (nao sera mostrado o token)..."
         try {
             $secureToken = ConvertTo-SecureString $token -AsPlainText -Force
             $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
@@ -36,7 +36,7 @@ function Module-Main {
 
             # GHCR (GitHub Container Registry)
             if ($registry -like '*ghcr.io*') {
-                if (-not $registryUser) { Write-Warning "GHCR geralmente requer um usuário (GitHub username)." }
+                if (-not $registryUser) { Write-Warning "GHCR geralmente requer um usuario (GitHub username)." }
                 $argList = @('login', 'ghcr.io', '--username', $registryUser, '--password-stdin')
                 $proc = Start-Process -FilePath 'docker' -ArgumentList $argList -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
                 $proc.StandardInput.WriteLine($plain); $proc.StandardInput.Close()
