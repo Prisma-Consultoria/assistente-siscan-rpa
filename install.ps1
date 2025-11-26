@@ -123,7 +123,7 @@ function Load-And-Run-Module {
         }
     }
     catch {
-        Write-Warning "Error executing module $ModuleRelPath: $_"
+        Write-Warning ("Error executing module {0}: {1}" -f $ModuleRelPath, $_)
         return $false
     }
 }
@@ -166,4 +166,4 @@ function Main {
 }
 
 try { Main }
-catch { Write-Error "Instalador falhou: $_" }
+catch { Write-Error ("Instalador falhou: {0}" -f $_) }
