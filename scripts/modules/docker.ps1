@@ -38,10 +38,11 @@ function Module-Main {
             if ($registry -like '*ghcr.io*') {
                 if (-not $registryUser) { Write-Warning "GHCR geralmente requer um usuario (GitHub username)." }
                 $argList = @('login', 'ghcr.io', '--username', $registryUser, '--password-stdin')
-                $proc = Start-Process -FilePath 'docker' -ArgumentList $argList -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
-                $proc.StandardInput.WriteLine($plain); $proc.StandardInput.Close()
-                $proc.WaitForExit()
-                if ($proc.ExitCode -ne 0) { Write-Error "docker login ghcr.io falhou"; return $false }
+                try {
+                    ($plain + "`n") | & docker @argList 2>&1 | ForEach-Object { Write-Verbose $_ }
+                    if ($LASTEXITCODE -ne 0) { Write-Error "docker login ghcr.io falhou"; return $false }
+                }
+                catch { Write-Warning ("docker login ghcr.io failed: {0}" -f $_) }
             }
             # Azure ACR
             elseif ($registry -like '*.azurecr.io*') {
@@ -54,10 +55,11 @@ function Module-Main {
                 else {
                     if ($registryUser) {
                         $argList = @('login', $registry, '--username', $registryUser, '--password-stdin')
-                        $proc = Start-Process -FilePath 'docker' -ArgumentList $argList -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
-                        $proc.StandardInput.WriteLine($plain); $proc.StandardInput.Close()
-                        $proc.WaitForExit()
-                        if ($proc.ExitCode -ne 0) { Write-Error "docker login para ACR falhou"; return $false }
+                        try {
+                            ($plain + "`n") | & docker @argList 2>&1 | ForEach-Object { Write-Verbose $_ }
+                            if ($LASTEXITCODE -ne 0) { Write-Error "docker login para ACR falhou"; return $false }
+                        }
+                        catch { Write-Warning ("docker login ACR failed: {0}" -f $_) }
                     }
                 }
             }
@@ -66,10 +68,11 @@ function Module-Main {
                 if (Get-Command aws -ErrorAction SilentlyContinue) {
                     $pw = & aws ecr get-login-password 2>$null
                     $argList = @('login', $registry, '--username', 'AWS', '--password-stdin')
-                    $proc = Start-Process -FilePath 'docker' -ArgumentList $argList -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
-                    $proc.StandardInput.WriteLine($pw); $proc.StandardInput.Close()
-                    $proc.WaitForExit()
-                    if ($proc.ExitCode -ne 0) { Write-Warning "docker login ECR falhou" }
+                    try {
+                        ($pw + "`n") | & docker @argList 2>&1 | ForEach-Object { Write-Verbose $_ }
+                        if ($LASTEXITCODE -ne 0) { Write-Warning "docker login ECR falhou" }
+                    }
+                    catch { Write-Warning ("docker login ECR failed: {0}" -f $_) }
                 }
                 else { Write-Warning "AWS CLI não encontrado; não foi possível autenticar no ECR" }
             }
@@ -77,17 +80,19 @@ function Module-Main {
                 # generic docker login
                     if ($registryUser) {
                         $argList = @('login', $registry, '--username', $registryUser, '--password-stdin')
-                        $proc = Start-Process -FilePath 'docker' -ArgumentList $argList -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
-                        $proc.StandardInput.WriteLine($plain); $proc.StandardInput.Close()
-                        $proc.WaitForExit()
-                        if ($proc.ExitCode -ne 0) { Write-Error "docker login falhou"; return $false }
+                        try {
+                            ($plain + "`n") | & docker @argList 2>&1 | ForEach-Object { Write-Verbose $_ }
+                            if ($LASTEXITCODE -ne 0) { Write-Error "docker login falhou"; return $false }
+                        }
+                        catch { Write-Warning ("docker login failed: {0}" -f $_) }
                     }
                     else {
                         $argList = @('login', $registry, '--username', 'oauth2', '--password-stdin')
-                        $proc = Start-Process -FilePath 'docker' -ArgumentList $argList -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
-                        $proc.StandardInput.WriteLine($plain); $proc.StandardInput.Close()
-                        $proc.WaitForExit()
-                        if ($proc.ExitCode -ne 0) { Write-Warning "docker login com usuário 'oauth2' falhou; você pode precisar fornecer usuário específico." }
+                        try {
+                            ($plain + "`n") | & docker @argList 2>&1 | ForEach-Object { Write-Verbose $_ }
+                            if ($LASTEXITCODE -ne 0) { Write-Warning "docker login com usuário 'oauth2' falhou; você pode precisar fornecer usuário específico." }
+                        }
+                        catch { Write-Warning ("docker login oauth2 failed: {0}" -f $_) }
                     }
             }
         }

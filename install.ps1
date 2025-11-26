@@ -40,7 +40,7 @@ Ensure-Directory -Path $CacheDir
 # Load logger (prefer local core module)
 if (Test-Path "$PSScriptRoot\scripts\core\logger.ps1") { . "$PSScriptRoot\scripts\core\logger.ps1" }
 else { Write-Verbose "Logger not found locally" }
-Initialize-Logger -CacheDir $CacheDir -Debug:$DebugMode
+Initialize-Logger -CacheDir $CacheDir -DebugMode:$DebugMode
 Write-LogInfo "Installer started (DebugMode=$DebugMode)"
 
 function Download-Module {

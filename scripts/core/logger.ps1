@@ -2,8 +2,8 @@
 logger.ps1 - Simple logging utility for installer
 
 Usage:
-  . .\scripts\core\logger.ps1
-  Initialize-Logger -CacheDir $CacheDir -Debug:$true
+    . .\scripts\core\logger.ps1
+    Initialize-Logger -CacheDir $CacheDir -DebugMode:$true
   Write-Log -Level Info -Message 'Starting'
 #>
 
@@ -12,11 +12,11 @@ param()
 function Initialize-Logger {
     param(
         [Parameter(Mandatory=$true)][string]$CacheDir,
-        [switch]$Debug
+        [switch]$DebugMode
     )
     if (-not (Test-Path $CacheDir)) { New-Item -ItemType Directory -Path $CacheDir -Force | Out-Null }
     $script:LogFile = Join-Path $CacheDir 'install.log'
-    if ($Debug) { $script:LogLevel = 'Debug' } else { $script:LogLevel = 'Info' }
+    if ($DebugMode) { $script:LogLevel = 'Debug' } else { $script:LogLevel = 'Info' }
     # create/rotate log if too large
     try {
         if (Test-Path $script:LogFile) {
