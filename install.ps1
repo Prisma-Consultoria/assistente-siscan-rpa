@@ -55,7 +55,7 @@ function Download-Module {
         return $true
     }
     catch {
-        Write-LogWarn "Failed to download module $ModulePath from $url: $_"
+        Write-LogWarn ("Failed to download module {0} from {1}: {2}" -f $ModulePath, $url, $_)
         return $false
     }
 }
@@ -195,6 +195,52 @@ function Cleanup-InstallerCache {
     }
 }
 
+function Cleanup-OldImages {
+    param(
+        [Parameter(Mandatory=$true)][string]$ImageFull,
+        [int]$OlderThanDays = 7
+    )
+    # ImageFull example: ghcr.io/unanimad/djud-backend:cache-latest
+    Write-LogInfo "Cleanup-OldImages: image=$ImageFull, olderThanDays=$OlderThanDays"
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        Write-LogWarn "Docker not found; skipping image cleanup"
+        return
+    }
+    # parse repository and tag
+    if ($ImageFull -match '^(.*):([^:]+)$') { $repo = $matches[1]; $currentTag = $matches[2] } else { $repo = $ImageFull; $currentTag = 'latest' }
+
+    Write-LogInfo "Looking for local images for repo $repo (keeping tag $currentTag)"
+    $cutoff = (Get-Date).AddDays(-1 * $OlderThanDays)
+    $lines = & docker images --format "{{.Repository}}:{{.Tag}} {{.ID}} {{.CreatedAt}}" 2>$null
+    foreach ($ln in $lines) {
+        if ($ln -match '^([^\s]+)\s+([^\s]+)\s+(.+)$') {
+            $img = $matches[1]; $id = $matches[2]; $createdAt = $matches[3]
+            if ($img -like "$repo*") {
+                # extract tag portion from img (repo:tag)
+                if ($img -match '^(.*):([^:]+)$') { $tag = $matches[2] } else { $tag = 'latest' }
+                if ($tag -ne $currentTag) {
+                    try {
+                        $dt = [datetime]::Parse($createdAt)
+                    }
+                    catch {
+                        $dt = Get-Date
+                    }
+                    if ($dt -lt $cutoff) {
+                        Write-LogInfo "Removing image $img ($id) created $dt"
+                        try {
+                            docker rmi $id 2>&1 | ForEach-Object { Write-LogInfo $_ }
+                        }
+                        catch {
+                            Write-LogWarn ("Failed to remove image {0}: {1}" -f $id, $_)
+                        }
+                    }
+                    else { Write-LogDebug "Keeping image $img (created $dt)" }
+                }
+            }
+        }
+    }
+}
+
 function Main {
     Write-Host "Assistente SISCan RPA - Instalador" -ForegroundColor Cyan
 
@@ -216,6 +262,29 @@ function Main {
         RepoBase = $RepoBase;
         CacheDir = $CacheDir;
     }
+
+    # Optional: allow tester or operator to specify an explicit image/tag
+    $defaultImage = "$registry/prisma-consultoria/assistente-siscan-rpa:latest"
+    $imageInput = Read-Host -Prompt "Imagem a ser usada (pressione Enter para usar padrao: $defaultImage)"
+    if ($imageInput -and $imageInput.Trim() -ne '') {
+        $moduleArgs.Image = $imageInput.Trim()
+        $imageToUse = $moduleArgs.Image
+    }
+    else {
+        $imageToUse = $defaultImage
+    }
+
+    # Inform which image/version will be used
+    Write-Host "Imagem selecionada: $imageToUse" -ForegroundColor Yellow
+    Write-LogInfo "Image to be used for deployment: $imageToUse"
+
+    # Prompt whether to cleanup old images (default Yes)
+    $cleanupResp = Read-Host -Prompt 'Deseja remover imagens antigas deste repositorio antes de prosseguir? [S/n]'
+    if ([string]::IsNullOrWhiteSpace($cleanupResp) -or $cleanupResp.Trim().ToLower() -in @('s','y','sim','yes')) {
+        Write-LogInfo ("User opted to cleanup old images for {0}" -f $imageToUse)
+        try { Cleanup-OldImages -ImageFull $imageToUse -OlderThanDays 7 } catch { Write-LogWarn ("Cleanup-OldImages failed: {0}" -f $_) }
+    }
+    else { Write-LogInfo "User skipped cleanup of old images" }
 
     # Validate Docker and Compose and perform registry login
     if (-not (Load-And-Run-Module -ModuleRelPath 'scripts/modules/docker.ps1' -ModuleArgs $moduleArgs)) {

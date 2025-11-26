@@ -91,7 +91,7 @@ function Module-Main {
                     }
             }
         }
-        catch { Write-Warning "Erro durante docker login: $_" }
+        catch { Write-Warning ("Erro durante docker login: {0}" -f $_) }
     }
 
     return $true
