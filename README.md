@@ -15,7 +15,21 @@ Este repositório contém um instalador remoto modular (PowerShell + Bash) para 
 **Comandos finais (para o usuário)**
 - **Windows (PowerShell):**
 
-	irm "https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.ps1" | iex
+		irm "https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.ps1" | iex
+
+	Se estiver testando localmente a partir do repositório baixado, use os comandos abaixo (recomendado para inspecionar o script antes de executar):
+
+	- Desbloquear o arquivo baixado (Windows pode bloquear scripts baixados):
+
+		```powershell
+		Unblock-File .\install.ps1
+		```
+
+	- Executar o instalador localmente com policy temporariamente bypassada:
+
+		```powershell
+		powershell -ExecutionPolicy Bypass -File .\install.ps1
+		```
 
 - **Linux / macOS (Bash):**
 

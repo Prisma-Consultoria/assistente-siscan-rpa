@@ -20,6 +20,15 @@ param(
 Set-StrictMode -Version Latest
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    [Console]::InputEncoding  = [System.Text.Encoding]::UTF8
+    $OutputEncoding = [System.Text.Encoding]::UTF8
+}
+catch {
+    # best-effort; continue if not supported
+}
+
 function Ensure-Directory {
     param([string]$Path)
     if (-not (Test-Path $Path)) { New-Item -ItemType Directory -Path $Path -Force | Out-Null }
