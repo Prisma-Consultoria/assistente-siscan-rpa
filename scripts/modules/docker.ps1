@@ -2,15 +2,15 @@
 docker.ps1 - Module to validate Docker/Docker Compose and login to registry
 
 Implements:
-  Module-Main -Args <hashtable>
+    Module-Main -ModuleArgs <hashtable>
 #>
 
 function Module-Main {
-    param([hashtable]$Args)
+    param([hashtable]$ModuleArgs)
 
-    $registry = $Args.Registry
-    $registryUser = $Args.RegistryUser
-    $token = $Args.Token
+    $registry = $ModuleArgs.Registry
+    $registryUser = $ModuleArgs.RegistryUser
+    $token = $ModuleArgs.Token
 
     Write-Host "Validando Docker e Docker Compose..."
     try {
@@ -37,8 +37,8 @@ function Module-Main {
             # GHCR (GitHub Container Registry)
             if ($registry -like '*ghcr.io*') {
                 if (-not $registryUser) { Write-Warning "GHCR geralmente requer um usuário (GitHub username)." }
-                $args = @('login', 'ghcr.io', '--username', $registryUser, '--password-stdin')
-                $proc = Start-Process -FilePath 'docker' -ArgumentList $args -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
+                $argList = @('login', 'ghcr.io', '--username', $registryUser, '--password-stdin')
+                $proc = Start-Process -FilePath 'docker' -ArgumentList $argList -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
                 $proc.StandardInput.WriteLine($plain); $proc.StandardInput.Close()
                 $proc.WaitForExit()
                 if ($proc.ExitCode -ne 0) { Write-Error "docker login ghcr.io falhou"; return $false }
@@ -53,7 +53,8 @@ function Module-Main {
                 }
                 else {
                     if ($registryUser) {
-                        $proc = Start-Process -FilePath 'docker' -ArgumentList @('login', $registry, '--username', $registryUser, '--password-stdin') -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
+                        $argList = @('login', $registry, '--username', $registryUser, '--password-stdin')
+                        $proc = Start-Process -FilePath 'docker' -ArgumentList $argList -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
                         $proc.StandardInput.WriteLine($plain); $proc.StandardInput.Close()
                         $proc.WaitForExit()
                         if ($proc.ExitCode -ne 0) { Write-Error "docker login para ACR falhou"; return $false }
@@ -64,7 +65,8 @@ function Module-Main {
             elseif ($registry -match '\.dkr\.ecr\.') {
                 if (Get-Command aws -ErrorAction SilentlyContinue) {
                     $pw = & aws ecr get-login-password 2>$null
-                    $proc = Start-Process -FilePath 'docker' -ArgumentList @('login', $registry, '--username', 'AWS', '--password-stdin') -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
+                    $argList = @('login', $registry, '--username', 'AWS', '--password-stdin')
+                    $proc = Start-Process -FilePath 'docker' -ArgumentList $argList -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
                     $proc.StandardInput.WriteLine($pw); $proc.StandardInput.Close()
                     $proc.WaitForExit()
                     if ($proc.ExitCode -ne 0) { Write-Warning "docker login ECR falhou" }
@@ -73,18 +75,20 @@ function Module-Main {
             }
             else {
                 # generic docker login
-                if ($registryUser) {
-                    $proc = Start-Process -FilePath 'docker' -ArgumentList @('login', $registry, '--username', $registryUser, '--password-stdin') -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
-                    $proc.StandardInput.WriteLine($plain); $proc.StandardInput.Close()
-                    $proc.WaitForExit()
-                    if ($proc.ExitCode -ne 0) { Write-Error "docker login falhou"; return $false }
-                }
-                else {
-                    $proc = Start-Process -FilePath 'docker' -ArgumentList @('login', $registry, '--username', 'oauth2', '--password-stdin') -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
-                    $proc.StandardInput.WriteLine($plain); $proc.StandardInput.Close()
-                    $proc.WaitForExit()
-                    if ($proc.ExitCode -ne 0) { Write-Warning "docker login com usuário 'oauth2' falhou; você pode precisar fornecer usuário específico." }
-                }
+                    if ($registryUser) {
+                        $argList = @('login', $registry, '--username', $registryUser, '--password-stdin')
+                        $proc = Start-Process -FilePath 'docker' -ArgumentList $argList -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
+                        $proc.StandardInput.WriteLine($plain); $proc.StandardInput.Close()
+                        $proc.WaitForExit()
+                        if ($proc.ExitCode -ne 0) { Write-Error "docker login falhou"; return $false }
+                    }
+                    else {
+                        $argList = @('login', $registry, '--username', 'oauth2', '--password-stdin')
+                        $proc = Start-Process -FilePath 'docker' -ArgumentList $argList -NoNewWindow -RedirectStandardInput Pipe -RedirectStandardOutput Pipe -RedirectStandardError Pipe -PassThru
+                        $proc.StandardInput.WriteLine($plain); $proc.StandardInput.Close()
+                        $proc.WaitForExit()
+                        if ($proc.ExitCode -ne 0) { Write-Warning "docker login com usuário 'oauth2' falhou; você pode precisar fornecer usuário específico." }
+                    }
             }
         }
         catch { Write-Warning "Erro durante docker login: $_" }

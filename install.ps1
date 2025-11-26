@@ -62,15 +62,17 @@ function Verify-FileChecksum {
     $fileName = Split-Path $FilePath -Leaf
     foreach ($l in $lines) {
         # expected format: SHA256  filename
-        $parts = $l -split '\s+' | Where-Object { $_ -ne '' }
-        if ($parts.Count -ge 2 -and $parts[1] -eq $fileName) {
-            $expected = $parts[0]
-            $actual = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash.ToLower()
-            if ($actual -ne $expected.ToLower()) {
-                Write-Warning "Checksum mismatch for $fileName (expected $expected, got $actual)"
-                return $false
+        if ($l -match '^\s*([A-Fa-f0-9]{64})\s+(.+)$') {
+            $expected = $matches[1]
+            $entryName = $matches[2]
+            if ($entryName -eq $fileName) {
+                $actual = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash.ToLower()
+                if ($actual -ne $expected.ToLower()) {
+                    Write-Warning ("Checksum mismatch for {0} (expected {1}, got {2})" -f $fileName, $expected, $actual)
+                    return $false
+                }
+                return $true
             }
-            return $true
         }
     }
     # no entry -> allow
@@ -88,10 +90,32 @@ function Read-Secret {
 function Load-And-Run-Module {
     param(
         [string]$ModuleRelPath,
-        [hashtable]$Args
+        [hashtable]$ModuleArgs
     )
     $leaf = Split-Path $ModuleRelPath -Leaf
     $dest = Join-Path $CacheDir $leaf
+    # If a local module exists in the repository (during development), prefer it to cached/remote
+    if ($PSScriptRoot) {
+        $localModulePath = Join-Path $PSScriptRoot $ModuleRelPath
+        if (Test-Path $localModulePath) {
+            Write-Verbose "Using local module $localModulePath"
+            try {
+                . $localModulePath
+                if (Get-Command -Name Module-Main -ErrorAction SilentlyContinue) {
+                    Module-Main -ModuleArgs $ModuleArgs
+                    return $true
+                }
+                else {
+                    Write-Warning "Local module $localModulePath does not implement Module-Main"
+                    # fallthrough to download/cache behavior
+                }
+            }
+            catch {
+                Write-Warning ("Error executing local module {0}: {1}" -f $localModulePath, $_)
+                # fallthrough to download/cache behavior
+            }
+        }
+    }
 
     # Try download fresh module; if fails and cached exists, use cache
     $checksumsFile = Get-Checksums -RepoBase $RepoBase -CacheDir $CacheDir
@@ -114,7 +138,7 @@ function Load-And-Run-Module {
     try {
         . $dest
         if (Get-Command -Name Module-Main -ErrorAction SilentlyContinue) {
-            Module-Main -Args $Args
+            Module-Main -ModuleArgs $ModuleArgs
             return $true
         }
         else {
@@ -140,7 +164,7 @@ function Main {
     $siscanUser = Read-Host -Prompt 'SISCan usuário'
     $siscanPass = Read-Secret -Prompt 'SISCan senha (entrada oculta)'
 
-    $args = @{
+    $moduleArgs = @{
         Registry = $registry;
         RegistryUser = $registryUser;
         Token = $token;
@@ -151,13 +175,13 @@ function Main {
     }
 
     # Validate Docker and Compose and perform registry login
-    if (-not (Load-And-Run-Module -ModuleRelPath 'scripts/modules/docker.ps1' -Args $args)) {
+    if (-not (Load-And-Run-Module -ModuleRelPath 'scripts/modules/docker.ps1' -ModuleArgs $moduleArgs)) {
         Write-Error "Docker validation module failed. Aborting."
         exit 1
     }
 
     # Pull image, configure volumes and deploy
-    if (-not (Load-And-Run-Module -ModuleRelPath 'scripts/modules/siscan.ps1' -Args $args)) {
+    if (-not (Load-And-Run-Module -ModuleRelPath 'scripts/modules/siscan.ps1' -ModuleArgs $moduleArgs)) {
         Write-Error "SISCan deployment module failed. Aborting."
         exit 1
     }
