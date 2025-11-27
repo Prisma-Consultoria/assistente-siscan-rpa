@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  siscan:
+    image: ghcr.io/prisma-consultoria/siscan-rpa-rpa:main
+    restart: unless-stopped
+    environment:
+      - PRODUCTION=true
+
+      - APP_INTERNAL_PORT=${APP_INTERNAL_PORT:-5000}
+      - APP_EXTERNAL_PORT=${APP_EXTERNAL_PORT:-5001}
+
+      - SISCAN_USER=${SISCAN_USER}
+      - SISCAN_PASSWORD=${SISCAN_PASSWORD}
+
+      - RPA_MAX_ATTEMPTS=${RPA_MAX_ATTEMPTS:-3}
+      
+      - CRON_ENABLED=${CRON_ENABLED:-true}
+      - CRON_HOUR=${CRON_HOUR:-03}
+      - CRON_MIN=${CRON_MIN:-00}
+    ports:
+      - "${HOST_APP_EXTERNAL_PORT:-5001}:${APP_INTERNAL_PORT:-5000}"
+    volumes:
+      # Diretório raiz de mídia (screenshots, reports, downloads, etc.)
+      - "${HOST_MEDIA_ROOT:-./data/media}:/app/media"
+
+      - "${HOST_SISCAN_CONSOLIDATED_SHEET_NAME:-./data/media/reports/relatorio_consolidado_mamografia.xlsx}:/app/media/reports/mamografia/relatorio_consolidado_mamografia.xlsx"
+      - "${HOST_SISCAN_CONSOLIDATED_PDFS_DIR:-./data/media/reports/pdfs}:/app/media/reports/mamografia/pdfs"
+
+      # JSON de mapeamento de colunas (opcional)
+      - "${HOST_EXCEL_COLUMNS_MAPPING_PATH:-./config/excel_columns_mapping.json}:/app/config/excel_columns_mapping.json"
+
+      # Diretório de logs da aplicação (para debug/monitoramento)
+      - "${HOST_LOG_DIR:-./logs}:/app/logs"
+
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+    logging:
+      driver: local
+
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "curl -fsS http://127.0.0.1:${APP_INTERNAL_PORT:-5000}/health || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+    # Se o cliente usar o Docker Desktop no Windows, eles devem apontar os
+    # HOST_* variables (abaixo em .env.prd.sample) para paths no host Windows
+    # (ex: C:\data\siscan\media ou /c/data/siscan/media dependendo do setup).
