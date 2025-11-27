@@ -25,8 +25,7 @@ services:
       - "${HOST_SISCAN_CONSOLIDATED_REPORT_PATH:-./data/media/reports}:/app/media/reports"
       - "${HOST_SISCAN_CONSOLIDATED_PDFS_DIR:-./data/media/reports/pdfs}:/app/media/reports/pdfs"
 
-      # JSON de mapeamento de colunas (opcional)
-      - "${HOST_EXCEL_COLUMNS_MAPPING_PATH:-./config/excel_columns_mapping.json}:/app/config/excel_columns_mapping.json"
+      - "${HOST_EXCEL_COLUMNS_MAPPING_DIR:-./config}:/app/config"
 
       # Diretório de logs da aplicação (para debug/monitoramento)
       - "${HOST_LOG_DIR:-./logs}:/app/logs"
