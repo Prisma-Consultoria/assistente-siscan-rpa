@@ -64,3 +64,5 @@ coverage.xml
 .data/
 .cache/
 .logs/
+media/
+reports/
