@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   siscan:
     image: ghcr.io/prisma-consultoria/siscan-rpa-rpa:main
@@ -24,8 +22,8 @@ services:
       # Diretório raiz de mídia (screenshots, reports, downloads, etc.)
       - "${HOST_MEDIA_ROOT:-./data/media}:/app/media"
 
-      - "${HOST_SISCAN_CONSOLIDATED_SHEET_NAME:-./data/media/reports/relatorio_consolidado_mamografia.xlsx}:/app/media/reports/mamografia/relatorio_consolidado_mamografia.xlsx"
-      - "${HOST_SISCAN_CONSOLIDATED_PDFS_DIR:-./data/media/reports/pdfs}:/app/media/reports/mamografia/pdfs"
+      - "${HOST_SISCAN_CONSOLIDATED_REPORT_PATH:-./data/media/reports}:/app/media/reports"
+      - "${HOST_SISCAN_CONSOLIDATED_PDFS_DIR:-./data/media/reports/pdfs}:/app/media/reports/pdfs"
 
       # JSON de mapeamento de colunas (opcional)
       - "${HOST_EXCEL_COLUMNS_MAPPING_PATH:-./config/excel_columns_mapping.json}:/app/config/excel_columns_mapping.json"
