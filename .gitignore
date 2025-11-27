@@ -37,6 +37,7 @@ logs/
 # Environment / secrets
 .env
 .env.*
+!.env.sample
 secrets.*
 *.key
 *.pem
@@ -46,10 +47,6 @@ secrets.*
 **/installer-cache/
 **/installer-cache/*
 **/.cache/
-
-# Generated compose and runtime data (do not track runtime data)
-**/docker-compose.yml
-**/data/
 
 # Build / distribution
 dist/
@@ -63,3 +60,7 @@ build/
 # CI artifacts
 .coverage
 coverage.xml
+
+.data/
+.cache/
+.logs/
