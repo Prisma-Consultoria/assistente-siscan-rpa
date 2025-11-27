@@ -5,121 +5,121 @@ Este repositório contém um instalador remoto modular (PowerShell + Bash) para 
 
 **Resumo**
 - **Objetivo:** fornecer um instalador extremamente simples para usuários finais (não técnicos) que:
-	- solicita token para acesso à imagem privada;
-	- solicita credenciais SISCan;
-	- valida dependências (Docker, Docker Compose);
-	- baixa/atualiza imagem privada e configura volumes;
-	- cria/reinicia serviços automaticamente;
-	- é modular e seguro (tokens não expostos em logs).
+	# Assistente SISCan RPA
 
-**Comandos finais (para o usuário)**
-- **Windows (PowerShell):**
+	Uma coleção de scripts (PowerShell + Bash) para instalar, atualizar e gerenciar o serviço Assistente SISCan RPA de forma guiada — pensada para usuários técnicos e não técnicos.
 
-		irm "https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.ps1" | iex
+	**Conteúdo deste README**
+	- **Visão geral**
+	- **Pré-requisitos**
+	- **Instalação rápida**
+	- **Configuração (`.env`)**
+	- **Estrutura do repositório**
+	- **Como funciona**
+	- **Resolução de problemas (troubleshooting)**
 
-	Se estiver testando localmente a partir do repositório baixado, use os comandos abaixo (recomendado para inspecionar o script antes de executar):
+	## Visão geral
 
-	- Desbloquear o arquivo baixado (Windows pode bloquear scripts baixados):
+	O instalador solicita as informações necessárias (token para registry, credenciais SISCAN, caminhos de diretórios) e cria/atualiza os serviços Docker via `docker-compose`.
 
-		```powershell
-		Unblock-File .\install.ps1
-		```
+	Para usuários não técnicos: você só precisa fornecer algumas informações básicas e criar pastas no Windows quando solicitado. O instalador trata do resto.
 
-	- Executar o instalador localmente com policy temporariamente bypassada:
+	## Pré-requisitos
 
-		```powershell
-		powershell -ExecutionPolicy Bypass -File .\install.ps1
-		```
+	- Docker Desktop (Windows) ou Docker Engine (Linux/macOS).
+	- Docker Compose (v2 integrado ao Docker Desktop ou `docker-compose`).
+	- Acesso à internet para baixar imagens e módulos, ou acesso ao registry privado com token.
 
-- **Linux / macOS (Bash):**
+	## Instalação rápida
 
+	- Windows (PowerShell):
+
+	```powershell
+	irm "https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.ps1" | iex
+	```
+
+	- Linux / macOS (Bash):
+
+	```bash
 	curl -sSL https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.sh | bash
+	```
 
-**Estrutura mínima do repositório**
-- `install.ps1` — bootstrap PowerShell que baixa módulos e executa o fluxo.
-- `install.sh` — bootstrap Bash equivalente.
-- `scripts/version.txt` — versão/fallback (atualmente: `main`).
-- `scripts/modules/docker.ps1` / `docker.sh` — valida Docker/Compose e faz login no registry.
-- `scripts/modules/siscan.ps1` / `siscan.sh` — puxa imagem, cria `docker-compose.yml`, configura volumes e sobe serviços.
+	Se preferir inspecionar os scripts antes de executar, clone este repositório e execute `install.ps1` / `install.sh` localmente.
 
-**Como funciona (arquitetura)**
-- Bootstrap leve: o `install.*` solicita entradas seguras ao usuário e faz o download dinâmico dos módulos em `scripts/modules/`.
-- Cache local: módulos baixados são salvos em um diretório de cache (Windows: `%ProgramData%/AssistenteSISCan/installer-cache`; Linux/macOS: `$XDG_DATA_HOME` ou `~/.local/share/assistente-scan/installer-cache`). Se o download falhar, o instalador usa o módulo em cache quando disponível.
-- Modularidade: cada módulo implementa uma função/entrypoint simples (`Module-Main` no PowerShell e `module_main` no Bash). Atualizar um módulo no repositório atualiza o comportamento sem alterar o comando principal.
+	## Configuração (`.env`)
 
-**Segurança**
-- Tokens e senhas são lidos via entrada oculta (`Read-Host -AsSecureString` no PowerShell, `read -s` no Bash) e nunca são gravados em logs explícitos.
-- O instalador tenta usar `docker login --password-stdin` para evitar expor credenciais em argumentos de processo.
-- Recomendação: use accounts com escopo mínimo (read-only) para pull de imagens privadas.
-- (Melhoria sugerida) Assinar/sha256 dos módulos para garantir integridade — posso adicionar isso se desejar.
+	1) Copie o arquivo de exemplo:
 
-**Configuração padrão gerada**
-- `docker-compose.yml` será criado em `%ProgramData%/AssistenteSISCan/` (Windows) ou `$XDG_DATA_HOME/assistente-siscan/` (Linux/macOS) com:
-	- serviço `assistente-siscan-rpa` usando a imagem privada `REGISTRY/prisma-consultoria/assistente-siscan-rpa:latest`;
-	- variáveis de ambiente `SISCAN_USER` e `SISCAN_PASS` preenchidas com as credenciais digitadas (passadas em environment do container);
-	- volume de persistência para `/app/data`.
+	```bash
+	cp .env.sample .env
+	```
 
-**Troubleshooting básico**
-- Se `docker` não for encontrado, instale Docker (https://docs.docker.com/get-docker/).
-- Se `docker compose` não for encontrado, instale a versão compatível do Compose (v2 integrado ou `docker-compose`).
-- Erro no `docker login`: verifique se o `Registry URL` está correto e se o token tem permissão de pull. Tente fornecer `Registry usuário` quando necessário.
-- Se o download do módulo falhar e não houver cache, execute manualmente:
+	2) Preencha os campos necessários (em especial os marcados como OBRIGATÓRIO):
 
-	- Baixe o módulo em outro host com conectividade e transfira para a máquina destino, colocando-o no diretório de cache do instalador.
+	- `SISCAN_USER` e `SISCAN_PASSWORD`: credenciais do SISCAN (obrigatório).
+	- `HOST_MEDIA_ROOT`: pasta no Windows onde serão salvos screenshots, vídeos e downloads (ex.: `C:\siscan\media`).
+	- `HOST_DOWNLOAD_DIR`: pasta de downloads do Playwright (ex.: `C:\siscan\media\downloads`).
+	- `HOST_SISCAN_REPORTS_INPUT_DIR`: pasta onde os PDFs de entrada ficam (ex.: `C:\siscan\reports\input`).
+	- `HOST_SISCAN_REPORTS_OUTPUT_DIR`: pasta onde serão gerados os JSON/Excel (ex.: `C:\siscan\reports\output`).
+	- `HOST_SISCAN_CONSOLIDATED_REPORT_PATH`: pasta/arquivo opcional para consolidados (ex.: `C:\siscan\reports\`).
+	- `HOST_EXCEL_COLUMNS_MAPPING_PATH`: caminho para um arquivo JSON opcional de mapeamento de colunas (ex.: `C:\siscan\config\excel_columns_mapping.json`).
 
-**Desenvolvimento e manutenção**
-- Para atualizar a lógica de instalação, edite os módulos em `scripts/modules/` e mantenha o `install.*` como bootstrap mínimo.
-- Para adicionar verificações adicionais (e.g., saúde do serviço), crie um novo módulo e invoque-o a partir do bootstrap.
+	Observações para não técnicos:
+	- Use caminhos do Windows (ex.: `C:\siscan\media`) quando executando no Windows. Se usar WSL, também funciona com caminhos `/mnt/c/...` dependendo da sua configuração do Docker.
+	- Se não souber algum valor, peça ao time de infraestrutura ou deixe em branco temporariamente e solicite ajuda.
 
-**Testes rápidos (local)**
-- PowerShell (Windows):
+	## Comandos úteis
 
-	- Execute em modo interativo: `.	ests\run-local.ps1` (se fornecer um script de teste) — caso não exista, use um ambiente Docker local com uma imagem pública similar para validar o fluxo.
+	- Para iniciar os serviços manualmente (quando o `docker-compose.yml` já existir):
 
-- Bash (Linux/macOS):
+	```bash
+	docker compose up -d
+	```
 
-	- Simule variáveis e invoque o módulo: `REGISTRY=ghcr.io TOKEN=xxx SISCAN_USER=foo SISCAN_PASS=bar bash -c '. scripts/modules/docker.sh && module_main'`
+	- Para ver logs:
 
-**Próximos passos recomendados**
-- Adicionar verificação de integridade (SHA256) e/ou assinatura GPG dos módulos baixados.
-- Implementar suporte explícito a registries (GitHub Container Registry, ACR, ECR) com fluxos de login dedicados.
-- Adicionar testes automatizados (CI) para validar que o instalador e módulos continuam funcionando.
+	```bash
+	docker compose logs -f
+	```
 
-Se quiser, eu posso:
-- adicionar verificação de assinatura/SHA para os módulos;
-- melhorar o suporte a registries específicos (ex.: GHCR, ACR);
-- criar um pequeno script de testes locais/CI.
+	## Estrutura do repositório
 
----
-Arquivo principal de bootstrap:
-- PowerShell: `install.ps1`
-- Bash: `install.sh`
+	- `install.ps1` / `install.sh`: bootstrap que interage com o usuário e baixa módulos.
+	- `scripts/modules/`: módulos que executam tarefas (docker, siscan, etc.).
+	- `docker-compose.yml`: gerado pelo instalador quando necessário.
+	- `.env.sample`: exemplo de variáveis de ambiente (copiar e preencher como `.env`).
 
-Obrigado — informe qual melhoria prefere que eu implemente em seguida.
+	## Como funciona (resumo técnico)
 
-O **Assistente SISCan RPA** é um utilitário simples e intuitivo criado para ajudar usuários – mesmo os que não entendem nada de Docker ou configurações técnicas – a instalar, atualizar e gerenciar o serviço **SISCan-RPA**.
+	- O bootstrap baixa módulos em `scripts/modules/` e executa o fluxo.
+	- Módulos são cacheados localmente para execução offline/recuperação.
+	- Credenciais e tokens são solicitados via entrada segura (não são gravados em texto puro nos logs).
 
-Ele funciona como um *facilitador*: você informa alguns dados básicos e o assistente cuida do resto.
+	## Troubleshooting básico
 
----
+	- Erro: `docker` não encontrado — instale Docker Desktop (Windows) ou Docker Engine (Linux).
+	- Erro: `docker compose` não encontrado — instale a versão compatível do Compose.
+	- Erro no `docker login` — verifique o token/usuário e permissões do registry.
+	- Problema de permissões em pastas (Windows): execute o PowerShell como Administrador ou ajuste permissões das pastas indicadas em `HOST_*`.
 
-## ✨ Recursos Principais
+	## Boas práticas e próximos passos
 
-- 🔄 **Criar ou atualizar a imagem do serviço**
-- ♻️ **Resetar o serviço por completo**
-- 🔐 **Informar ou recriar credenciais do SISCan**
-- 🔑 **Adicionar o token/chave para baixar imagens privadas**
-- 📂 **Configurar caminhos dos volumes utilizados pelo sistema**
+	- Use tokens de acesso com escopo mínimo (apenas pull) para o registry privado.
+	- Considere adicionar verificação de integridade (SHA256) para os módulos baixados.
+	- Podemos adicionar suporte específico para registries (GHCR, ACR, ECR) caso precise.
 
-Tudo isso de forma simples, guiada e com foco em pessoas leigas.
+	## Contato / Ajuda
 
----
+	Se quiser, eu posso:
+	- Gerar um `.env` de exemplo com valores preenchidos;
+	- Verificar o `docker-compose.yml` e ajustar mapeamentos `HOST_*`;
+	- Implementar verificação de assinatura/SHA para módulos.
 
-## 📦 Repositório da imagem utilizada
+	---
 
-O serviço principal está em:
+	Repositório da imagem principal (referência): https://github.com/Prisma-Consultoria/siscan-rpa
 
-👉 **https://github.com/Prisma-Consultoria/siscan-rpa**
+	Obrigado — me diga qual melhoria prefere que eu implemente a seguir.
+
 
 Este repositório atua apenas como **instalador, configurador e gerenciador** do SISCan-RPA.
-
