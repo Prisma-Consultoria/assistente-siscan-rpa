@@ -74,6 +74,21 @@ if %errorlevel% neq 0 (
     echo ERRO: Falha ao fazer pull da imagem.
 ) else (
     echo Pull realizado com sucesso!
+    echo.
+    echo Reiniciando serviços com docker-compose...
+    pushd "%~dp0" >nul 2>&1
+    if exist "docker-compose.yml" (
+        docker-compose up -d
+        if %errorlevel% neq 0 (
+            echo ERRO: Falha ao reiniciar os serviços com docker-compose.
+            echo Tente executar manualmente: docker-compose up -d
+        ) else (
+            echo Serviços reiniciados com sucesso.
+        )
+    ) else (
+        echo Aviso: arquivo "docker-compose.yml" nao encontrado em %cd%.
+    )
+    popd >nul 2>&1
 )
 
 :END
