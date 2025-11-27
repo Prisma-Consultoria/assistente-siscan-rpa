@@ -14,15 +14,15 @@ services:
       - CRON_HOUR=${CRON_HOUR:-03}
       - CRON_MIN=${CRON_MIN:-00}
       
+      - HOST_SISCAN_CONSOLIDATED_SHEET_NAME=${HOST_SISCAN_CONSOLIDATED_SHEET_NAME:-relatorios_mamografia.xlsx}
       - EXCEL_COLUMNS_MAPPING_PATH=${EXCEL_COLUMNS_MAPPING_PATH:-/app/config/excel_columns_mapping.json}
     ports:
       - "${HOST_APP_EXTERNAL_PORT:-5001}:${APP_INTERNAL_PORT:-5000}"
     volumes:
-      # Diretório raiz de mídia (screenshots, reports, downloads, etc.)
+      # Diretório raiz de mídia
       - "${HOST_MEDIA_ROOT:-./data/media}:/app/media"
 
       - "${HOST_SISCAN_CONSOLIDATED_REPORT_PATH:-./data/media/reports}:/app/media/reports"
-      - HOST_SISCAN_CONSOLIDATED_SHEET_NAME=${HOST_SISCAN_CONSOLIDATED_SHEET_NAME:-relatorios_mamografia.xlsx}
       - "${HOST_SISCAN_CONSOLIDATED_PDFS_DIR:-./data/media/reports/pdfs}:/app/media/reports/pdfs"
 
       - "${HOST_EXCEL_COLUMNS_MAPPING_DIR:-./config}:/app/config"
