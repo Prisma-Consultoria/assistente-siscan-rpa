@@ -66,3 +66,5 @@ coverage.xml
 logs/
 media/
 reports/
+
+*.txt
