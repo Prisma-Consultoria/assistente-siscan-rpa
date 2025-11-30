@@ -2,6 +2,36 @@
 #   ASSISTENTE SISCAN RPA - MENU PRINCIPAL
 # -------------------------------------------
 
+# Ajustes robustos de encoding/terminal para múltiplos hosts
+# - tenta forçar saída UTF-8 para o console
+# - em Windows tenta ajustar code page via cmd.exe
+# - define defaults para cmdlets de escrita dependendo da versão do PowerShell
+try {
+    $psMajor = 0
+    if ($PSVersionTable -and $PSVersionTable.PSVersion) { $psMajor = $PSVersionTable.PSVersion.Major }
+
+    # Força saída UTF-8 para PowerShell/Core quando possível
+    try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+    try { $OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+
+    # Em Windows, tente ajustar code page via cmd.exe (menos intrusivo que chcp direto em alguns hosts)
+    if ($IsWindows -or ($env:OS -and $env:OS -match 'Windows')) {
+        try { cmd.exe /c chcp 65001 > $null } catch {}
+    }
+
+    # Definir parâmetros padrão de encoding para cmdlets que gravam arquivos.
+    # PowerShell Core (>=6) entende 'utf8'; Windows PowerShell (5.1) é mais seguro usar 'Unicode' (UTF-16 LE)
+    if ($psMajor -ge 6) {
+        $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
+        $PSDefaultParameterValues['Set-Content:Encoding'] = 'utf8'
+        $PSDefaultParameterValues['Add-Content:Encoding'] = 'utf8'
+    } else {
+        $PSDefaultParameterValues['Out-File:Encoding'] = 'Unicode'
+        $PSDefaultParameterValues['Set-Content:Encoding'] = 'Unicode'
+        $PSDefaultParameterValues['Add-Content:Encoding'] = 'Unicode'
+    }
+} catch {}
+
 $CRED_FILE = "credenciais.txt"
 $IMAGE_PATH = "ghcr.io/prisma-consultoria/siscan-rpa-rpa:main"
 $COMPOSE_FILE = Join-Path $PSScriptRoot "docker-compose.yml"
@@ -200,7 +230,7 @@ function Update-EnvFile {
         Set-Content -Path $Path -Value $updated -Encoding UTF8
     }
 
-    Write-Host "`nArquivo .env atualizado e salvo em $Path (encoding: $origEnc)" -ForegroundColor Green
+    Write-Host "`nArquivo .env atualizado e salvo em $Path" -ForegroundColor Green
 }
 
 
