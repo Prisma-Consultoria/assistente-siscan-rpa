@@ -116,6 +116,70 @@ function Check-Service {
 }
 
 
+function Update-EnvFile {
+    param([string]$Path)
+
+    if (-not (Test-Path $Path)) {
+        New-Item -Path $Path -ItemType File -Force | Out-Null
+    }
+
+    $lines = @()
+    try { $lines = Get-Content $Path -ErrorAction Stop } catch { $lines = @() }
+
+    $updated = @()
+
+    foreach ($line in $lines) {
+        if ($line -match '^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$') {
+            $key = $matches[1]
+            $val = $matches[2]
+            $valDisplay = $val.Trim()
+
+            Write-Host "`nVariável: $key = $valDisplay" -ForegroundColor Cyan
+            $new = Read-Host "Novo valor (Enter para manter)"
+
+            if ($new -ne "") {
+                $updated += "$key=$new"
+            } else {
+                $updated += $line
+            }
+        } else {
+            # mantém comentários e linhas vazias
+            $updated += $line
+        }
+    }
+
+    # Se arquivo estava vazio, perguntar se deseja adicionar chaves a partir de um template não é obrigatório aqui
+    Set-Content -Path $Path -Value $updated -Encoding UTF8
+    Write-Host "`nArquivo .env atualizado e salvo em $Path" -ForegroundColor Green
+}
+
+
+function Manage-Env {
+    $envFile = Join-Path $PSScriptRoot ".env"
+    $templateFiles = @('.env.example', '.env.template', '.env.dist')
+
+    if (-not (Test-Path $envFile)) {
+        $found = $null
+        foreach ($t in $templateFiles) {
+            $p = Join-Path $PSScriptRoot $t
+            if (Test-Path $p) { $found = $p; break }
+        }
+
+        if ($found) {
+            Copy-Item $found $envFile -Force
+            Write-Host ".env não encontrado. Copiado de: $found" -ForegroundColor Yellow
+        } else {
+            New-Item -Path $envFile -ItemType File -Force | Out-Null
+            Write-Host ".env não encontrado. Criado arquivo vazio: $envFile" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host ".env encontrado: $envFile" -ForegroundColor Yellow
+    }
+
+    Update-EnvFile -Path $envFile
+}
+
+
 function Show-Menu {
     Write-Host "==============================="
     Write-Host "  ASSISTENTE SISCAN RPA"
@@ -123,7 +187,8 @@ function Show-Menu {
     Write-Host "1) Reiniciar servico existente"
     Write-Host "2) Atualizar imagem e reiniciar servico"
     Write-Host "3) Login / alterar credenciais"
-    Write-Host "4) Sair"
+    Write-Host "4) Gerenciar .env (criar/atualizar)"
+    Write-Host "5) Sair"
     Write-Host "==============================="
 }
 
@@ -166,10 +231,16 @@ while ($running) {
         }
 
         "4" {
+            Manage-Env
+            Pause
+        }
+
+        "5" {
             Write-Host "`nSaindo..."
             $running = $false
             break
         }
+
 
         Default {
             Write-Host "`nOpção inválida."
