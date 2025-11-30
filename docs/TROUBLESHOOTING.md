@@ -1,5 +1,5 @@
 
-# Troubleshooting Completo - Assistente SISCAN RPA
+# Solução de problemas completa - Assistente SISCAN RPA
 <a name="troubleshooting"></a>
 
 Versão: 1.0

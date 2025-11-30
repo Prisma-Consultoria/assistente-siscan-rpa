@@ -4,7 +4,7 @@
 Versão: 1.0
 Data: 2025-11-30
 
-## Checklist Antes do Deploy (staging primeiro)
+## Checklist Antes do Deploy (staging / homologação primeiro)
 
 - Backup: snapshot ou cópia dos volumes críticos.
 - Credenciais: token GHCR válido com `read:packages` e credenciais SISCAN corretas.
@@ -28,7 +28,7 @@ Data: 2025-11-30
 
 ## Checklist Antes de Atualizar/Upgrade
 
-- Revisar changelog e notas de release.
+- Revisar o registro de alterações (changelog) e notas de release.
 - Testar nova imagem em staging com tag específica.
 - Backup de volumes e dados críticos.
 - Planejar rollback: manter tag anterior disponível.
@@ -43,7 +43,7 @@ docker pull ghcr.io/<org>/assistente-siscan-rpa:<previous_tag>
 docker compose down
 docker compose up -d
 ```
-- Coletar logs e artefatos (ver TROUBLESHOOTING.md)
+- Coletar logs e artefatos (ver `docs/TROUBLESHOOTING.md` - solução de problemas)
 - Informar time de DevOps e liberar canal de comunicação (telefone/pager)
 
 ---

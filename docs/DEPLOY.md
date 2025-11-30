@@ -29,7 +29,7 @@ O Assistente SISCAN RPA é uma aplicação empacotada em containers Docker desti
 - Operador: executa o deploy e opera o serviço (Nível 1)
 - Administrador Windows: configura host, permissões e rede
 - DevOps/Infra: gerencia imagens no GHCR, tokens e pipelines
-- Suporte N2/N3: troubleshooting avançado e recuperação
+- Suporte N2/N3: solução de problemas avançada e recuperação
 
 ---
 
@@ -40,7 +40,7 @@ O Assistente SISCAN RPA é uma aplicação empacotada em containers Docker desti
 - **Docker:** Engine que executa os containers.
 - **Docker Compose:** Orquestra serviços e volumes via `docker-compose.yml`.
 - **GitHub Container Registry (GHCR):** onde as imagens estão hospedadas (`ghcr.io/<org>/assistente-siscan-rpa:<tag>`).
-- **Script PowerShell:** auxiliar para autenticar, puxar imagens e executar compose (não incluiremos scripts neste repositório por hora).
+- **Script PowerShell:** auxiliar para autenticar, puxar imagens e executar compose. O script principal interativo é `siscan-assistente.ps1` (há também um wrapper `execute.ps1` para compatibilidade com chamadas antigas).
 - **Repositório público (IEX/git):** código fonte e artefatos públicos usados para instalar/configurar.
 - **Repositório privado de imagem:** GHCR privado para imagens oficiais do produto.
 - **Chave/token de acesso:** Personal Access Token (PAT) com permissão `read:packages` para pull de imagens privadas.
@@ -259,7 +259,7 @@ docker run --rm -v <volume>:/data -it mcr.microsoft.com/dotnet/runtime ls -la /d
 
 ---
 
-## **Troubleshooting (visão geral)**
+## **Solução de problemas (visão geral)**
 
 Uma seção resumida de problemas e comandos diagnósticos:
 
@@ -269,7 +269,7 @@ Uma seção resumida de problemas e comandos diagnósticos:
 - `Test-NetConnection ghcr.io -Port 443` — conectividade com GHCR
 - `nslookup ghcr.io` — resolução DNS
 
-Para troubleshooting detalhado, veja `docs/TROUBLESHOOTING.md`.
+Para solução de problemas detalhada, veja `docs/TROUBLESHOOTING.md`.
 
 ---
 
@@ -286,7 +286,7 @@ Para troubleshooting detalhado, veja `docs/TROUBLESHOOTING.md`.
 ## **Conclusão**
 
 Este documento é a referência central para o deploy do Assistente SISCAN RPA. Complementos importantes:
-- Troubleshooting detalhado: `docs/TROUBLESHOOTING.md`
+- Solução de problemas detalhada: `docs/TROUBLESHOOTING.md`
 - Tabela de erros e soluções: `docs/ERRORS_TABLE.md`
 - Checklists operacionais: `docs/CHECKLISTS.md`
 

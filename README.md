@@ -42,6 +42,16 @@ curl -sSL https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan
 
 Se preferir inspecionar os scripts, clone este repositório e execute `install.ps1` / `install.sh` localmente.
 
+Para executar o assistente interativo localmente (menu principal):
+
+```powershell
+# PowerShell Core (recomendado)
+pwsh -File ./siscan-assistente.ps1
+
+# Windows PowerShell (compatibilidade via wrapper)
+powershell -File .\execute.ps1
+```
+
 ## Configuração (`.env`)
 
 1. Copie o exemplo:
@@ -86,7 +96,7 @@ docker compose logs -f
 - Módulos são cacheados localmente para execução offline/recuperação.
 - Credenciais e tokens são solicitados via entrada segura; não são gravados em texto puro nos logs.
 
-## Troubleshooting básico
+## Solução de problemas básica
 
 - Erro: `docker` não encontrado — instale Docker Desktop (Windows) ou Docker Engine (Linux).
 - Erro: `docker compose` não encontrado — instale a versão compatível do Compose.
@@ -102,7 +112,7 @@ Referência: repositório da imagem principal — [Prisma-Consultoria/siscan-rpa
 Os documentos completos estão em `docs/`.
 
 - [DEPLOY](docs/DEPLOY.md#deploy) — Manual de Deploy: requisitos, arquitetura, passo a passo completo.
-- [TROUBLESHOOTING](docs/TROUBLESHOOTING.md#troubleshooting) — Diagnóstico, coleta de artefatos e árvores de decisão.
+- [TROUBLESHOOTING](docs/TROUBLESHOOTING.md#troubleshooting) — Solução de problemas: diagnóstico, coleta de artefatos e árvores de decisão.
 - [ERRORS_TABLE](docs/ERRORS_TABLE.md#errors) — Tabela com 40+ erros comuns e soluções.
 - [CHECKLISTS](docs/CHECKLISTS.md#checklists) — Checklists operacionais e procedimentos de rollback.
 
@@ -127,7 +137,7 @@ Conteúdo deste README
 - Configuração (`.env`)
 - Estrutura do repositório
 - Como funciona
-- Resolução de problemas (troubleshooting)
+- Resolução de problemas (solução de problemas)
 
 ## Visão geral
 
@@ -137,7 +147,7 @@ Para operadores não técnicos: você só precisa fornecer algumas informações
 
 - O que contém: introdução ao produto, requisitos mínimos, arquitetura do deploy, componentes (Docker, GHCR, scripts), pré-requisitos detalhados (Docker, Docker Compose, Windows, rede e permissões) e o passo a passo completo do deploy (download, posicionamento dos arquivos, criação do `.env`, autenticação no GHCR, pull da imagem, `docker compose up -d`, validação e exemplos de checagem).
 
-- [`TROUBLESHOOTING`](docs/TROUBLESHOOTING.md#troubleshooting) — Guia de Troubleshooting.
+- [`TROUBLESHOOTING`](docs/TROUBLESHOOTING.md#troubleshooting) — Guia de solução de problemas.
 
 - O que contém: comandos de coleta rápida, diagnóstico e correções para problemas com Docker (daemon/WSL2), Docker Compose, GHCR, Windows (políticas/Defender/NTFS) e rede; árvores de decisão e procedimentos para coleta de artefatos antes do escalonamento.
 
