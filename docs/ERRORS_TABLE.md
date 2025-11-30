@@ -7,9 +7,9 @@ Esta tabela lista erros frequentes relacionados a Rede, Docker, Windows, GHCR, C
 | 1 | Cannot connect to the Docker daemon | Docker daemon parado / permissão | Iniciar serviço `Restart-Service com.docker.service`; executar PowerShell como Admin; adicionar usuário a `docker-users` |
 | 2 | Error response from daemon: pull access denied | Token inválido ou sem permissão | `docker login ghcr.io` com PAT com `read:packages`; regenerar token |
 | 3 | mount denied: path not found | Caminho host inexistente ou drive não compartilhado | Criar caminho, habilitar compartilhamento do drive no Docker Desktop |
-| 4 | Bind: address already in use | Porta do host já em uso | `netstat -ano | findstr :<porta>`; parar processo ou alterar porta no compose |
+| 4 | Bind: address already in use | Porta do host já em uso | Identificar PID que usa a porta (Windows: `netstat -ano`; Linux: `ss -ltnp`) e parar processo ou alterar porta no `docker-compose.yml` |
 | 5 | Permission denied (file) | ACLs do Windows incorretas | Usar `icacls` / `takeown` para ajustar permissões |
-| 6 | network not found | Rede mencionada no compose ausente | `docker network create <name>` ou remover referência |
+| 6 | network not found | Rede mencionada no compose ausente | `docker network create <name>` ou remover referência (substituir `<name>` pelo nome da rede) |
 | 7 | no space left on device | Disco cheio | Limpar logs; `docker system prune` ou expandir disco |
 | 8 | TLS handshake timeout | Proxy/inspeção TLS/latência | Verificar proxy; importar CA corporativa; testar sem proxy |
 | 9 | unauthorized: authentication required | Login expirado/errado | `docker logout ghcr.io` e `docker login` novamente |
@@ -51,7 +51,7 @@ Esta tabela lista erros frequentes relacionados a Rede, Docker, Windows, GHCR, C
 | 45 | EPIPE / Broken pipe ao enviar grandes arquivos | Timeouts/proxy | Ajustar timeouts; evitar inspeção proxy |
 | 46 | Image pull stuck at 0% | Problema de rede/DNS | Testar conectividade com `curl` e `tcping` para ghcr.io:443 |
 | 47 | mount /var/lib/docker/aufs error | Storage driver incompatible | Verificar driver de storage e versão do Docker |
-| 48 | no such image: <image> | Tag ausente localmente e pull falhou | Checar `docker pull` e tags corretas |
+| 48 | no such image: `image-name` | Tag ausente localmente e pull falhou | Checar `docker pull ghcr.io/<org>/image-name:<tag>` e tags corretas |
 
 --
 

@@ -6,9 +6,11 @@ Data: 2025-11-30
 Este documento contém procedimentos de diagnóstico e correção para problemas que podem ocorrer durante o deploy e operação do Assistente SISCAN RPA em host Windows com Docker.
 
 **Como usar este guia**
+
 - Sempre colecione logs antes de mudanças: `docker logs`, `docker inspect`, `docker compose logs`.
 - Reproduza o problema com comandos mínimos.
 - Aplique a solução em ambiente de staging quando possível.
+- Observação: este repositório fornece `install.ps1` e `install.sh` (veja `README.md`) — use-os apenas após inspecionar o conteúdo quando em produção.
 
 ---
 
@@ -34,30 +36,30 @@ Problema: Docker não inicia / Daemon parado
   - `Get-Service com.docker.service`
   - Verificar logs: `%APPDATA%\Docker\log.txt` e `C:\ProgramData\DockerDesktop\service.txt`.
 - Correção:
-  1. Reiniciar serviço: `Restart-Service com.docker.service` (PowerShell Admin).
- 2. Se usar WSL2: executar `wsl --update` e reiniciar Docker Desktop.
- 3. Verificar espaço em disco e memória.
+  - Reiniciar serviço: `Restart-Service com.docker.service` (PowerShell Admin).
+  - Se usar WSL2: executar `wsl --update` e reiniciar Docker Desktop.
+  - Verificar espaço em disco e memória.
 
 Problema: Docker quebrado após atualização do Windows
 - Sintomas: Docker Desktop abre, mas containers não iniciam.
 - Diagnóstico: revisar logs no caminho acima; verificar versão WSL2 kernel.
 - Correção:
-  1. Atualizar WSL2 kernel: `wsl --update`.
- 2. Desabilitar e reabilitar integração WSL2 no Docker Desktop.
- 3. Reinstalar Docker Desktop versão compatível com OS.
+  - Atualizar WSL2 kernel: `wsl --update`.
+  - Desabilitar e reabilitar integração WSL2 no Docker Desktop.
+  - Reinstalar Docker Desktop versão compatível com OS.
 
 Problema: Falha no login ao GHCR
 - Sintomas: `unauthorized: authentication required` ou `pull access denied`.
 - Diagnóstico: `docker login ghcr.io -u <user> -p <token>` erros; verificar escopos do token no GitHub.
 - Correção:
-  1. Regenerar PAT com `read:packages` e `repo` (se imagem for privada dentro de repositorio privado).
- 2. Executar `docker logout ghcr.io` e `docker login ghcr.io` novamente.
+  - Regenerar PAT com `read:packages` e `repo` (se imagem for privada dentro de repositorio privado).
+  - Executar `docker logout ghcr.io` e `docker login ghcr.io` novamente.
 
 Erro: `Mount denied` ou `invalid mount config for type 'bind'`
 - Causa: Docker Desktop não autorizado a acessar o drive ou o caminho não existe.
-- Solução:
-  1. Habilitar file sharing do drive C: nas configurações do Docker Desktop.
- 2. Garantir que o caminho host existe e tem permissões adequadas.
+-- Solução:
+  - Habilitar file sharing do drive C: nas configurações do Docker Desktop.
+  - Garantir que o caminho host existe e tem permissões adequadas.
 
 Erro: `Bind: address already in use`
 - Diagnóstico: `netstat -ano | findstr :<porta>` para identificar PID.
@@ -73,9 +75,9 @@ Compose não sobe ou falha ao criar serviço
 
 Container fica em loop de reinício (CrashLoop)
 - Diagnóstico: `docker logs <container>` mostra stacktrace ou erro.
-- Solução:
-  1. Ver logs e replicar `docker run --rm -it <image> sh` para debugar manualmente.
- 2. Ajustar variáveis de ambiente, entrypoint ou healthcheck.
+-- Solução:
+  - Ver logs e replicar `docker run --rm -it <image> sh` para debugar manualmente.
+  - Ajustar variáveis de ambiente, entrypoint ou healthcheck.
 
 Volumes sem permissão
 - Diagnóstico: erros nos logs do container sobre escrita em caminho montado.
