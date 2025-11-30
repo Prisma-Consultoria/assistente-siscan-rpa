@@ -118,13 +118,41 @@ function Check-Service {
 
 function Update-EnvFile {
     param([string]$Path)
-
     if (-not (Test-Path $Path)) {
         New-Item -Path $Path -ItemType File -Force | Out-Null
     }
 
-    $lines = @()
-    try { $lines = Get-Content $Path -ErrorAction Stop } catch { $lines = @() }
+    # Detectar BOM/encoding original para preservar ao regravar
+    function Detect-FileEncoding {
+        param([string]$FilePath)
+
+        try {
+            $bytes = [System.IO.File]::ReadAllBytes($FilePath)
+        } catch {
+            return 'utf8'
+        }
+
+        if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { return 'utf8bom' }
+        if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { return 'unicode' } # UTF-16 LE
+        if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) { return 'bigendianunicode' } # UTF-16 BE
+
+        return 'utf8'
+    }
+
+    $origEnc = 'utf8'
+    if (Test-Path $Path) { $origEnc = Detect-FileEncoding -FilePath $Path }
+
+    # Ler com a codificação adequada (Get-Content entende nomes básicos)
+    try {
+        switch ($origEnc) {
+            'unicode' { $lines = Get-Content -Path $Path -Encoding Unicode -ErrorAction Stop }
+            'bigendianunicode' { $lines = Get-Content -Path $Path -Encoding BigEndianUnicode -ErrorAction Stop }
+            default { $lines = Get-Content -Path $Path -Encoding UTF8 -ErrorAction Stop }
+        }
+    } catch {
+        # fallback
+        $lines = @()
+    }
 
     $updated = @()
 
@@ -148,9 +176,31 @@ function Update-EnvFile {
         }
     }
 
-    # Se arquivo estava vazio, perguntar se deseja adicionar chaves a partir de um template não é obrigatório aqui
-    Set-Content -Path $Path -Value $updated -Encoding UTF8
-    Write-Host "`nArquivo .env atualizado e salvo em $Path" -ForegroundColor Green
+    # Regrava usando a codificação original (preserva BOM quando houver) via .NET
+    try {
+        switch ($origEnc) {
+            'utf8bom' {
+                $enc = New-Object System.Text.UTF8Encoding($true)
+            }
+            'unicode' {
+                $enc = [System.Text.Encoding]::Unicode
+            }
+            'bigendianunicode' {
+                $enc = [System.Text.Encoding]::BigEndianUnicode
+            }
+            default {
+                # UTF8 without BOM
+                $enc = New-Object System.Text.UTF8Encoding($false)
+            }
+        }
+
+        [System.IO.File]::WriteAllLines($Path, $updated, $enc)
+    } catch {
+        # Fallback para Set-Content com UTF8 caso algo falhe
+        Set-Content -Path $Path -Value $updated -Encoding UTF8
+    }
+
+    Write-Host "`nArquivo .env atualizado e salvo em $Path (encoding: $origEnc)" -ForegroundColor Green
 }
 
 
