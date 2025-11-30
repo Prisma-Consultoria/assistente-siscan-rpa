@@ -119,7 +119,15 @@ Este repositório contém um instalador remoto modular (PowerShell + Bash) para 
 
 	Repositório da imagem principal (referência): https://github.com/Prisma-Consultoria/siscan-rpa
 
-	Obrigado — me diga qual melhoria prefere que eu implemente a seguir.
-
-
 Este repositório atua apenas como **instalador, configurador e gerenciador** do SISCan-RPA.
+
+	## Documentação de Deploy e Operação
+
+	Este repositório agora inclui documentação completa para deploy, operação e troubleshooting do Assistente SISCAN RPA. Os documentos estão em `docs/`:
+
+	- `docs/DEPLOY.md` — Manual completo de deploy: introdução, arquitetura, pré-requisitos e passo a passo.
+	- `docs/TROUBLESHOOTING.md` — Guia aprofundado de troubleshooting com comandos e árvores de decisão.
+	- `docs/ERRORS_TABLE.md` — Tabela extensa de erros comuns (causa provável e solução).
+	- `docs/CHECKLISTS.md` — Checklists operacionais (antes, depois e emergência).
+
+	Consulte esses documentos para procedimentos passo a passo e fluxos de diagnóstico.
