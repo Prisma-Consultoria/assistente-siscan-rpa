@@ -8,7 +8,7 @@ Data: 2025-11-30
 
 **O que é o Assistente SISCAN RPA**
 
-O Assistente SISCAN RPA é uma aplicação empacotada em containers Docker destinada a automatizar fluxos relacionados ao sistema SISCAN. A aplicação processa laudos, gera manifestos, organiza downloads e expõe endpoints locais de monitoramento.
+O Assistente SISCAN RPA é uma aplicação destinada a automatizar fluxos relacionados ao extrator do SISCAN (SISCAN RPA). A aplicação processa laudos, gera manifestos, organiza downloads e expõe endpoints locais de monitoramento.
 
 **O que ele faz**
 - Extrai e processa laudos e documentos.
@@ -148,76 +148,89 @@ icacls C:\assistente-siscan /grant "Administradores:(OI)(CI)F" /T
 
 Siga estas etapas em ambiente de teste antes da produção.
 
-1) Preparação do diretório
+1. Preparação do diretório
 
 ```powershell
 mkdir C:\assistente-siscan
 cd C:\assistente-siscan
 ```
 
-2) Obter arquivos de deploy
+1. Obter arquivos de deploy
 
 - Opção com `git`:
 ```powershell
-git clone https://github.com/<org>/assistente-siscan-rpa.git .
+git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git .
 ```
 - Opção sem `git`: baixar `docker-compose.yml`, `README.md` e arquivos de configuração do repositório oficial.
 
-3) Instalação rápida (opções)
+1. Instalação rápida (opções)
 
-- Windows (PowerShell):
-
-```powershell
-irm "https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.ps1" | iex
-```
-
-- Linux / macOS (Bash):
+- Opção recomendada — clonar e revisar localmente:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.sh | bash
+git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git .
+cd assistente-siscan-rpa
+
+# PowerShell Core (recomendado)
+pwsh -NoProfile -ExecutionPolicy Bypass -File ./siscan-assistente.ps1
+
+# Windows PowerShell (compatibilidade via wrapper)
+powershell -NoProfile -ExecutionPolicy Bypass -File .\execute.ps1
 ```
 
-4) Criar arquivo de variáveis `.env` com base no arquivo `.env.sample`.
+- Opção alternativa — baixar o script principal e revisar antes de executar (sem pipe-to-shell):
+
+PowerShell (baixar + revisar):
+
+```powershell
+Invoke-WebRequest 'https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/siscan-assistente.ps1' -OutFile siscan-assistente.ps1
+# revisar o arquivo localmente antes de executar
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\siscan-assistente.ps1
+```
+
+Importante: evite comandos do tipo `curl | bash` ou `irm | iex` sem revisar o conteúdo do script previamente. Prefira clonar o repositório ou baixar o script para inspeção.
+
+1. Criar arquivo de variáveis `.env` com base no arquivo `.env.sample`.
 
 ```powershell
 cp .env.sample .env
 # editar .env conforme instruções
 ```
 
-4) Autenticar no GHCR
+1. Autenticar no GHCR
 
 ```powershell
 docker login ghcr.io -u <usuario> -p <token>
 ```
 
-5) Pull das imagens
+1. Pull das imagens
 
 ```powershell
 docker compose pull
 ```
 
-6) Verificar imagens
+1. Verificar imagens
 
 ```powershell
 docker images | Where-Object { $_.Repository -like '*assistente*' }
-docker image inspect ghcr.io/<org>/assistente-siscan-rpa:<tag>
+docker image inspect ghcr.io/Prisma-Consultoria/assistente-siscan-rpa:<tag>
 ```
 
-7) Subir serviços
+1. Subir serviços
 
 ```powershell
 docker compose up -d
 docker compose ps
 ```
 
-8) Validar serviço
+1. Validar serviço
 
 ```powershell
 Invoke-WebRequest -UseBasicParsing http://localhost:8080/health
 docker compose logs -f
 ```
 
-9) Checklist rápido pós-deploy
+1. Checklist rápido pós-deploy
 
 - `docker compose ps` → containers Up
 - `docker compose logs` sem erros críticos
@@ -236,7 +249,7 @@ docker compose restart
 - Atualizar imagem e redeploy:
 ```powershell
 docker login ghcr.io -u <user> -p <token>
-docker pull ghcr.io/<org>/assistente-siscan-rpa:<tag>
+docker pull ghcr.io/Prisma-Consultoria/assistente-siscan-rpa:<tag>
 docker compose down
 docker compose up -d
 ```
