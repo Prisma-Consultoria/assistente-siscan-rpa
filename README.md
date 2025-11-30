@@ -1,133 +1,207 @@
 # Assistente SISCan RPA
+
+Assistente SISCan RPA — instalador remoto (PowerShell + Bash) para instalar, atualizar e gerenciar o serviço "Assistente SISCan RPA".
+
+Conteúdo deste README
+
+- Visão geral
+- Pré-requisitos
+- Instalação rápida
+- Configuração (`.env`)
+- Comandos úteis
+- Estrutura do repositório
+- Como funciona
+- Resolução de problemas básica
+- Documentação de deploy e operação
+
+## Visão geral
+
+O instalador solicita as informações necessárias (token para registry, credenciais SISCAN, caminhos de diretórios) e cria/atualiza os serviços Docker via `docker compose`.
+
+Usuários não técnicos: forneça os caminhos e credenciais solicitadas; o instalador fará o restante.
+
+## Pré-requisitos
+
+- Docker Desktop (Windows) ou Docker Engine (Linux/macOS).
+- Docker Compose (v2 integrado ao Docker Desktop ou `docker-compose`).
+- Acesso à rede para baixar imagens ou acesso ao registry privado com token.
+
+## Instalação rápida
+
+Windows (PowerShell):
+
+```powershell
+irm "https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.ps1" | iex
+```
+
+Linux / macOS (Bash):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.sh | bash
+```
+
+Se preferir inspecionar os scripts, clone este repositório e execute `install.ps1` / `install.sh` localmente.
+
+## Configuração (`.env`)
+
+1. Copie o exemplo:
+
+```bash
+cp .env.sample .env
+```
+
+2. Preencha os campos obrigatórios, por exemplo:
+
+- `SISCAN_USER` / `SISCAN_PASSWORD` — credenciais do SISCAN.
+- `HOST_MEDIA_ROOT` — pasta onde screenshots e downloads serão salvos (ex.: `C:\siscan\media`).
+- `HOST_DOWNLOAD_DIR` — pasta de downloads do Playwright.
+- `HOST_SISCAN_REPORTS_INPUT_DIR` / `HOST_SISCAN_REPORTS_OUTPUT_DIR` — entradas e saídas de relatórios.
+
+Observação: em ambientes WSL o caminho pode ser `/mnt/c/...` dependendo da configuração do Docker.
+
+## Comandos úteis
+
+- Iniciar serviços (diretório com `docker-compose.yml`):
+
+```bash
+docker compose up -d
+```
+
+- Ver logs:
+
+```bash
+docker compose logs -f
+```
+
+## Estrutura do repositório
+
+- `install.ps1` / `install.sh` — bootstrap que interage com o usuário e baixa módulos.
+- `scripts/modules/` — módulos que executam tarefas (docker, siscan, etc.).
+- `docker-compose.yml` — gerado pelo instalador quando necessário.
+- `.env.sample` — exemplo de variáveis de ambiente.
+
+## Como funciona (resumo)
+
+- O bootstrap baixa módulos em `scripts/modules/` e executa o fluxo.
+- Módulos são cacheados localmente para execução offline/recuperação.
+- Credenciais e tokens são solicitados via entrada segura; não são gravados em texto puro nos logs.
+
+## Troubleshooting básico
+
+- Erro: `docker` não encontrado — instale Docker Desktop (Windows) ou Docker Engine (Linux).
+- Erro: `docker compose` não encontrado — instale a versão compatível do Compose.
+- Erro no `docker login` — verifique token/usuário e permissões do registry.
+- Permissões em pastas (Windows): execute o PowerShell como Administrador ou ajuste permissões NTFS.
+
+---
+
+Referência: repositório da imagem principal — [Prisma-Consultoria/siscan-rpa](https://github.com/Prisma-Consultoria/siscan-rpa)
+
+## Documentação de Deploy e Operação
+
+Os documentos completos estão em `docs/`.
+
+- [DEPLOY](docs/DEPLOY.md#deploy) — Manual de Deploy: requisitos, arquitetura, passo a passo completo.
+- [TROUBLESHOOTING](docs/TROUBLESHOOTING.md#troubleshooting) — Diagnóstico, coleta de artefatos e árvores de decisão.
+- [ERRORS_TABLE](docs/ERRORS_TABLE.md#errors) — Tabela com 40+ erros comuns e soluções.
+- [CHECKLISTS](docs/CHECKLISTS.md#checklists) — Checklists operacionais e procedimentos de rollback.
+
+Como usar: comece por `docs/DEPLOY.md`; em caso de falha, siga `docs/TROUBLESHOOTING.md` e consulte `docs/ERRORS_TABLE.md`; antes de mudanças críticas, use `docs/CHECKLISTS.md`.
+
+Se quiser, posso gerar um `docs/docker-compose.example.yml` anotado ou versões PDF desses documentos.
+# Assistente SISCan RPA
+
 **Assistente SISCan RPA — Instalador remoto**
 
 Este repositório contém um instalador remoto modular (PowerShell + Bash) para instalar, atualizar e gerenciar o serviço "Assistente SISCan RPA".
 
-**Resumo**
-- **Objetivo:** fornecer um instalador extremamente simples para usuários finais (não técnicos) que:
-	# Assistente SISCan RPA
+Resumo
 
-	Uma coleção de scripts (PowerShell + Bash) para instalar, atualizar e gerenciar o serviço Assistente SISCan RPA de forma guiada — pensada para usuários técnicos e não técnicos.
+- Objetivo: fornecer um instalador simples para usuários finais (técnicos e não técnicos).
 
-	**Conteúdo deste README**
-	- **Visão geral**
-	- **Pré-requisitos**
-	- **Instalação rápida**
-	- **Configuração (`.env`)**
-	- **Estrutura do repositório**
-	- **Como funciona**
-	- **Resolução de problemas (troubleshooting)**
+Conteúdo deste README
 
-	## Visão geral
+- Visão geral
+- Pré-requisitos
+- Instalação rápida
+- Configuração (`.env`)
+- Estrutura do repositório
+- Como funciona
+- Resolução de problemas (troubleshooting)
 
-	O instalador solicita as informações necessárias (token para registry, credenciais SISCAN, caminhos de diretórios) e cria/atualiza os serviços Docker via `docker-compose`.
+## Visão geral
 
-	Para usuários não técnicos: você só precisa fornecer algumas informações básicas e criar pastas no Windows quando solicitado. O instalador trata do resto.
+O instalador solicita as informações necessárias (token para registry, credenciais SISCAN, caminhos de diretórios) e cria/atualiza os serviços Docker via `docker-compose`.
 
-	## Pré-requisitos
+Para operadores não técnicos: você só precisa fornecer algumas informações básicas e criar pastas no Windows quando solicitado. O instalador trata do restante das operações.
 
-	- Docker Desktop (Windows) ou Docker Engine (Linux/macOS).
-	- Docker Compose (v2 integrado ao Docker Desktop ou `docker-compose`).
-	- Acesso à internet para baixar imagens e módulos, ou acesso ao registry privado com token.
+- O que contém: introdução ao produto, requisitos mínimos, arquitetura do deploy, componentes (Docker, GHCR, scripts), pré-requisitos detalhados (Docker, Docker Compose, Windows, rede e permissões) e o passo a passo completo do deploy (download, posicionamento dos arquivos, criação do `.env`, autenticação no GHCR, pull da imagem, `docker compose up -d`, validação e exemplos de checagem).
 
-	## Instalação rápida
+- [`TROUBLESHOOTING`](docs/TROUBLESHOOTING.md#troubleshooting) — Guia de Troubleshooting.
 
-	- Windows (PowerShell):
+- O que contém: comandos de coleta rápida, diagnóstico e correções para problemas com Docker (daemon/WSL2), Docker Compose, GHCR, Windows (políticas/Defender/NTFS) e rede; árvores de decisão e procedimentos para coleta de artefatos antes do escalonamento.
 
-	```powershell
-	irm "https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.ps1" | iex
-	```
+- [`ERRORS_TABLE`](docs/ERRORS_TABLE.md#errors) — Tabela de Erros Comuns (busca rápida).
 
-	- Linux / macOS (Bash):
+- O que contém: 40+ erros frequentes com a mensagem típica, causa provável e solução prática (rede, Docker, compose, permissões, GHCR, WSL2, etc.). Use este arquivo para localizar rapidamente a provável causa e o passo de remediação.
 
-	```bash
-	curl -sSL https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.sh | bash
-	```
+- [`CHECKLISTS`](docs/CHECKLISTS.md#checklists) — Checklists Operacionais.
 
-	Se preferir inspecionar os scripts antes de executar, clone este repositório e execute `install.ps1` / `install.sh` localmente.
+- O que contém: checklists para executar antes do deploy (staging), após o deploy, antes de atualizar/upgrade e procedimentos rápidos de rollback/emergência com comandos úteis.
 
-	## Configuração (`.env`)
+Como usar: comece por `docs/DEPLOY.md` para realizar o deploy; se ocorrerem falhas, siga `docs/TROUBLESHOOTING.md` e procure mensagens no `docs/ERRORS_TABLE.md`; antes de mudanças críticas, consulte `docs/CHECKLISTS.md`.
 
-	1) Copie o arquivo de exemplo:
+Se desejar, posso também:
 
-	```bash
-	cp .env.sample .env
-	```
+- Gerar um `docs/docker-compose.example.yml` anotado com comentários e caminhos recomendados.
+- Produzir versões PDF/print-ready desses documentos.
 
-	2) Preencha os campos necessários (em especial os marcados como OBRIGATÓRIO):
+# Assistente SISCan RPA
 
-	- `SISCAN_USER` e `SISCAN_PASSWORD`: credenciais do SISCAN (obrigatório).
-	- `HOST_MEDIA_ROOT`: pasta no Windows onde serão salvos screenshots, vídeos e downloads (ex.: `C:\siscan\media`).
-	- `HOST_DOWNLOAD_DIR`: pasta de downloads do Playwright (ex.: `C:\siscan\media\downloads`).
-	- `HOST_SISCAN_REPORTS_INPUT_DIR`: pasta onde os PDFs de entrada ficam (ex.: `C:\siscan\reports\input`).
-	- `HOST_SISCAN_REPORTS_OUTPUT_DIR`: pasta onde serão gerados os JSON/Excel (ex.: `C:\siscan\reports\output`).
-	- `HOST_SISCAN_CONSOLIDATED_REPORT_PATH`: pasta/arquivo opcional para consolidados (ex.: `C:\siscan\reports\`).
-	- `HOST_EXCEL_COLUMNS_MAPPING_PATH`: caminho para um arquivo JSON opcional de mapeamento de colunas (ex.: `C:\siscan\config\excel_columns_mapping.json`).
+**Assistente SISCan RPA — Instalador remoto**
 
-	Observações para não técnicos:
-	- Use caminhos do Windows (ex.: `C:\siscan\media`) quando executando no Windows. Se usar WSL, também funciona com caminhos `/mnt/c/...` dependendo da sua configuração do Docker.
-	- Se não souber algum valor, peça ao time de infraestrutura ou deixe em branco temporariamente e solicite ajuda.
+Este repositório contém um instalador remoto modular (PowerShell + Bash) para instalar, atualizar e gerenciar o serviço "Assistente SISCan RPA".
 
-	## Comandos úteis
+Resumo
 
-	- Para iniciar os serviços manualmente (quando o `docker-compose.yml` já existir):
+- Objetivo: fornecer um instalador simples para usuários finais (técnicos e não técnicos).
 
-	```bash
-	docker compose up -d
-	```
+Conteúdo deste README
 
-	- Para ver logs:
+- Visão geral
+- Pré-requisitos
+- Instalação rápida
+- Configuração (`.env`)
+- Estrutura do repositório
+- Como funciona
+- Resolução de problemas (troubleshooting)
 
-	```bash
-	docker compose logs -f
-	```
+Visão geral
 
-	## Estrutura do repositório
+O instalador solicita as informações necessárias (token para registry, credenciais SISCAN, caminhos de diretórios) e cria/atualiza os serviços Docker via `docker-compose`.
 
-	- `install.ps1` / `install.sh`: bootstrap que interage com o usuário e baixa módulos.
-	- `scripts/modules/`: módulos que executam tarefas (docker, siscan, etc.).
-	- `docker-compose.yml`: gerado pelo instalador quando necessário.
-	- `.env.sample`: exemplo de variáveis de ambiente (copiar e preencher como `.env`).
+Para operadores não técnicos: você só precisa fornecer algumas informações básicas e criar pastas no Windows quando solicitado. O instalador trata do restante das operações.
 
-	## Como funciona (resumo técnico)
+Pré-requisitos
 
-	- O bootstrap baixa módulos em `scripts/modules/` e executa o fluxo.
-	- Módulos são cacheados localmente para execução offline/recuperação.
-	- Credenciais e tokens são solicitados via entrada segura (não são gravados em texto puro nos logs).
+- Docker Desktop (Windows) ou Docker Engine (Linux/macOS).
+- Docker Compose (v2 integrado ao Docker Desktop ou `docker-compose`).
+- Acesso à internet para baixar imagens e módulos, ou acesso ao registry privado com token.
 
-	## Troubleshooting básico
+Instalação rápida
 
-	- Erro: `docker` não encontrado — instale Docker Desktop (Windows) ou Docker Engine (Linux).
-	- Erro: `docker compose` não encontrado — instale a versão compatível do Compose.
-	- Erro no `docker login` — verifique o token/usuário e permissões do registry.
-	- Problema de permissões em pastas (Windows): execute o PowerShell como Administrador ou ajuste permissões das pastas indicadas em `HOST_*`.
+Windows (PowerShell):
 
-	## Boas práticas e próximos passos
+```powershell
+irm "https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.ps1" | iex
+```
 
-	- Use tokens de acesso com escopo mínimo (apenas pull) para o registry privado.
-	- Considere adicionar verificação de integridade (SHA256) para os módulos baixados.
-	- Podemos adicionar suporte específico para registries (GHCR, ACR, ECR) caso precise.
+Linux / macOS (Bash):
 
-	## Contato / Ajuda
+```bash
+curl -sSL https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.sh | bash
+```
 
-	Se quiser, eu posso:
-	- Gerar um `.env` de exemplo com valores preenchidos;
-	- Verificar o `docker-compose.yml` e ajustar mapeamentos `HOST_*`;
-	- Implementar verificação de assinatura/SHA para módulos.
+Se preferir inspecionar os scripts antes de executar, clone este repositório e execute `install.ps1` / `install.sh` localmente.
 
-	---
-
-	Repositório da imagem principal (referência): https://github.com/Prisma-Consultoria/siscan-rpa
-
-Este repositório atua apenas como **instalador, configurador e gerenciador** do SISCan-RPA.
-
-	## Documentação de Deploy e Operação
-
-	Este repositório agora inclui documentação completa para deploy, operação e troubleshooting do Assistente SISCAN RPA. Os documentos estão em `docs/`:
-
-	- `docs/DEPLOY.md` — Manual completo de deploy: introdução, arquitetura, pré-requisitos e passo a passo.
-	- `docs/TROUBLESHOOTING.md` — Guia aprofundado de troubleshooting com comandos e árvores de decisão.
-	- `docs/ERRORS_TABLE.md` — Tabela extensa de erros comuns (causa provável e solução).
-	- `docs/CHECKLISTS.md` — Checklists operacionais (antes, depois e emergência).
-
-	Consulte esses documentos para procedimentos passo a passo e fluxos de diagnóstico.
+Configuração (`.env`)

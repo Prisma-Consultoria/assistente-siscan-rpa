@@ -1,11 +1,13 @@
+
 # Troubleshooting Completo - Assistente SISCAN RPA
+<a name="troubleshooting"></a>
 
 Versão: 1.0
 Data: 2025-11-30
 
 Este documento contém procedimentos de diagnóstico e correção para problemas que podem ocorrer durante o deploy e operação do Assistente SISCAN RPA em host Windows com Docker.
 
-**Como usar este guia**
+## Como usar este guia
 
 - Sempre colecione logs antes de mudanças: `docker logs`, `docker inspect`, `docker compose logs`.
 - Reproduza o problema com comandos mínimos.

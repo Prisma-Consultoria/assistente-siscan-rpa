@@ -1,4 +1,5 @@
 # Checklists Operacionais - Assistente SISCAN RPA
+<a name="checklists"></a>
 
 Versão: 1.0
 Data: 2025-11-30

@@ -1,4 +1,5 @@
 # Erros Comuns e Soluções - Assistente SISCAN RPA
+<a name="errors"></a>
 
 Esta tabela lista erros frequentes relacionados a Rede, Docker, Windows, GHCR, Compose, permissões, WSL2, e fornece causas prováveis e soluções práticas.
 

@@ -1,4 +1,5 @@
 # Documentação de Deploy - Assistente SISCAN RPA
+<a name="deploy"></a>
 
 Versão: 1.0
 Data: 2025-11-30
@@ -162,7 +163,26 @@ git clone https://github.com/<org>/assistente-siscan-rpa.git .
 ```
 - Opção sem `git`: baixar `docker-compose.yml`, `README.md` e arquivos de configuração do repositório oficial.
 
-3) Criar arquivo de variáveis `.env` com base no arquivo `.env.sample`.
+3) Instalação rápida (opções)
+
+- Windows (PowerShell):
+
+```powershell
+irm "https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.ps1" | iex
+```
+
+- Linux / macOS (Bash):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/install.sh | bash
+```
+
+4) Criar arquivo de variáveis `.env` com base no arquivo `.env.sample`.
+
+```powershell
+cp .env.sample .env
+# editar .env conforme instruções
+```
 
 4) Autenticar no GHCR
 
