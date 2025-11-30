@@ -12,7 +12,7 @@ Este documento contém procedimentos de diagnóstico e correção para problemas
 - Sempre colecione logs antes de mudanças: `docker logs`, `docker inspect`, `docker compose logs`.
 - Reproduza o problema com comandos mínimos.
 - Aplique a solução em ambiente de staging quando possível.
-- Observação: este repositório fornece `install.ps1` e `install.sh` (veja `README.md`) — use-os apenas após inspecionar o conteúdo quando em produção.
+- Observação: este repositório fornece o script interativo principal `siscan-assistente.ps1` (veja `README.md`) — revise-o antes de executar em produção.
 
 ---
 
