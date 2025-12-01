@@ -34,21 +34,23 @@ Execute os seguintes comandos e copie a saída para um arquivo de texto.
 
 ---
 
-### 2. Problemas com o Docker (O Motor do Assistente)
 
-O Docker é o programa principal que executa o Assistente.
 
-#### **Problema: A Mensagem "Cannot connect to the Docker daemon" Apareceu**
+### 🐳 2. Problemas com o Docker (O Motor do Assistente) - (Revisado)
 
-Isso significa que o Docker (o motor que roda o Assistente) não está ligado.
+O Docker é o programa que funciona como o **motor** que roda o Assistente SISCAN RPA no seu computador.
+
+#### **Problema: O Docker não está funcionando**
+
+O sintoma é: A mensagem **"Cannot connect to the Docker daemon"** apareceu no seu PowerShell.
 
 | Passo | O que Fazer | Detalhes para o Leigo |
 | :--- | :--- | :--- |
-| **1. Verificar o status** | **Abra o Docker Desktop** no menu Iniciar. | Ele deve mostrar um ícone verde ou a palavra **"Running"**. Se estiver cinza ou com a palavra **"Stopped"**, ele está parado. |
-| **2. Tentar Reiniciar** | No PowerShell Admin, digite: `Restart-Service com.docker.service` | Este comando tenta ligar o motor do Docker novamente. |
-| **3. Verificar o Sistema** | Certifique-se de que o seu computador tem **espaço em disco livre** e **memória RAM** (pelo menos 8GB, 16GB é ideal). | O Docker consome muitos recursos. Um PC lento ou cheio pode impedir que ele inicie. |
-| **4. Se usar WSL2** | No PowerShell Admin, digite: `wsl --update` | Se você estiver usando o WSL2 (subsistema Linux do Windows), este comando atualiza o kernel e resolve falhas comuns. Depois, **reinicie o Docker Desktop**. |
-
+| **1. Verificar o Status do Docker Desktop** | **Abra o Docker Desktop no menu Iniciar.** | **Como Fazer:** Clique no menu **Iniciar** do Windows (o ícone da bandeira) e digite `Docker Desktop`. Clique no aplicativo que aparecer. Ao abrir, o ícone do Docker na sua barra de tarefas (perto do relógio) deve ficar verde e a tela inicial do programa deve mostrar um *status* como **"Docker Desktop is running"** (O Docker Desktop está rodando). Se o ícone estiver cinza ou o status for **"Stopped"** (Parado), ele não está funcionando. |
+| **2. Tentar Reiniciar** | No **PowerShell Admin**, digite o comando: `Restart-Service com.docker.service` | Este comando tenta **desligar e ligar** o motor do Docker novamente, corrigindo falhas temporárias. |
+| **3. Verificar Recursos do Computador** | **Certifique-se de que o seu computador tem espaço em disco livre e memória RAM.** | **Como Fazer (Espaço em Disco):** Abra o **Explorador de Arquivos** (o ícone da pasta amarela). Clique em **"Este Computador"**. Verifique o **Disco Local (C:)** para garantir que você tenha pelo menos **20 GB a 50 GB livres**. Se estiver quase cheio, o Docker não tem espaço para as imagens e volumes.  |
+| | | **Como Fazer (Memória RAM):** Pressione as teclas `CTRL + SHIFT + ESC` ao mesmo tempo para abrir o **Gerenciador de Tarefas**. Clique na aba **Desempenho** e olhe o item **Memória**. O número total (por exemplo, 16 GB) é a memória RAM. Se você estiver usando um computador com menos de **8 GB** de RAM, o Docker terá dificuldades para rodar, sendo **16 GB** o recomendado. |
+| **4. Se Usar WSL2 (Subsistema Linux)** | No PowerShell Admin, digite: `wsl --update` | Se você usa o WSL2 para rodar o Docker (geralmente usado por quem instalou o Docker Desktop mais recentemente), este comando **atualiza** o componente WSL e, em seguida, você deve **reiniciar o Docker Desktop** pelo menu do programa. |
 ---
 
 ### 3. Problemas de Acesso (Login, Chaves e Imagens)
@@ -104,6 +106,28 @@ Você pode receber uma mensagem dizendo que o script não pode ser carregado.
 | :--- | :--- | :--- |
 | **1. Ajustar a Política (Se permitido)** | No PowerShell Admin, digite: `Set-ExecutionPolicy RemoteSigned -Scope LocalMachine` | Este comando permite que *scripts* que você baixou da Internet rodem no seu computador. **Atenção:** Se a sua área de TI não permitir isso, não prossiga. |
 | **2. Checar o Antivírus** | Verifique as notificações e logs do **Windows Defender** ou do seu Antivírus. | O programa pode estar bloqueando o Docker ou a pasta do Assistente. Peça à TI para adicionar o **Docker** e a **pasta do Assistente SISCAN RPA** como exceções. |
+
+
+#####  Solução para o Erro: "Execução de scripts foi desabilitada"
+
+Você precisa temporariamente relaxar a política de segurança do PowerShell para permitir a execução de scripts locais.
+
+| Passo | O que Fazer | Detalhes Importantes |
+| :--- | :--- | :--- |
+| **1. Abrir o PowerShell como Administrador** | Clique no menu Iniciar, digite `PowerShell`, clique com o botão direito em **Windows PowerShell** e escolha **Executar como administrador**. | **É fundamental** que você execute como Administrador, ou o comando no Passo 2 não funcionará. |
+| **2. Ajustar a Política de Execução** | No PowerShell Admin, digite o seguinte comando e pressione Enter: `Set-ExecutionPolicy RemoteSigned -Scope LocalMachine` | Este comando muda a política para `RemoteSigned`, o que significa que scripts criados localmente (como o seu `siscan-assistente.ps1`) podem ser executados, enquanto scripts baixados da internet ainda precisarão de uma assinatura digital. |
+| **3. Confirmar a Mudança** | O PowerShell irá perguntar se você tem certeza. Digite a letra `S` (Sim) e pressione Enter. | Se tudo der certo, o PowerShell voltará para a linha de comando sem mensagens de erro. |
+| **4. Tentar Rodar o Script Novamente** | Feche e reabra o seu terminal normal (sem ser como Administrador) na pasta correta (`C:\Users\jailt\assistente-siscan-rpa>`). | Execute o comando original: `.\siscan-assistente.ps1` |
+
+---
+
+#####  E se o problema persistir?
+
+Se o passo 3 retornar a mensagem **"Acesso negado"**, isso significa que as configurações de segurança da sua empresa (política de grupo) estão impedindo a mudança.
+
+Neste caso, você terá que contatar o **Departamento de TI (NetOps)** da prefeitura para que eles alterem a política de execução ou autorizem a execução do script `siscan-assistente.ps1` no seu computador.
+
+Deu certo a alteração da política de execução?
 
 ---
 
