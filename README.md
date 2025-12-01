@@ -103,6 +103,8 @@ docker compose logs -f
 
 Referência: repositório da imagem principal — [Prisma-Consultoria/siscan-rpa](https://github.com/Prisma-Consultoria/siscan-rpa)
 
+Outros problemas e diagnósticos estão disponíveis em: [TROUBLESHOOTING](docs/TROUBLESHOOTING.md#troubleshooting)
+
 ## Documentação de Deploy e Operação
 
 Os documentos completos estão em `docs/`.
