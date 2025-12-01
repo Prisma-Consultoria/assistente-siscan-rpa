@@ -44,7 +44,7 @@ O Docker é o programa que funciona como o **motor** que roda o Assistente SISCA
 
 O sintoma é: A mensagem **"Cannot connect to the Docker daemon"** apareceu no seu PowerShell.
 
-| Passo | O que Fazer | Detalhes para o Leigo |
+| Passo | O que Fazer | Como Fazer |
 | :--- | :--- | :--- |
 | **1. Verificar o Status do Docker Desktop** | **Abra o Docker Desktop no menu Iniciar.** | **Como Fazer:** Clique no menu **Iniciar** do Windows (o ícone da bandeira) e digite `Docker Desktop`. Clique no aplicativo que aparecer. Ao abrir, o ícone do Docker na sua barra de tarefas (perto do relógio) deve ficar verde e a tela inicial do programa deve mostrar um *status* como **"Docker Desktop is running"** (O Docker Desktop está rodando). Se o ícone estiver cinza ou o status for **"Stopped"** (Parado), ele não está funcionando. |
 | **2. Tentar Reiniciar** | No **PowerShell Admin**, digite o comando: `Restart-Service com.docker.service` | Este comando tenta **desligar e ligar** o motor do Docker novamente, corrigindo falhas temporárias. |
