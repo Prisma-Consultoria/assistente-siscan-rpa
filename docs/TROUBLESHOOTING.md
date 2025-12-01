@@ -1,156 +1,123 @@
 
-# Solução de problemas completa - Assistente SISCAN RPA
-<a name="troubleshooting"></a>
 
-Versão: 1.0
-Data: 2025-11-30
+## 🛠️ Guia de Solução de Problemas do Assistente SISCAN RPA (Versão Simplificada)
 
-Este documento contém procedimentos de diagnóstico e correção para problemas que podem ocorrer durante o deploy e operação do Assistente SISCAN RPA em host Windows com Docker.
+Este guia ajuda a identificar e corrigir os problemas mais comuns durante a instalação ou operação do Assistente SISCAN RPA.
 
-## Como usar este guia
+### **Regra de Ouro Antes de Começar**
 
-- Sempre colecione logs antes de mudanças: `docker logs`, `docker inspect`, `docker compose logs`.
-- Reproduza o problema com comandos mínimos.
-- Aplique a solução em ambiente de staging quando possível.
-- Observação: este repositório fornece o script interativo principal `siscan-assistente.ps1` (veja `README.md`) — revise-o antes de executar em produção.
+Sempre anote o que aconteceu, a data e a hora do erro. Se precisar de ajuda mais avançada, envie o máximo de informações possível.
 
 ---
 
-## 1. Comandos de coleta rápida
+### 1. Verificações Rápidas e Coleta de Informações
 
-- `docker version` — versão client/server
-- `docker info` — status do daemon
-- `docker compose version` — versão do compose
-- `docker compose config` — validação do `docker-compose.yml`
-- `docker compose ps` — estado dos serviços
-- `docker logs <container>` — logs do container
-- `docker inspect <container>` — metadados do container
-- `Test-NetConnection ghcr.io -Port 443` — teste de conectividade a GHCR
-- `Resolve-DnsName ghcr.io` / `nslookup ghcr.io` — verificação DNS
+Antes de tentar qualquer solução, vamos checar o status do seu sistema.
 
----
+#### **A. Abra o Terminal de Comandos (PowerShell como Administrador)**
 
-## 2. Problemas com Docker (daemon, Desktop, WSL2)
+* **O que fazer:** Clique no menu Iniciar, digite `PowerShell`, clique com o botão direito em **Windows PowerShell** e escolha **Executar como administrador**.
+* **Por que:** Muitos comandos de diagnóstico e correção precisam de permissões especiais.
 
-Problema: Docker não inicia / Daemon parado
-- Sintomas: `docker info` falha, `Cannot connect to the Docker daemon`.
-- Diagnóstico:
-  - `Get-Service com.docker.service`
-  - Verificar logs: `%APPDATA%\Docker\log.txt` e `C:\ProgramData\DockerDesktop\service.txt`.
-- Correção:
-  - Reiniciar serviço: `Restart-Service com.docker.service` (PowerShell Admin).
-  - Se usar WSL2: executar `wsl --update` e reiniciar Docker Desktop.
-  - Verificar espaço em disco e memória.
+#### **B. Colete as Informações Principais (Comandos)**
 
-Problema: Docker quebrado após atualização do Windows
-- Sintomas: Docker Desktop abre, mas containers não iniciam.
-- Diagnóstico: revisar logs no caminho acima; verificar versão WSL2 kernel.
-- Correção:
-  - Atualizar WSL2 kernel: `wsl --update`.
-  - Desabilitar e reabilitar integração WSL2 no Docker Desktop.
-  - Reinstalar Docker Desktop versão compatível com OS.
+Execute os seguintes comandos e copie a saída para um arquivo de texto.
 
-Problema: Falha no login ao GHCR
-- Sintomas: `unauthorized: authentication required` ou `pull access denied`.
-- Diagnóstico: `docker login ghcr.io -u <user> -p <token>` erros; verificar escopos do token no GitHub.
-- Correção:
-  - Regenerar PAT com `read:packages` e `repo` (se imagem for privada dentro de repositorio privado).
-  - Executar `docker logout ghcr.io` e `docker login ghcr.io` novamente.
+| Comando | O que ele faz |
+| :--- | :--- |
+| `docker info` | Mostra se o Docker está rodando e o status geral. |
+| `docker compose ps` | Lista os componentes do Assistente e seus status (rodando, parado, etc.). |
+| `docker logs <NomeDoServiço>` | Mostra o que aconteceu dentro de um componente específico. |
+| **Para obter os logs completos de todos os serviços:** | `docker compose logs` |
 
-Erro: `Mount denied` ou `invalid mount config for type 'bind'`
-- Causa: Docker Desktop não autorizado a acessar o drive ou o caminho não existe.
--- Solução:
-  - Habilitar file sharing do drive C: nas configurações do Docker Desktop.
-  - Garantir que o caminho host existe e tem permissões adequadas.
-
-Erro: `Bind: address already in use`
-- Diagnóstico: `netstat -ano | findstr :<porta>` para identificar PID.
-- Solução: parar o processo que usa a porta ou alterar mapeamento da porta no `docker-compose.yml`.
+> **Dica:** Se o `docker compose ps` mostrar o nome de um serviço (por exemplo, `siscan-api`), substitua `<NomeDoServiço>` por esse nome no comando `docker logs`.
 
 ---
 
-## 3. Problemas com Docker Compose
+### 2. Problemas com o Docker (O Motor do Assistente)
 
-Compose não sobe ou falha ao criar serviço
-- Diagnóstico: executar `docker compose config` para validar YAML.
-- Solução: ajustar indentação, versões ou variáveis de ambiente; checar volumes e paths.
+O Docker é o programa principal que executa o Assistente.
 
-Container fica em loop de reinício (CrashLoop)
-- Diagnóstico: `docker logs <container>` mostra stacktrace ou erro.
--- Solução:
-  - Ver logs e replicar `docker run --rm -it <image> sh` para debugar manualmente.
-  - Ajustar variáveis de ambiente, entrypoint ou healthcheck.
+#### **Problema: A Mensagem "Cannot connect to the Docker daemon" Apareceu**
 
-Volumes sem permissão
-- Diagnóstico: erros nos logs do container sobre escrita em caminho montado.
-- Solução: ajustar ACLs do host (`icacls`) e garantir que o usuário do processo dentro do container tenha permissão (uid/gid se aplicável).
+Isso significa que o Docker (o motor que roda o Assistente) não está ligado.
 
----
-
-## 4. Problemas com GHCR e GitHub
-
-Token inválido / expirado / escopo incorreto
-- Verificar via GitHub → Settings → Developer settings → Personal access tokens.
-- Geração recomendada: PAT com `read:packages` (mínimo). Adicionalmente `repo` se necessário.
-
-Pull de imagem privada falha
-- Verificar `docker login ghcr.io` com o usuário GitHub correto.
-- Se o repositório pertence a organização, garantir que o pacote esteja visível para o usuário (read access) ou que PAT seja de um usuário com acesso.
-
-Rate limit / bloqueio por rede
-- Diagnóstico: obter mensagens de erro no `docker pull` ou testar com `curl`.
-- Solução: adicionar autenticação, solicitar exceção de rede ou usar mirror interno.
+| Passo | O que Fazer | Detalhes para o Leigo |
+| :--- | :--- | :--- |
+| **1. Verificar o status** | **Abra o Docker Desktop** no menu Iniciar. | Ele deve mostrar um ícone verde ou a palavra **"Running"**. Se estiver cinza ou com a palavra **"Stopped"**, ele está parado. |
+| **2. Tentar Reiniciar** | No PowerShell Admin, digite: `Restart-Service com.docker.service` | Este comando tenta ligar o motor do Docker novamente. |
+| **3. Verificar o Sistema** | Certifique-se de que o seu computador tem **espaço em disco livre** e **memória RAM** (pelo menos 8GB, 16GB é ideal). | O Docker consome muitos recursos. Um PC lento ou cheio pode impedir que ele inicie. |
+| **4. Se usar WSL2** | No PowerShell Admin, digite: `wsl --update` | Se você estiver usando o WSL2 (subsistema Linux do Windows), este comando atualiza o kernel e resolve falhas comuns. Depois, **reinicie o Docker Desktop**. |
 
 ---
 
-## 5. Problemas de Windows (permissões, ExecutionPolicy, Defender)
+### 3. Problemas de Acesso (Login, Chaves e Imagens)
 
-ExecutionPolicy bloqueando scripts
-- Sintoma: `script.ps1 cannot be loaded because running scripts is disabled on this system`.
-- Solução: executar PowerShell como Admin e `Set-ExecutionPolicy RemoteSigned -Scope LocalMachine` (só se a política de segurança permitir).
+O Assistente precisa de permissão para baixar as atualizações (Imagens) de onde elas estão guardadas (`ghcr.io`).
 
-Windows Defender bloqueando execução ou acesso a arquivos
-- Diagnóstico: logs do Windows Defender e eventos de bloqueio.
-- Solução: adicionar exceções para Docker, pastas do projeto e binários conhecidos do Assistente.
+#### **Problema: Falha de Login ou Mensagem "unauthorized" / "pull access denied"**
 
-Permissões NTFS
-- Usar `icacls` e `takeown` para corrigir dono e ACLs.
-```powershell
-takeown /f C:\assistente-siscan /r /d y
-icacls C:\assistente-siscan /grant "Administradores:(OI)(CI)F" /T
-```
+Significa que a chave (Token) usada para fazer o login no repositório de imagens é inválida ou expirou.
+
+| Passo | O que Fazer | Detalhes para o Leigo |
+| :--- | :--- | :--- |
+| **1. Sair e Entrar Novamente** | No PowerShell Admin, digite: `docker logout ghcr.io` e depois `docker login ghcr.io` | O comando `login` pedirá o **Nome de Usuário do GitHub** e a **Chave/Token de Acesso Pessoal (PAT)**. Certifique-se de usar o token **correto**. |
+| **2. Verificar a Chave (Token)** | Acesse a página de **Tokens de Acesso Pessoal (PAT)** no GitHub. | A chave (Token) usada para o login precisa ter as permissões `read:packages` e, se o repositório for privado, `repo`. Se estiver expirada ou sem as permissões corretas, **gere uma nova**. |
 
 ---
 
-## 6. Rede e Internet
+### 4. Problemas de Permissão de Pastas (Mount denied)
 
-DNS/Conectividade com `ghcr.io`
-- `nslookup ghcr.io`
-- `Test-NetConnection ghcr.io -Port 443`
-- Se `ghcr.io` não resolve, tente `8.8.8.8` como DNS temporário e contate NetOps.
+O Docker precisa de permissão para acessar a pasta do Assistente no seu computador.
 
-Proxy corporativo
-- Configurar variáveis `HTTP_PROXY` e `HTTPS_PROXY` no Docker Desktop (Settings → Resources → Proxies) e no ambiente PowerShell.
+#### **Problema: Erro "Mount denied" ou "invalid mount config"**
 
----
+O Docker não consegue ler ou gravar na pasta do projeto no seu Windows.
 
-## 7. Coleta de artefatos para escalonamento
-
-- `docker compose logs --no-log-prefix > compose-logs.txt`
-- `docker inspect <container> > inspect-<container>.json`
-- `docker images --digests > images.txt`
-- Capturar saída de `docker info` e `docker version`
-- Reunir timestamps e passos executados antes do erro
+| Passo | O que Fazer | Detalhes para o Leigo |
+| :--- | :--- | :--- |
+| **1. Compartilhar o Drive** | **Abra o Docker Desktop** -> Vá em **Settings** (Configurações) -> **Resources** -> **File Sharing** (Compartilhamento de Arquivos). | Certifique-se de que o **Drive C:** (ou o drive onde está a pasta do Assistente) esteja listado e **selecionado** para compartilhamento. |
+| **2. Verificar a Pasta** | Verifique se a pasta de instalação do Assistente no seu computador (**Exemplo:** `C:\assistente-siscan`) realmente existe e se está com as permissões corretas. | O caminho **tem que ser o mesmo** usado no arquivo `docker-compose.yml` ou no script de *deploy*. |
 
 ---
 
-## 8. Árvores de decisão rápidas (exemplos)
+### 5. Problemas com o Assistente (Containers em Loop)
 
-- Erro: `unauthorized` ao puxar imagem → Se token inválido/expirado: regenerar PAT → testar `docker login` → se persistir, verificar rede/proxy.
-- Erro: `Mount denied` → Checar compartilhamento do drive no Docker Desktop → ajustar permissões no host → reproduzir com `docker run` de teste.
+#### **Problema: Um componente (Container) do Assistente não inicia e fica Reiniciando sem parar**
+
+Isso é chamado de *CrashLoop*. O componente está tentando iniciar, mas encontra um erro e se desliga imediatamente.
+
+| Passo | O que Fazer | Detalhes para o Leigo |
+| :--- | :--- | :--- |
+| **1. Coletar o Log do Erro** | No PowerShell Admin, use o comando para ver os logs do componente que está falhando: `docker logs <NomeDoServiço>` | **Procure por mensagens de erro em letras maiúsculas, *stacktrace*, ou palavras-chave como `ERROR`, `Failed`, ou `Exception`.** Isso geralmente indica qual variável de ambiente está faltando ou se há um arquivo de configuração errado. |
+| **2. Parar e Recriar** | Se a causa for corrigida (ex: variável ajustada), execute: `docker compose down` e depois `docker compose up -d` | Isso força o Docker a parar, remover e recriar o componente com as novas configurações, eliminando o erro de *CrashLoop*. |
 
 ---
 
-## 9. Notas finais
+### 6. Problemas com o Windows Defender e Scripts
 
-Documente todas as ações e tempos. Se escalonar, anexe os artefatos coletados nesta seção.
+#### **Problema: O Windows bloqueia a execução do script de instalação (`.ps1`)**
+
+Você pode receber uma mensagem dizendo que o script não pode ser carregado.
+
+| Passo | O que Fazer | Detalhes para o Leigo |
+| :--- | :--- | :--- |
+| **1. Ajustar a Política (Se permitido)** | No PowerShell Admin, digite: `Set-ExecutionPolicy RemoteSigned -Scope LocalMachine` | Este comando permite que *scripts* que você baixou da Internet rodem no seu computador. **Atenção:** Se a sua área de TI não permitir isso, não prossiga. |
+| **2. Checar o Antivírus** | Verifique as notificações e logs do **Windows Defender** ou do seu Antivírus. | O programa pode estar bloqueando o Docker ou a pasta do Assistente. Peça à TI para adicionar o **Docker** e a **pasta do Assistente SISCAN RPA** como exceções. |
+
+---
+
+## Coleta de Informações para Suporte Avançado
+
+Se nenhuma das soluções acima funcionar, reúna todos os seguintes arquivos e informações para enviar à equipe de suporte.
+
+1.  **Logs do Compose:**
+    * `docker compose logs --no-log-prefix > compose-logs.txt`
+2.  **Informações do Docker:**
+    * `docker info > docker-info.txt`
+    * `docker version > docker-version.txt`
+3.  **Status do Sistema:**
+    * **Data e Hora Exata** do momento da falha.
+    * **Passos Exatos** que você seguiu antes do erro ocorrer.
+    * Uma **Captura de Tela (Screenshot)** da mensagem de erro.
+
