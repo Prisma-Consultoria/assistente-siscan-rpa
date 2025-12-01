@@ -36,7 +36,7 @@ Execute os seguintes comandos e copie a saída para um arquivo de texto.
 
 
 
-### 🐳 2. Problemas com o Docker (O Motor do Assistente) - (Revisado)
+### 2. Problemas com o Docker (O Motor do Assistente) - (Revisado)
 
 O Docker é o programa que funciona como o **motor** que roda o Assistente SISCAN RPA no seu computador.
 
