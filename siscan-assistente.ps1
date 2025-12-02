@@ -72,7 +72,7 @@ $ENV_HELP_TEXTS = @{
 $helpPath = Join-Path $PSScriptRoot '.env.help.json'
 if (Test-Path $helpPath) {
     try {
-        $helpJson = Get-Content $helpPath -Raw | ConvertFrom-Json
+        $helpJson = Get-Content -Path $helpPath -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($helpJson -and $helpJson.keys) {
             $ENV_HELP_TEXTS = @{}
             $ENV_HELP_ENTRIES = @{}
