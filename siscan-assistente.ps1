@@ -88,26 +88,20 @@ function Ask-Credentials {
     $user = Read-Host "Usuario"
     $tok  = Read-Host "Token"
 
-    "usuario=$user" | Out-File $CRED_FILE -Encoding utf8
-    "token=$tok"    | Out-File $CRED_FILE -Encoding utf8 -Append
+    # Salvamento em disco comentado: não gravamos mais credenciais em arquivo por padrão.
+    # "usuario=$user" | Out-File $CRED_FILE -Encoding utf8
+    # "token=$tok"    | Out-File $CRED_FILE -Encoding utf8 -Append
+    # Write-Host "`nCredenciais salvas.`n"
 
-    Write-Host "`nCredenciais salvas.`n"
+    Write-Host "`nCredenciais obtidas (não salvas em disco).`n"
 
     return @{ usuario = $user; token = $tok }
 }
 
 function Ensure-Credentials {
-    if (Test-Path $CRED_FILE) {
-        $opt = Read-Host "Credenciais ja existem. Usar mesmo arquivo? (s/n)"
-        if ($opt.Trim().ToLower() -eq "s") {
-            return Get-CredentialsFile
-        } else {
-            Remove-Item $CRED_FILE -ErrorAction SilentlyContinue
-            return Ask-Credentials
-        }
-    } else {
-        return Ask-Credentials
-    }
+    # Sempre solicitar usuário + token do GHCR, mesmo que exista arquivo salvo.
+    if (Test-Path $CRED_FILE) { Remove-Item $CRED_FILE -ErrorAction SilentlyContinue }
+    return Ask-Credentials
 }
 
 function Docker-Login ($creds) {
@@ -132,13 +126,23 @@ function UpdateAndRestart {
         return
     }
 
-    # Primeiro puxa a nova imagem
-    Write-Host "`nBaixando nova imagem..." -ForegroundColor Cyan
-    docker compose pull
+    # Solicita credenciais sempre e realiza login no GHCR
+    Write-Host "`nSolicitando credenciais do GHCR (sempre)..." -ForegroundColor Cyan
+    $creds = Ask-Credentials
+    if (-not (Docker-Login $creds)) {
+        Write-Host "Aviso: falha no login. Tentando continuar com pull (pode falhar)..." -ForegroundColor Yellow
+    }
 
+    # Tentar pull direto da imagem especifica (mais robusto para GHCR)
+    Write-Host "`nTentando docker pull $IMAGE_PATH..." -ForegroundColor Cyan
+    docker pull $IMAGE_PATH
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "Erro ao baixar nova imagem!" -ForegroundColor Red
-        return
+        Write-Host "Pull direto falhou, tentando 'docker compose pull' como fallback..." -ForegroundColor Yellow
+        docker compose pull
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Erro ao baixar nova imagem!" -ForegroundColor Red
+            return
+        }
     }
 
     # Depois reinicia tudo
