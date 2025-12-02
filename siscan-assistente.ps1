@@ -252,14 +252,14 @@ function Restart-Service {
         return
     }
 
-    Write-Host "`nReiniciando o Assistente..."
+    Write-Host "`nReiniciando o SISCAN RPA..."
     docker compose down
     docker compose up -d
 
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "Assistente reiniciado com sucesso." -ForegroundColor Green
+        Write-Host "SISCAN RPA reiniciado com sucesso." -ForegroundColor Green
     } else {
-        Write-Host "Erro ao reiniciar o Assistente." -ForegroundColor Red
+        Write-Host "Erro ao reiniciar o SISCAN RPA." -ForegroundColor Red
     }
 }
 
