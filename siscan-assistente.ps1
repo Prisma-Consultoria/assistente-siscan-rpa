@@ -364,7 +364,7 @@ function Update-EnvFile {
 
 function Manage-Env {
     $envFile = Join-Path $PSScriptRoot ".env"
-    $templateFiles = @('.env.example', '.env.template', '.env.dist')
+    $templateFiles = @('.env.sample', '.env.example', '.env.template', '.env.dist')
 
     if (-not (Test-Path $envFile)) {
         $found = $null
