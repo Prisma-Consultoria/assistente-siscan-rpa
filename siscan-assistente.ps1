@@ -75,10 +75,14 @@ if (Test-Path $helpPath) {
         $helpJson = Get-Content $helpPath -Raw | ConvertFrom-Json
         if ($helpJson -and $helpJson.keys) {
             $ENV_HELP_TEXTS = @{}
+            $ENV_HELP_ENTRIES = @{}
             foreach ($prop in $helpJson.keys.psobject.properties) {
                 $k = $prop.Name
                 $entry = $helpJson.keys.$k
-                if ($entry -and $entry.help) { $ENV_HELP_TEXTS[$k] = $entry.help }
+                if ($entry) {
+                    if ($entry.help) { $ENV_HELP_TEXTS[$k] = $entry.help }
+                    $ENV_HELP_ENTRIES[$k] = $entry
+                }
             }
         }
     } catch {
@@ -340,21 +344,54 @@ function Update-EnvFile {
             $key = $matches[1]
             $val = $matches[2]
             $valDisplay = $val.Trim()
+            # Determine se ha entradas de help mais completas
+            $entry = $null
+            if ($null -ne $ENV_HELP_ENTRIES -and $ENV_HELP_ENTRIES.ContainsKey($key)) { $entry = $ENV_HELP_ENTRIES[$key] }
 
-            Write-Host "`nVariavel: $key = $valDisplay" -ForegroundColor Cyan
+            # Decide se a variavel e secreta (fallback por nome se info nao existir)
+            $isSecret = $false
+            if ($entry -and $entry.secret) { $isSecret = $entry.secret }
+            elseif ($key -match 'PASSWORD|TOKEN|SECRET|KEY') { $isSecret = $true }
 
-            # Se houver texto de ajuda disponivel, mostrar antes do prompt
+            Write-Host "`nVariavel: $key" -ForegroundColor Cyan
+            if ($isSecret) {
+                if ($valDisplay -ne "") { Write-Host "Valor atual: (oculto)" -ForegroundColor DarkGray } else { Write-Host "Valor atual: (vazio)" -ForegroundColor DarkGray }
+            } else {
+                Write-Host "Valor atual: $valDisplay" -ForegroundColor DarkGray
+            }
+
+            # Mostrar exemplo e required quando disponivel
+            if ($entry -and $entry.example -and $entry.example -ne "") { Write-Host "Exemplo: $($entry.example)" -ForegroundColor DarkGray }
+            if ($entry -and $entry.required) { Write-Host "Obrigatório" -ForegroundColor Yellow }
+
+            # Mostrar texto de ajuda se existir
             if ($ENV_HELP_TEXTS.ContainsKey($key)) {
                 $help = $ENV_HELP_TEXTS[$key]
                 Write-Host "Ajuda: $help" -ForegroundColor DarkCyan
             }
 
-            $new = Read-Host "Novo valor (Enter para manter)"
+            # Helper para converter SecureString para texto simples
+            function Convert-SecureToPlain([System.Security.SecureString]$s) {
+                if (-not $s) { return "" }
+                $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)
+                try { return [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr) } finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+            }
 
-            if ($new -ne "") {
-                $updated += "$key=$new"
+            if ($isSecret) {
+                $secure = Read-Host "Novo valor (Enter para manter)" -AsSecureString
+                $newPlain = Convert-SecureToPlain $secure
+                if ($newPlain -ne "") {
+                    $updated += "$key=$newPlain"
+                } else {
+                    $updated += $line
+                }
             } else {
-                $updated += $line
+                $new = Read-Host "Novo valor (Enter para manter)"
+                if ($new -ne "") {
+                    $updated += "$key=$new"
+                } else {
+                    $updated += $line
+                }
             }
         } else {
             # mantem comentarios e linhas vazias
