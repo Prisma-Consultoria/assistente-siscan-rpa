@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 # -------------------------------------------
 # CLI do Assistente SIScan
 # -------------------------------------------
@@ -8,13 +8,6 @@
 # Uso:
 #   pwsh ./siscan-assistente.ps1            # PowerShell Core (recomendado)
 #   powershell.exe .\siscan-assistente.ps1  # Windows PowerShell 5.1 (legado)
-#
-# Comandos rapidos (menu interativo):
-#   1) Reiniciar servico existente
-#   2) Atualizar imagem e reiniciar servico
-#   3) Login / alterar credenciais
-#   4) Gerenciar .env (criar/atualizar)
-#   5) Sair
 #
 # Pre-requisitos:
 #   - PowerShell 7+ recommended (pwsh). If using Windows PowerShell 5.1, ensure the file is saved as UTF-8 with BOM.
@@ -112,17 +105,17 @@ function Get-CredentialsFile {
 }
 
 function Ask-Credentials {
-    Write-Host "`nInforme suas credenciais do GHCR:`n"
+    Write-Host "`nPor favor, informe seu usuario e token (necessario para instalar/atualizar):`n"
 
     $user = Read-Host "Usuario"
     $tok  = Read-Host "Token"
 
-    # Salvamento em disco comentado: nao gravamos mais credenciais em arquivo por padrao.
+    # Salvamento em disco comentado: nao gravamos credenciais em arquivo por padrao.
     # "usuario=$user" | Out-File $CRED_FILE -Encoding utf8
     # "token=$tok"    | Out-File $CRED_FILE -Encoding utf8 -Append
     # Write-Host "`nCredenciais salvas.`n"
 
-    Write-Host "`nCredenciais obtidas (nao salvas em disco).`n"
+    Write-Host "`nCredenciais recebidas (não serão salvas em disco).`n"
 
     return @{ usuario = $user; token = $tok }
 }
@@ -134,41 +127,45 @@ function Ensure-Credentials {
 }
 
 function Docker-Login ($creds) {
-    Write-Host "`nRealizando login no GHCR..."
+    Write-Host "`nTentando acessar ao servico SISCAN RPA..."
 
     $null = $creds.token | docker login ghcr.io -u $creds.usuario --password-stdin
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "ERRO: falha no login."
+        Write-Host "Erro: nao foi possivel acessar com essas credenciais." -ForegroundColor Red
         return $false
     }
 
-    Write-Host "Login realizado com sucesso."
+    Write-Host "Acesso realizado com sucesso." -ForegroundColor Green
     return $true
 }
 
 function UpdateAndRestart {
-    Write-Host "`nAtualizando imagem e reiniciando servico..." -ForegroundColor Yellow
+    param([hashtable]$creds)
+
+    Write-Host "`nAtualizando o SISCAN RPA e reiniciando (pode demorar)..." -ForegroundColor Yellow
 
     if (-not (Test-Path "./docker-compose.yml")) {
-        Write-Host "Arquivo docker-compose.yml nao encontrado!" -ForegroundColor Red
+        Write-Host "Arquivo de configuração 'docker-compose.yml' não encontrado." -ForegroundColor Red
         return
     }
 
-    # Solicita credenciais sempre e realiza login no GHCR
-    Write-Host "`nSolicitando credenciais do GHCR (sempre)..." -ForegroundColor Cyan
-    $creds = Ask-Credentials
-    if (-not (Docker-Login $creds)) {
-        Write-Host "Aviso: falha no login. Tentando continuar com pull (pode falhar)..." -ForegroundColor Yellow
+    # Se credenciais foram passadas, usa-as; caso contrário, solicita ao usuário.
+    if (-not $creds) {
+        Write-Host "`nSolicitando suas credenciais ..." -ForegroundColor Cyan
+        $creds = Ask-Credentials
+        if (-not (Docker-Login $creds)) {
+            Write-Host "Aviso: nao foi possivel fazer login; tentarei baixar a atualização mesmo assim (pode falhar)." -ForegroundColor Yellow
+        }
     }
 
     # Tentar pull direto da imagem especifica (mais robusto para GHCR)
-    Write-Host "`nTentando docker pull $IMAGE_PATH..." -ForegroundColor Cyan
+    Write-Host "`nBaixando a versao mais recente..." -ForegroundColor Cyan
     $pullOutput = docker pull $IMAGE_PATH 2>&1
     $pullCode = $LASTEXITCODE
 
     if ($pullCode -ne 0) {
-        Write-Host "Pull direto falhou. Verificando estado do Docker e credenciais..." -ForegroundColor Yellow
+        Write-Host "Nao foi possivel baixar diretamente. Verificando Docker e credenciais..." -ForegroundColor Yellow
 
         # Captura info do Docker para diagnostico
         $dockerInfo = docker info 2>&1
@@ -177,47 +174,46 @@ function UpdateAndRestart {
         # Tenta detectar se ha usuario autenticado (docker info normalmente exibe 'Username:')
         $isAuthenticated = $dockerInfoStr -match 'Username\s*:'
         if ($isAuthenticated) {
-            Write-Host "Docker parece autenticado (Username encontrado)." -ForegroundColor Cyan
+            Write-Host "Parece que ja esta autenticado no Docker." -ForegroundColor Cyan
         } else {
-            Write-Host "Docker nao parece autenticado." -ForegroundColor Yellow
+            Write-Host "Nao ha autenticacao ativa no Docker." -ForegroundColor Yellow
         }
 
         # Se existir arquivo de credenciais, tentar login com ele primeiro
         $savedCreds = Get-CredentialsFile
         $triedLogin = $false
         if ($savedCreds -and $savedCreds.usuario -and $savedCreds.token) {
-            Write-Host "Credenciais salvas encontradas. Tentando login com credenciais salvas..." -ForegroundColor Cyan
+            Write-Host "Credenciais salvas encontradas; testando acesso com elas..." -ForegroundColor Cyan
             $triedLogin = $true
             if (Docker-Login $savedCreds) {
-                Write-Host "Login com credenciais salvas bem-sucedido. Tentando pull novamente..." -ForegroundColor Cyan
+                Write-Host "Acesso com credenciais salvas OK. Tentando baixar novamente..." -ForegroundColor Cyan
                 $pullOutput = docker pull $IMAGE_PATH 2>&1
-                if ($LASTEXITCODE -eq 0) { Write-Host "Imagem baixada com sucesso." -ForegroundColor Green } else { $pullCode = $LASTEXITCODE }
+                if ($LASTEXITCODE -eq 0) { Write-Host "Download concluído com sucesso." -ForegroundColor Green } else { $pullCode = $LASTEXITCODE }
             } else {
-                Write-Host "Login com credenciais salvas falhou." -ForegroundColor Yellow
+                Write-Host "Acesso com credenciais salvas falhou." -ForegroundColor Yellow
             }
         }
 
         # Se ainda nao obteve sucesso, solicitar novamente credenciais ao usuario e tentar login/pull
         if ($pullCode -ne 0) {
-            Write-Host "Tentando solicitar usuario/token novamente..." -ForegroundColor Cyan
+            Write-Host "Por favor, informe usuário e token novamente..." -ForegroundColor Cyan
             $newCreds = Ask-Credentials
             if (Docker-Login $newCreds) {
-                Write-Host "Login com novas credenciais bem-sucedido. Tentando pull de novo..." -ForegroundColor Cyan
+                Write-Host "Acesso com novas credenciais OK. Tentando baixar novamente..." -ForegroundColor Cyan
                 $pullOutput = docker pull $IMAGE_PATH 2>&1
                 $pullCode = $LASTEXITCODE
             } else {
-                Write-Host "Login com novas credenciais falhou." -ForegroundColor Yellow
+                Write-Host "Acesso com novas credenciais falhou." -ForegroundColor Yellow
             }
         }
 
         # Se ainda falhar, tentar fallback para 'docker compose pull' uma ultima vez
         if ($pullCode -ne 0) {
-            Write-Host "Pull ainda falhando. Tentando 'docker compose pull' como ultimo recurso..." -ForegroundColor Yellow
+            Write-Host "Ainda nao foi possivel baixar. Tentando 'docker compose pull' como ultimo recurso..." -ForegroundColor Yellow
             $composeOutput = docker compose pull 2>&1
             $composeCode = $LASTEXITCODE
             if ($composeCode -ne 0) {
-                Write-Host "Erro ao baixar nova imagem via compose." -ForegroundColor Red
-
+                Write-Host "Erro ao baixar a atualizacao via compose." -ForegroundColor Red
                 Write-Host "`n--- Detalhes do erro ---`n" -ForegroundColor Red
                 Write-Host "Saida do 'docker pull':" -ForegroundColor Red
                 Write-Host ($pullOutput -join "`n")
@@ -225,45 +221,45 @@ function UpdateAndRestart {
                 Write-Host ($composeOutput -join "`n")
                 Write-Host "`nInformacoes do Docker (diagnostico):" -ForegroundColor Red
                 Write-Host $dockerInfoStr
-                Write-Host "`nAcoes recomendadas:" -ForegroundColor Yellow
+                Write-Host "`nAAcoes recomendadas:" -ForegroundColor Yellow
                 Write-Host "- Verifique sua conexao de rede e resolucao DNS para 'ghcr.io'." -ForegroundColor Yellow
-                Write-Host "- Confirme que o token usado possui permissao 'read:packages' no GitHub." -ForegroundColor Yellow
-                Write-Host "- Execute 'docker logout ghcr.io' e tente 'docker login ghcr.io' manualmente." -ForegroundColor Yellow
-                Write-Host "- Se estiver atras de proxy/firewall, confirme regras para https:443 e SNI." -ForegroundColor Yellow
+                Write-Host "- Confirme que o token usado tem permissao de leitura de pacotes no GitHub." -ForegroundColor Yellow
+                Write-Host "- Execute 'docker logout ghcr.io' e tente login manualmente se precisar." -ForegroundColor Yellow
+                Write-Host "- Se estiver atrás de proxy/firewall, confirme regras para https (porta 443)." -ForegroundColor Yellow
                 return
             } else {
-                Write-Host "Compose pull bem-sucedido." -ForegroundColor Green
+                Write-Host "Atualização via compose concluída com sucesso." -ForegroundColor Green
             }
         }
     }
 
     # Depois reinicia tudo
-    Write-Host "`nRecriando servico..." -ForegroundColor Cyan
+    Write-Host "`nRecriando o SISCAN RPA..." -ForegroundColor Cyan
     docker compose down
     docker compose up -d
 
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "`nServico atualizado e reiniciado com sucesso!" -ForegroundColor Green
+        Write-Host "`nSISCAN RPA atualizado e iniciado com sucesso!" -ForegroundColor Green
     }
     else {
-        Write-Host "`nErro ao reiniciar o servico!" -ForegroundColor Red
+        Write-Host "`nErro ao reiniciar o SISCAN RPA." -ForegroundColor Red
     }
 }
 
 function Restart-Service {
     if (!(Test-Path $COMPOSE_FILE)) {
-        Write-Host "`nArquivo docker-compose.yml nao encontrado."
+        Write-Host "`nArquivo de configuração 'docker-compose.yml' não foi encontrado." 
         return
     }
 
-    Write-Host "`nReiniciando servicos..."
+    Write-Host "`nReiniciando o Assistente..."
     docker compose down
     docker compose up -d
 
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "Servicos reiniciados com sucesso."
+        Write-Host "Assistente reiniciado com sucesso." -ForegroundColor Green
     } else {
-        Write-Host "ERRO: falha ao reiniciar servicos."
+        Write-Host "Erro ao reiniciar o Assistente." -ForegroundColor Red
     }
 }
 
@@ -432,15 +428,22 @@ $Services = {
 
 
 function Show-Menu {
-    Write-Host "==============================="
-    Write-Host "  ASSISTENTE SISCAN RPA"
-    Write-Host "==============================="
-    Write-Host "1) Reiniciar servico existente"
-    Write-Host "2) Atualizar imagem e reiniciar servico"
-    Write-Host "3) Login / alterar credenciais"
-    Write-Host "4) Gerenciar .env (criar/atualizar)"
-    Write-Host "5) Sair"
-    Write-Host "==============================="
+    Clear-Host
+
+    Write-Host "========================================"
+    Write-Host "   Assistente SISCASAN RPA - Fácil e seguro"
+    Write-Host "========================================"
+    Write-Host ""
+
+        Write-Host " 1) Reiniciar o Assistente"
+        Write-Host "    - Fecha e inicia o serviço (útil para problemas simples)"
+        Write-Host " 2) Atualizar / Entrar (Atualizar o Assistente e informar acesso)"
+        Write-Host "    - Informe seu usuário/token e o Assistente será atualizado e reiniciado"
+        Write-Host " 3) Editar configurações básicas"
+        Write-Host "    - Ajuste caminhos e opções essenciais (.env)"
+        Write-Host " 4) Sair"
+    Write-Host ""
+    Write-Host "----------------------------------------"
 }
 
 # -------------------------
@@ -452,59 +455,53 @@ $creds = $null
 $running = $true
 
 while ($running) {
-    Clear-Host
     Show-Menu
-    $op = Read-Host "Selecione uma opcao"
+    $op = Read-Host "Escolha uma opção (1-4)"
 
     switch ($op) {
         "1" {
             if (Check-Service) {
                 Restart-Service
             } else {
-                Write-Host "Nenhum servico encontrado." -ForegroundColor Yellow
-                # Mostrar nomes de serviço esperados a partir do docker-compose.yml
+                Write-Host "Nenhum serviço do SISCAN RPA em execucao encontrado." -ForegroundColor Yellow
                 $expected = Get-ExpectedServiceNames -ComposePath $COMPOSE_FILE
                 if ($expected -and $expected.Count -gt 0) {
-                    Write-Host "Servicos esperados no docker-compose.yml:" -ForegroundColor Cyan
+                    Write-Host "Servicos esperados no arquivo de configuracao:" -ForegroundColor Cyan
                     foreach ($s in $expected) { Write-Host " - $s" }
-                    Write-Host "Verifique se os nomes sao os mesmos ou se o compose esta no caminho correto." -ForegroundColor Yellow
+                    Write-Host "Verifique se o arquivo 'docker-compose.yml' esta no diretorio correto." -ForegroundColor Yellow
                 } else {
-                    Write-Host "Nao foi possivel extrair nomes de servico do arquivo docker-compose.yml." -ForegroundColor Yellow
-                    Write-Host "Certifique-se de que o arquivo exista em: $COMPOSE_FILE" -ForegroundColor Yellow
+                    Write-Host "Nao foi possivel identificar servicos no arquivo de configuracao." -ForegroundColor Yellow
+                    Write-Host "Verifique a presenca do arquivo: $COMPOSE_FILE" -ForegroundColor Yellow
                 }
             }
             Pause
         }
 
         "2" {
-            UpdateAndRestart
-            Pause
-        }
-
-        "3" {
+            # Combina: pedir credenciais e atualizar/reiniciar
             $creds = Ask-Credentials
             if (Docker-Login $creds) {
-                Write-Host "`nLogin realizado com sucesso!"
+                UpdateAndRestart -creds $creds
             } else {
-                Write-Host "`nFalha no login."
+                Write-Host "Aviso: nao foi possivel autenticar. Tentarei atualizar mesmo assim..." -ForegroundColor Yellow
+                UpdateAndRestart -creds $creds
             }
             Pause
         }
 
-        "4" {
+        "3" {
             Manage-Env
             Pause
         }
 
-        "5" {
+        "4" {
             Write-Host "`nSaindo..."
             $running = $false
             break
         }
 
-
         Default {
-            Write-Host "`nOpcao invalida."
+            Write-Host "`nOpcao invalida." -ForegroundColor Yellow
             Pause
         }
     }
