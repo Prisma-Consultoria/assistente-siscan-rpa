@@ -135,13 +135,77 @@ function UpdateAndRestart {
 
     # Tentar pull direto da imagem especifica (mais robusto para GHCR)
     Write-Host "`nTentando docker pull $IMAGE_PATH..." -ForegroundColor Cyan
-    docker pull $IMAGE_PATH
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Pull direto falhou, tentando 'docker compose pull' como fallback..." -ForegroundColor Yellow
-        docker compose pull
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Erro ao baixar nova imagem!" -ForegroundColor Red
-            return
+    $pullOutput = docker pull $IMAGE_PATH 2>&1
+    $pullCode = $LASTEXITCODE
+
+    if ($pullCode -ne 0) {
+        Write-Host "Pull direto falhou. Verificando estado do Docker e credenciais..." -ForegroundColor Yellow
+
+        # Captura info do Docker para diagnóstico
+        $dockerInfo = docker info 2>&1
+        $dockerInfoStr = $dockerInfo -join "`n"
+
+        # Tenta detectar se há usuário autenticado (docker info normalmente exibe 'Username:')
+        $isAuthenticated = $dockerInfoStr -match 'Username\s*:'
+        if ($isAuthenticated) {
+            Write-Host "Docker parece autenticado (Username encontrado)." -ForegroundColor Cyan
+        } else {
+            Write-Host "Docker não parece autenticado." -ForegroundColor Yellow
+        }
+
+        # Se existir arquivo de credenciais, tentar login com ele primeiro
+        $savedCreds = Get-CredentialsFile
+        $triedLogin = $false
+        if ($savedCreds -and $savedCreds.usuario -and $savedCreds.token) {
+            Write-Host "Credenciais salvas encontradas. Tentando login com credenciais salvas..." -ForegroundColor Cyan
+            $triedLogin = $true
+            if (Docker-Login $savedCreds) {
+                Write-Host "Login com credenciais salvas bem-sucedido. Tentando pull novamente..." -ForegroundColor Cyan
+                $pullOutput = docker pull $IMAGE_PATH 2>&1
+                if ($LASTEXITCODE -eq 0) { Write-Host "Imagem baixada com sucesso." -ForegroundColor Green } else { $pullCode = $LASTEXITCODE }
+            } else {
+                Write-Host "Login com credenciais salvas falhou." -ForegroundColor Yellow
+            }
+        }
+
+        # Se ainda não obteve sucesso, solicitar novamente credenciais ao usuário e tentar login/pull
+        if ($pullCode -ne 0) {
+            Write-Host "Tentando solicitar usuário/token novamente..." -ForegroundColor Cyan
+            $newCreds = Ask-Credentials
+            if (Docker-Login $newCreds) {
+                Write-Host "Login com novas credenciais bem-sucedido. Tentando pull de novo..." -ForegroundColor Cyan
+                $pullOutput = docker pull $IMAGE_PATH 2>&1
+                $pullCode = $LASTEXITCODE
+            } else {
+                Write-Host "Login com novas credenciais falhou." -ForegroundColor Yellow
+            }
+        }
+
+        # Se ainda falhar, tentar fallback para 'docker compose pull' uma última vez
+        if ($pullCode -ne 0) {
+            Write-Host "Pull ainda falhando. Tentando 'docker compose pull' como último recurso..." -ForegroundColor Yellow
+            $composeOutput = docker compose pull 2>&1
+            $composeCode = $LASTEXITCODE
+            if ($composeCode -ne 0) {
+                Write-Host "Erro ao baixar nova imagem via compose." -ForegroundColor Red
+
+                Write-Host "`n--- Detalhes do erro ---`n" -ForegroundColor Red
+                Write-Host "Saída do 'docker pull':" -ForegroundColor Red
+                Write-Host ($pullOutput -join "`n")
+                Write-Host "`nSaída do 'docker compose pull':" -ForegroundColor Red
+                Write-Host ($composeOutput -join "`n")
+                Write-Host "`nInformações do Docker (diagnóstico):" -ForegroundColor Red
+                Write-Host $dockerInfoStr
+
+                Write-Host "`nAções recomendadas:" -ForegroundColor Yellow
+                Write-Host "- Verifique sua conexão de rede e resolução DNS para 'ghcr.io'." -ForegroundColor Yellow
+                Write-Host "- Confirme que o token usado possui permissão 'read:packages' no GitHub." -ForegroundColor Yellow
+                Write-Host "- Execute 'docker logout ghcr.io' e tente 'docker login ghcr.io' manualmente." -ForegroundColor Yellow
+                Write-Host "- Se estiver atrás de proxy/firewall, confirme regras para https:443 e SNI." -ForegroundColor Yellow
+                return
+            } else {
+                Write-Host "Compose pull bem-sucedido." -ForegroundColor Green
+            }
         }
     }
 
