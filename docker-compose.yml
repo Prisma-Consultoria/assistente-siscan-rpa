@@ -11,8 +11,7 @@ services:
       - RPA_MAX_ATTEMPTS=${RPA_MAX_ATTEMPTS:-3}
       
       - CRON_ENABLED=${CRON_ENABLED:-true}
-      - CRON_HOUR=${CRON_HOUR:-03}
-      - CRON_MIN=${CRON_MIN:-00}
+      - CRON_INTERVAL_SECONDS=${CRON_INTERVAL_SECONDS:-1800}
       
       - HOST_SISCAN_CONSOLIDATED_SHEET_NAME=${HOST_SISCAN_CONSOLIDATED_SHEET_NAME:-relatorios_mamografia.xlsx}
       - EXCEL_COLUMNS_MAPPING_PATH=${EXCEL_COLUMNS_MAPPING_PATH:-/app/config/excel_columns_mapping.json}
