@@ -1,306 +1,128 @@
-# Documentação de Deploy - Assistente SISCAN RPA
+# Guia de Deploy — Assistente SISCAN RPA
 <a name="deploy"></a>
 
-Versão: 1.0
-Data: 2025-11-30
+Versão: 2.0
+Data: 2025-12-02
 
-## **Introdução**
+Este documento descreve passo a passo reproduzível para preparar, instalar e operar o Assistente SISCAN RPA em ambientes Windows (focado em prefeituras). Todas as ações são operacionais e apresentadas em tabelas com `Passo | O que Fazer | Como Fazer`.
 
-**O que é o Assistente SISCAN RPA**
+**Observação:** este guia presume Windows 10/11 (Pro ou Server) com Docker Desktop instalado. Todas as etapas indicam comandos PowerShell para execução local.
 
-O Assistente SISCAN RPA é uma aplicação destinada a automatizar fluxos relacionados ao extrator do SISCAN (SISCAN RPA). A aplicação processa laudos, gera manifestos, organiza downloads e expõe endpoints locais de monitoramento.
+## 1 — Pré-requisitos
 
-**O que ele faz**
-- Extrai e processa laudos e documentos.
-- Gera arquivos de manifesto e relatórios.
-- Persiste arquivos de entrada/saída e logs em volumes Docker mapeados no host.
-- Pode expor uma API ou painel HTTP para verificação de saúde e status.
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Verificar versão do Windows | Abra PowerShell (Admin) e execute: `systeminfo | Select-String "OS Name|OS Version"` — confirme Windows 10/11 ou Windows Server compatível |
+| 2 | Verificar PowerShell | `Get-Host` ou `pwsh -v`; objetivo: PowerShell 5.1+ (Windows PowerShell) ou PowerShell 7+ (recomendado). Se não houver, instalar PowerShell 7 via MSI da Microsoft |
+| 3 | Garantir Docker instalado | Abrir Docker Desktop; em PowerShell executar: `docker version` e `docker info` — espere resposta sem erros |
+| 4 | Habilitar execução de scripts (temporária ou permanente) | Para testes: execute PowerShell (Admin) e rode: `Set-ExecutionPolicy RemoteSigned -Scope LocalMachine` (confirme com `S`). Se houver GPO restritiva, contate TI para exceção |
+| 5 | Credenciais da prefeitura | Tenha um usuário admin local no Windows e credenciais (usuário/ token) do GitHub com `read:packages` para GHCR |
+| 6 | Repositório GHCR acessível | Teste conectividade: `Test-NetConnection ghcr.io -Port 443` e `Resolve-DnsName ghcr.io` — ambos devem retornar sucesso |
 
-**Requisitos mínimos de hardware e software**
-- CPU: 2 vCPU (produção: 4+ vCPU)
-- RAM: 4 GB (produção: 8+ GB)
-- Disco: 20 GB livres (mais conforme volume de dados)
-- Windows 10/11 Pro ou Windows Server 2019+ com WSL2 ou Hyper-V habilitado
-- Docker Desktop (20.10+) com Docker Compose integrado (v2)
-- PowerShell 7+ (recomendado) ou PowerShell 5.1
-- Conectividade com `ghcr.io` (porta 443)
+## 2 — Instalação Completa do Assistente
 
-**Perfis de usuários envolvidos**
-- Operador: executa o deploy e opera o serviço (Nível 1)
-- Administrador Windows: configura host, permissões e rede
-- DevOps/Infra: gerencia imagens no GHCR, tokens e pipelines
-- Suporte N2/N3: solução de problemas avançada e recuperação
+2.1 Download do script PowerShell
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Baixar o script oficial (`siscan-assistente.ps1`) para revisão | Em PowerShell (não executar sem revisar): `Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/siscan-assistente.ps1' -OutFile C:\assistente-siscan\siscan-assistente.ps1` |
+| 2 | Inspecionar o script | Abrir o arquivo no editor (`notepad C:\assistente-siscan\siscan-assistente.ps1`) e verificar se não há comandos não esperados antes de executar |
+
+2.2 Execução como administrador e fluxo inicial
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Executar PowerShell como Administrador | Menu Iniciar → digite `PowerShell` → clicar com botão direito → `Executar como administrador` |
+| 2 | Executar o instalador interativo | Navegar até a pasta e executar: `cd C:\assistente-siscan` e `.\siscan-assistente.ps1` (ou `pwsh -NoProfile -ExecutionPolicy Bypass -File .\siscan-assistente.ps1`) |
+| 3 | Confirmar prompt de path do projeto | Quando solicitado, informar `C:\assistente-scan` ou outro path aprovado pela TI; confirme que o path existe ou permita que o script crie |
+
+2.3 Clone ou pull automático do repositório
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Clonar repositório se ainda não existir | `git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git C:\assistente-siscan` |
+| 2 | Atualizar repositório existente (pull) | `git -C C:\assistente-siscan pull origin main` — rodar como usuário com acesso à rede |
+
+2.4 Geração do `.env` a partir do `.env.sample`
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Copiar `.env.sample` para `.env` | `Copy-Item -Path C:\assistente-siscan\.env.sample -Destination C:\assistente-siscan\.env -Force` |
+| 2 | Editar variáveis obrigatórias | `notepad C:\assistente-siscan\.env` — preencher: `GHCR_USER`, `GHCR_TOKEN`, `SISCAN_API_ENDPOINT`, `SISCAN_API_KEY`, `DOWNLOAD_PATH`, `LOG_PATH` |
+| 3 | Verificar valores não vazios | Em PowerShell: `Select-String -Path C:\assistente-siscan\.env -Pattern '^[A-Z0-9_]+=\s*$'` — se houver saída, corrigi-la (valores vazios) |
+
+2.5 Criação de pastas necessárias e permissões
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Criar diretórios padrão | `New-Item -ItemType Directory -Path C:\assistente-siscan\media\downloads -Force` e `New-Item -ItemType Directory -Path C:\assistente-siscan\logs -Force` |
+| 2 | Ajustar permissões (administradores e conta do serviço) | `icacls C:\assistente-siscan /grant "Administradores:(OI)(CI)F" /T` e, se houver conta de serviço, `icacls C:\assistente-siscan /grant "NT SERVICE\docker-<service>:(OI)(CI)M" /T` (substituir conforme política local) |
+
+## 3 — Uso do Menu do Assistente (cada opção detalhada)
+
+Opções disponíveis no `siscan-assistente.ps1`. Cada opção abaixo está documentada com verificações, diagnóstico e mensagens.
+
+### Opção 1 — Pull da imagem
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Iniciar processo de pull | No menu, escolher Opção 1. O script executará `docker login ghcr.io -u <USER> -p <TOKEN>` seguido de `docker compose pull` |
+| 2 | Verificações feitas pelo script | O script verifica: conexão com `ghcr.io`, autenticação bem-sucedida, existência da tag. Testes: `Test-NetConnection ghcr.io -Port 443`; `docker info` e `docker images` após pull. |
+| 3 | Diagnóstico quando serviço/imagem não existe | Mensagem pública exibida: `Imagem não encontrada: ghcr.io/Prisma-Consultoria/assistente-siscan-rpa:<tag>`; instrução exibida para verificar `GHCR_TOKEN` e `TAG` |
+| 4 | Mensagens públicas do script | O script escreve no console: `Autenticando...`, `Pull em andamento...`, `Pull concluído` ou `Erro: <mensagem docker>` — logs persistidos em `C:\assistente-siscan\logs\deploy.log` quando habilitado |
+
+### Opção 2 — Criar/Configurar usuário SISCAN
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Iniciar criação de usuário | No menu, escolher Opção 2 — o script pede dados do usuário a ser criado (nome, CPF, e-mail, função) |
+| 2 | Campos necessários | `Nome`, `CPF`, `Email`, `Senha provisória` (se aplicável), `Perfil (operador/admin)` — preencher todos os campos quando solicitado |
+| 3 | Chamadas HTTP realizadas | O script realiza `POST` para `$env:SISCAN_API_ENDPOINT/users` com JSON: `{"nome":"..","cpf":"..","email":"..","perfil":".."}` usando `Invoke-RestMethod -Uri $url -Method Post -Body $json -Headers $headers` |
+| 4 | Verificação de sucesso | O script verifica resposta `201 Created` ou `200 OK` e registra no log; em caso de `4xx/5xx` o erro é exibido e gravado em `C:\assistente-siscan\logs\users-create.log` |
+
+### Opção 3 — Reiniciar serviço
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Reiniciar containers do assistente | No menu, escolher Opção 3 — o script executa: `docker compose restart` |
+| 2 | Comandos usados | `docker compose stop` → `docker compose up -d` se restart falhar; ou `docker compose down && docker compose up -d` para reinicialização completa |
+| 3 | Erros comuns | `port already allocated` (porta em uso); `container unhealthy` (checagem de health falhou) — o script mostra instruções para `docker ps -a` e `docker logs <container>` |
+| 4 | Logs relevantes | Instruções para coletar logs: `docker compose logs --no-color --timestamps > C:\assistente-siscan\logs\restart-YYYYMMDD.log` |
+
+## 4 — Agendamento do Extrator
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Nome da tarefa agendada | `Siscan-Extrator` (padrão) — documentar na TI local para controle |
+| 2 | Comando executado pela tarefa | Exemplo PowerShell: `pwsh -NoProfile -ExecutionPolicy Bypass -File C:\assistente-siscan\scripts\extrator.ps1` |
+| 3 | Criar tarefa agendada (exemplo) | `schtasks /Create /TN "Siscan-Extrator" /TR "pwsh -NoProfile -ExecutionPolicy Bypass -File C:\assistente-siscan\scripts\extrator.ps1" /SC DAILY /ST 02:00 /RU "NT AUTHORITY\SYSTEM"` |
+| 4 | Ação de retry | Na criação do `schtasks` não há retry automático; sugerimos wrapper que faz retry 3x com `Start-Sleep -Seconds 30` entre tentativas e registro em log se falhar |
+| 5 | Execução manual | `Start-Process pwsh -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','C:\assistente-siscan\scripts\extrator.ps1' -Wait` |
+| 6 | Onde verificar falhas | Event Viewer → `Windows Logs` → `Application` e `System`; além de `C:\assistente-siscan\logs\extrator.log` e `schtasks /Query /TN "Siscan-Extrator" /V /FO LIST` |
 
 ---
 
-## **Estrutura do Ambiente**
+## Anexos — Comandos úteis (PowerShell)
 
-### **Componentes técnicos**
-
-- **Docker:** Engine que executa os containers.
-- **Docker Compose:** Orquestra serviços e volumes via `docker-compose.yml`.
-- **GitHub Container Registry (GHCR):** onde as imagens estão hospedadas (`ghcr.io/<org>/assistente-siscan-rpa:<tag>`).
-- **Script PowerShell:** auxiliar para autenticar, puxar imagens e executar compose. O script principal interativo é `siscan-assistente.ps1` (há também um wrapper `execute.ps1` para compatibilidade com chamadas antigas).
-- **Repositório público (IEX/git):** código fonte e artefatos públicos usados para instalar/configurar.
-- **Repositório privado de imagem:** GHCR privado para imagens oficiais do produto.
-- **Chave/token de acesso:** Personal Access Token (PAT) com permissão `read:packages` para pull de imagens privadas.
-
-### **Arquitetura do deploy (fluxo)**
-
-1. O operador executa o workflow de deploy (manual ou via script).
-2. Autenticação no GHCR (`docker login ghcr.io`) com token.
-3. Pull da(s) imagem(ns) necessárias.
-4. `docker compose up -d` para criar containers, redes e volumes.
-5. Containers inicializam e se conectam a recursos locais (volumes, portas, redes).
-
-**Comunicação entre peças**
-- PowerShell → Docker CLI (execução de comandos)
-- Docker Engine ↔ GHCR (HTTPS TLS) para pull/push
-- Containers ↔ Volumes (persistência em host)
-- Containers ↔ Rede bridge ou rede customizada do Docker (acesso a portas)
-
-**Locais de arquivos e logs (exemplo recomendado)**
-- Código e compose: `C:\assistente-siscan\` (Windows)
-- Downloads/processados: `C:\assistente-siscan\media\downloads\`
-- Logs: `C:\assistente-siscan\logs\`
-- Volumes Docker: nomes declarados em `docker-compose.yml` (ex.: `assistente_data`)
-
----
-
-## **Pré-requisitos antes do deploy**
-
-> Antes de iniciar, confirme que você tem: usuário com privilégios locais (administrador recomendado), token GHCR com `read:packages`, e acesso à rede para `ghcr.io`.
-
-### **3.1 Docker**
-
-- Instalação:
-  - Baixe Docker Desktop: https://www.docker.com/get-started
-  - Siga o instalador e habilite WSL2 (Windows Home) ou Hyper-V (Pro/Enterprise/Server).
-- Verificação:
 ```powershell
-docker version
+# Verificar execução do Docker
 docker info
-```
-- Configurações recomendadas:
-  - Resources: CPU 2+, RAM 4GB+, Swap 1GB+
-  - Enable WSL2 integration se disponível
-  - Ajustar compartilhamento de drives (C:) se volumes bind forem usados
 
-### **3.2 Docker Compose**
+# Login GHCR
+docker login ghcr.io -u <USUARIO_GH> -p <TOKEN>
 
-- Verificação:
-```powershell
-docker compose version
-docker compose config
-```
-- Teste sem script:
-```powershell
-docker compose pull
-docker compose config --quiet
-docker compose up -d
-docker compose ps
-```
-
-### **3.3 Windows**
-
-- Virtualização:
-  - `systeminfo` e procurar por ‘Virtualization’ ou usar `Get-ComputerInfo`.
-- WSL2 vs Hyper-V:
-  - WSL2 recomendado em Windows Home; Hyper-V pode ser usado em Pro/Server.
-- Diferenças por edição do Windows:
-  - Home: somente WSL2; Pro/Ent: Hyper-V disponível.
-
-### **3.4 Rede e Internet**
-
-- DNS:
-```powershell
-nslookup ghcr.io
-Resolve-DnsName ghcr.io
-```
-- Conectividade:
-```powershell
-Test-NetConnection ghcr.io -Port 443
-curl -v https://ghcr.io/v2/
-```
-- Proxy / Firewall / SSL:
-  - Se existir proxy corporativo, configurar `HTTP_PROXY`/`HTTPS_PROXY` no Docker Desktop e no ambiente.
-  - Para inspeção TLS (SSL intercept), importar CA corporativa no Windows e no Docker.
-
-### **3.5 Permissões**
-
-- Políticas do PowerShell:
-```powershell
-Get-ExecutionPolicy
-Set-ExecutionPolicy RemoteSigned -Scope LocalMachine   # (Admin)
-```
-- Permissões de pasta:
-```powershell
-icacls C:\assistente-siscan /grant "Administradores:(OI)(CI)F" /T
-```
-- Grupo Docker:
-  - Adicionar usuários ao `docker-users` local se o Docker Desktop criou esse grupo.
-- Acesso GHCR:
-  - Token com `read:packages`; não salvar em repositório.
-
----
-
-## **Passo a Passo Completo do Deploy**
-
-Siga estas etapas em ambiente de teste antes da produção.
-
-1. Preparação do diretório
-
-```powershell
-mkdir C:\assistente-siscan
+# Subir serviços
 cd C:\assistente-siscan
-```
-
-1. Obter arquivos de deploy
-
-- Opção com `git`:
-```powershell
-git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git .
-```
-- Opção sem `git`: baixar `docker-compose.yml`, `README.md` e arquivos de configuração do repositório oficial.
-
-1. Instalação rápida (opções)
-
-- Opção recomendada — clonar e revisar localmente:
-
-```bash
-git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git .
-cd assistente-siscan-rpa
-
-# PowerShell Core (recomendado)
-pwsh -NoProfile -ExecutionPolicy Bypass -File ./siscan-assistente.ps1
-
-# Windows PowerShell (compatibilidade via wrapper)
-powershell -NoProfile -ExecutionPolicy Bypass -File .\execute.ps1
-```
-
-- Opção alternativa — baixar o script principal e revisar antes de executar (sem pipe-to-shell):
-
-PowerShell (baixar + revisar):
-
-```powershell
-Invoke-WebRequest 'https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/siscan-assistente.ps1' -OutFile siscan-assistente.ps1
-# revisar o arquivo localmente antes de executar
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\siscan-assistente.ps1
-```
-
-Importante: evite comandos do tipo `curl | bash` ou `irm | iex` sem revisar o conteúdo do script previamente. Prefira clonar o repositório ou baixar o script para inspeção.
-
-1. Criar arquivo de variáveis `.env` com base no arquivo `.env.sample`.
-
-```powershell
-cp .env.sample .env
-# editar .env conforme instruções
-```
-
-1. Autenticar no GHCR
-
-```powershell
-docker login ghcr.io -u <usuario> -p <token>
-```
-
-1. Pull das imagens
-
-```powershell
 docker compose pull
-```
-
-1. Verificar imagens
-
-```powershell
-docker images | Where-Object { $_.Repository -like '*assistente*' }
-docker image inspect ghcr.io/Prisma-Consultoria/assistente-siscan-rpa:<tag>
-```
-
-1. Subir serviços
-
-```powershell
 docker compose up -d
-docker compose ps
-```
 
-1. Validar serviço
+# Logs
+docker compose logs --no-log-prefix --since 10m
 
-```powershell
-Invoke-WebRequest -UseBasicParsing http://localhost:8080/health
-docker compose logs -f
-```
-
-1. Checklist rápido pós-deploy
-
-- `docker compose ps` → containers Up
-- `docker compose logs` sem erros críticos
-- Health endpoint retorna 200
-- Volumes e diretórios no host com permissões corretas
-
----
-
-## **Operações diárias**
-
-- Reiniciar serviço:
-```powershell
-cd C:\assistente-siscan
-docker compose restart
-```
-- Atualizar imagem e redeploy:
-```powershell
-docker login ghcr.io -u <user> -p <token>
-docker pull ghcr.io/Prisma-Consultoria/assistente-siscan-rpa:<tag>
-docker compose down
-docker compose up -d
-```
-- Verificar logs:
-```powershell
-docker compose logs -f
-docker logs <container> --since 10m --tail 200
-```
-- Limpar imagens antigas (cautela):
-```powershell
-docker image prune -a
-docker system prune -a
-```
-- Inspecionar volumes:
-```powershell
-docker volume ls
-docker volume inspect <volume>
-docker run --rm -v <volume>:/data -it mcr.microsoft.com/dotnet/runtime ls -la /data
+# Verificar service Windows (quando aplicável)
+Get-Service -Name *siscan* -ErrorAction SilentlyContinue
 ```
 
 ---
 
-## **Solução de problemas (visão geral)**
-
-Uma seção resumida de problemas e comandos diagnósticos:
-
-- `docker info` — estado do daemon
-- `docker compose config` — validação do compose
-- `docker logs <container>` — logs do container
-- `Test-NetConnection ghcr.io -Port 443` — conectividade com GHCR
-- `nslookup ghcr.io` — resolução DNS
-
-Para solução de problemas detalhada, veja `docs/TROUBLESHOOTING.md`.
-
----
-
-## **Boas práticas**
-
-- Não commitar tokens ou segredos.
-- Usar arquivos `.env` locais ou secret managers.
-- Versionar imagens com tags sem `latest` como única referência.
-- Rotina de backups para volumes críticos.
-- Monitoramento e alertas (Prometheus/Grafana/ELK).
-
----
-
-## **Conclusão**
-
-Este documento é a referência central para o deploy do Assistente SISCAN RPA. Complementos importantes:
-- Solução de problemas detalhada: `docs/TROUBLESHOOTING.md`
-- Tabela de erros e soluções: `docs/ERRORS_TABLE.md`
-- Checklists operacionais: `docs/CHECKLISTS.md`
-
-Mantenha este manual atualizado conforme novas versões e práticas.
+Se precisar que eu gere checklists imprimíveis ou um procedimento de roll-back, posso preparar um `CHECKLISTS.md` derivado deste guia.
