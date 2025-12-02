@@ -26,9 +26,6 @@ services:
 
       - "${HOST_EXCEL_COLUMNS_MAPPING_DIR:-./config}:/app/config"
 
-      # Diretório de logs da aplicação (para debug/monitoramento)
-      - "${HOST_LOG_DIR:-./logs}:/app/logs"
-
     deploy:
       resources:
         limits:
