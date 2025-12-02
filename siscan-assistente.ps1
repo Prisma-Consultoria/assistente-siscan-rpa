@@ -3,46 +3,46 @@
 # CLI do Assistente SIScan
 # -------------------------------------------
 # Arquivo: siscan-assistente.ps1
-# Propósito: Auxiliar no deploy, atualização e gerenciamento do ambiente do SIScan RPA.
+# Proposito: Auxiliar no deploy, atualizacao e gerenciamento do ambiente do SIScan RPA.
 #
 # Uso:
 #   pwsh ./siscan-assistente.ps1            # PowerShell Core (recomendado)
 #   powershell.exe .\siscan-assistente.ps1  # Windows PowerShell 5.1 (legado)
 #
-# Comandos rápidos (menu interativo):
+# Comandos rapidos (menu interativo):
 #   1) Reiniciar servico existente
 #   2) Atualizar imagem e reiniciar servico
 #   3) Login / alterar credenciais
 #   4) Gerenciar .env (criar/atualizar)
 #   5) Sair
 #
-# Pré-requisitos:
+# Pre-requisitos:
 #   - PowerShell 7+ recommended (pwsh). If using Windows PowerShell 5.1, ensure the file is saved as UTF-8 with BOM.
 #   - Docker and docker-compose installed and available in PATH.
 #
-# Codificação:
+# Codificacao:
 #   - Script should be stored as UTF-8. For Windows PowerShell 5.1 compatibility prefer UTF-8 with BOM.
 #
 # Mantenedores:
 #   - Prisma-Consultoria / Team: Infra / DevOps
 #
-# Registro de alterações:
-#   2025-11-30  v0.1  Adicionado gerenciamento de .env, tratamento de codificação e refatoração.
+# Registro de alteracoes:
+#   2025-11-30  v0.1  Adicionado gerenciamento de .env, tratamento de codificacao e refatoracao.
 #
-# Observações:
-#   - O script é propositalmente conservador para suportar PowerShell 5.1 e pwsh.
-#   - Para uso em automação ou não interativo, considere extrair as funções para um módulo.
+# Observacoes:
+#   - O script e propositalmente conservador para suportar PowerShell 5.1 e pwsh.
+#   - Para uso em automacao ou nao interativo, considere extrair as funcoes para um modulo.
 # -------------------------------------------
 
-# Ajustes robustos de encoding/terminal para múltiplos hosts
-# - tenta forçar saída UTF-8 para o console
+# Ajustes robustos de encoding/terminal para multiplos hosts
+# - tenta forcar saida UTF-8 para o console
 # - em Windows tenta ajustar code page via cmd.exe
-# - define defaults para cmdlets de escrita dependendo da versão do PowerShell
+# - define defaults para cmdlets de escrita dependendo da versao do PowerShell
 try {
     $psMajor = 0
     if ($PSVersionTable -and $PSVersionTable.PSVersion) { $psMajor = $PSVersionTable.PSVersion.Major }
 
-    # Força saída UTF-8 para PowerShell/Core quando possível
+    # Forca saida UTF-8 para PowerShell/Core quando possivel
     try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
     try { $OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
@@ -51,8 +51,8 @@ try {
         try { cmd.exe /c chcp 65001 > $null } catch {}
     }
 
-    # Definir parâmetros padrão de encoding para cmdlets que gravam arquivos.
-    # PowerShell Core (>=6) entende 'utf8'; Windows PowerShell (5.1) é mais seguro usar 'Unicode' (UTF-16 LE)
+    # Definir parametros padrao de encoding para cmdlets que gravam arquivos.
+    # PowerShell Core (>=6) entende 'utf8'; Windows PowerShell (5.1) e mais seguro usar 'Unicode' (UTF-16 LE)
     if ($psMajor -ge 6) {
         $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
         $PSDefaultParameterValues['Set-Content:Encoding'] = 'utf8'
@@ -88,18 +88,18 @@ function Ask-Credentials {
     $user = Read-Host "Usuario"
     $tok  = Read-Host "Token"
 
-    # Salvamento em disco comentado: não gravamos mais credenciais em arquivo por padrão.
+    # Salvamento em disco comentado: nao gravamos mais credenciais em arquivo por padrao.
     # "usuario=$user" | Out-File $CRED_FILE -Encoding utf8
     # "token=$tok"    | Out-File $CRED_FILE -Encoding utf8 -Append
     # Write-Host "`nCredenciais salvas.`n"
 
-    Write-Host "`nCredenciais obtidas (não salvas em disco).`n"
+    Write-Host "`nCredenciais obtidas (nao salvas em disco).`n"
 
     return @{ usuario = $user; token = $tok }
 }
 
 function Ensure-Credentials {
-    # Sempre solicitar usuário + token do GHCR, mesmo que exista arquivo salvo.
+    # Sempre solicitar usuario + token do GHCR, mesmo que exista arquivo salvo.
     if (Test-Path $CRED_FILE) { Remove-Item $CRED_FILE -ErrorAction SilentlyContinue }
     return Ask-Credentials
 }
@@ -119,10 +119,10 @@ function Docker-Login ($creds) {
 }
 
 function UpdateAndRestart {
-    Write-Host "`nAtualizando imagem e reiniciando serviço..." -ForegroundColor Yellow
+    Write-Host "`nAtualizando imagem e reiniciando servico..." -ForegroundColor Yellow
 
     if (-not (Test-Path "./docker-compose.yml")) {
-        Write-Host "Arquivo docker-compose.yml não encontrado!" -ForegroundColor Red
+        Write-Host "Arquivo docker-compose.yml nao encontrado!" -ForegroundColor Red
         return
     }
 
@@ -141,16 +141,16 @@ function UpdateAndRestart {
     if ($pullCode -ne 0) {
         Write-Host "Pull direto falhou. Verificando estado do Docker e credenciais..." -ForegroundColor Yellow
 
-        # Captura info do Docker para diagnóstico
+        # Captura info do Docker para diagnostico
         $dockerInfo = docker info 2>&1
         $dockerInfoStr = $dockerInfo -join "`n"
 
-        # Tenta detectar se há usuário autenticado (docker info normalmente exibe 'Username:')
+        # Tenta detectar se ha usuario autenticado (docker info normalmente exibe 'Username:')
         $isAuthenticated = $dockerInfoStr -match 'Username\s*:'
         if ($isAuthenticated) {
             Write-Host "Docker parece autenticado (Username encontrado)." -ForegroundColor Cyan
         } else {
-            Write-Host "Docker não parece autenticado." -ForegroundColor Yellow
+            Write-Host "Docker nao parece autenticado." -ForegroundColor Yellow
         }
 
         # Se existir arquivo de credenciais, tentar login com ele primeiro
@@ -168,9 +168,9 @@ function UpdateAndRestart {
             }
         }
 
-        # Se ainda não obteve sucesso, solicitar novamente credenciais ao usuário e tentar login/pull
+        # Se ainda nao obteve sucesso, solicitar novamente credenciais ao usuario e tentar login/pull
         if ($pullCode -ne 0) {
-            Write-Host "Tentando solicitar usuário/token novamente..." -ForegroundColor Cyan
+            Write-Host "Tentando solicitar usuario/token novamente..." -ForegroundColor Cyan
             $newCreds = Ask-Credentials
             if (Docker-Login $newCreds) {
                 Write-Host "Login com novas credenciais bem-sucedido. Tentando pull de novo..." -ForegroundColor Cyan
@@ -181,27 +181,26 @@ function UpdateAndRestart {
             }
         }
 
-        # Se ainda falhar, tentar fallback para 'docker compose pull' uma última vez
+        # Se ainda falhar, tentar fallback para 'docker compose pull' uma ultima vez
         if ($pullCode -ne 0) {
-            Write-Host "Pull ainda falhando. Tentando 'docker compose pull' como último recurso..." -ForegroundColor Yellow
+            Write-Host "Pull ainda falhando. Tentando 'docker compose pull' como ultimo recurso..." -ForegroundColor Yellow
             $composeOutput = docker compose pull 2>&1
             $composeCode = $LASTEXITCODE
             if ($composeCode -ne 0) {
                 Write-Host "Erro ao baixar nova imagem via compose." -ForegroundColor Red
 
                 Write-Host "`n--- Detalhes do erro ---`n" -ForegroundColor Red
-                Write-Host "Saída do 'docker pull':" -ForegroundColor Red
+                Write-Host "Saida do 'docker pull':" -ForegroundColor Red
                 Write-Host ($pullOutput -join "`n")
-                Write-Host "`nSaída do 'docker compose pull':" -ForegroundColor Red
+                Write-Host "`nSaida do 'docker compose pull':" -ForegroundColor Red
                 Write-Host ($composeOutput -join "`n")
-                Write-Host "`nInformações do Docker (diagnóstico):" -ForegroundColor Red
+                Write-Host "`nInformacoes do Docker (diagnostico):" -ForegroundColor Red
                 Write-Host $dockerInfoStr
-
-                Write-Host "`nAções recomendadas:" -ForegroundColor Yellow
-                Write-Host "- Verifique sua conexão de rede e resolução DNS para 'ghcr.io'." -ForegroundColor Yellow
-                Write-Host "- Confirme que o token usado possui permissão 'read:packages' no GitHub." -ForegroundColor Yellow
+                Write-Host "`nAcoes recomendadas:" -ForegroundColor Yellow
+                Write-Host "- Verifique sua conexao de rede e resolucao DNS para 'ghcr.io'." -ForegroundColor Yellow
+                Write-Host "- Confirme que o token usado possui permissao 'read:packages' no GitHub." -ForegroundColor Yellow
                 Write-Host "- Execute 'docker logout ghcr.io' e tente 'docker login ghcr.io' manualmente." -ForegroundColor Yellow
-                Write-Host "- Se estiver atrás de proxy/firewall, confirme regras para https:443 e SNI." -ForegroundColor Yellow
+                Write-Host "- Se estiver atras de proxy/firewall, confirme regras para https:443 e SNI." -ForegroundColor Yellow
                 return
             } else {
                 Write-Host "Compose pull bem-sucedido." -ForegroundColor Green
@@ -210,15 +209,15 @@ function UpdateAndRestart {
     }
 
     # Depois reinicia tudo
-    Write-Host "`nRecriando serviço..." -ForegroundColor Cyan
+    Write-Host "`nRecriando servico..." -ForegroundColor Cyan
     docker compose down
     docker compose up -d
 
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "`nServiço atualizado e reiniciado com sucesso!" -ForegroundColor Green
+        Write-Host "`nServico atualizado e reiniciado com sucesso!" -ForegroundColor Green
     }
     else {
-        Write-Host "`nErro ao reiniciar o serviço!" -ForegroundColor Red
+        Write-Host "`nErro ao reiniciar o servico!" -ForegroundColor Red
     }
 }
 
@@ -272,7 +271,7 @@ function Update-EnvFile {
     $origEnc = 'utf8'
     if (Test-Path $Path) { $origEnc = Detect-FileEncoding -FilePath $Path }
 
-    # Ler com a codificação adequada (Get-Content entende nomes básicos)
+    # Ler com a codificacao adequada (Get-Content entende nomes basicos)
     try {
         switch ($origEnc) {
             'unicode' { $lines = Get-Content -Path $Path -Encoding Unicode -ErrorAction Stop }
@@ -292,7 +291,7 @@ function Update-EnvFile {
             $val = $matches[2]
             $valDisplay = $val.Trim()
 
-            Write-Host "`nVariável: $key = $valDisplay" -ForegroundColor Cyan
+            Write-Host "`nVariavel: $key = $valDisplay" -ForegroundColor Cyan
             $new = Read-Host "Novo valor (Enter para manter)"
 
             if ($new -ne "") {
@@ -301,12 +300,12 @@ function Update-EnvFile {
                 $updated += $line
             }
         } else {
-            # mantém comentários e linhas vazias
+            # mantem comentarios e linhas vazias
             $updated += $line
         }
     }
 
-    # Regrava usando a codificação original (preserva BOM quando houver) via .NET
+    # Regrava usando a codificacao original (preserva BOM quando houver) via .NET
     try {
         switch ($origEnc) {
             'utf8bom' {
@@ -347,10 +346,10 @@ function Manage-Env {
 
         if ($found) {
             Copy-Item $found $envFile -Force
-            Write-Host ".env não encontrado. Copiado de: $found" -ForegroundColor Yellow
+            Write-Host ".env nao encontrado. Copiado de: $found" -ForegroundColor Yellow
         } else {
             New-Item -Path $envFile -ItemType File -Force | Out-Null
-            Write-Host ".env não encontrado. Criado arquivo vazio: $envFile" -ForegroundColor Yellow
+            Write-Host ".env nao encontrado. Criado arquivo vazio: $envFile" -ForegroundColor Yellow
         }
     } else {
         Write-Host ".env encontrado: $envFile" -ForegroundColor Yellow
@@ -359,7 +358,7 @@ function Manage-Env {
     Update-EnvFile -Path $envFile
 }
 
-# ----- Wrappers / Service adapters (mantêm compatibilidade e separam responsabilidades) -----
+# ----- Wrappers / Service adapters (mantem compatibilidade e separam responsabilidades) -----
 function UI-ShowMenu { Show-Menu }
 function UI-ReadChoice([string]$prompt) { return Read-Host $prompt }
 function UI-Pause { Pause }
@@ -433,7 +432,7 @@ while ($running) {
             if (Check-Service) {
                 Restart-Service
             } else {
-                Write-Host "Nenhum serviço encontrado."
+                Write-Host "Nenhum servico encontrado."
             }
             Pause
         }
@@ -466,7 +465,7 @@ while ($running) {
 
 
         Default {
-            Write-Host "`nOpção inválida."
+            Write-Host "`nOpcao invalida."
             Pause
         }
     }
