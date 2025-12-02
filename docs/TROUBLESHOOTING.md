@@ -1,147 +1,135 @@
 
+# Guia de Troubleshooting — Assistente SISCAN RPA
+<a name="troubleshooting"></a>
 
-## 🛠️ Guia de Solução de Problemas do Assistente SISCAN RPA (Versão Simplificada)
+Versão: 2.0
+Data: 2025-12-02
 
-Este guia ajuda a identificar e corrigir os problemas mais comuns durante a instalação ou operação do Assistente SISCAN RPA.
+Este documento descreve problemas que ocorreram em produção e fornece instruções operacionais, reproduzíveis e específicas para ambiente Windows das prefeituras. Todas as ações abaixo são realizadas em PowerShell (executar como Administrador quando indicado).
 
-### **Regra de Ouro Antes de Começar**
-
-Sempre anote o que aconteceu, a data e a hora do erro. Se precisar de ajuda mais avançada, envie o máximo de informações possível.
-
----
-
-### 1. Verificações Rápidas e Coleta de Informações
-
-Antes de tentar qualquer solução, vamos checar o status do seu sistema.
-
-#### **A. Abra o Terminal de Comandos (PowerShell como Administrador)**
-
-* **O que fazer:** Clique no menu Iniciar, digite `PowerShell`, clique com o botão direito em **Windows PowerShell** e escolha **Executar como administrador**.
-* **Por que:** Muitos comandos de diagnóstico e correção precisam de permissões especiais.
-
-#### **B. Colete as Informações Principais (Comandos)**
-
-Execute os seguintes comandos e copie a saída para um arquivo de texto.
-
-| Comando | O que ele faz |
-| :--- | :--- |
-| `docker info` | Mostra se o Docker está rodando e o status geral. |
-| `docker compose ps` | Lista os componentes do Assistente e seus status (rodando, parado, etc.). |
-| `docker logs <NomeDoServiço>` | Mostra o que aconteceu dentro de um componente específico. |
-| **Para obter os logs completos de todos os serviços:** | `docker compose logs` |
-
-> **Dica:** Se o `docker compose ps` mostrar o nome de um serviço (por exemplo, `siscan-api`), substitua `<NomeDoServiço>` por esse nome no comando `docker logs`.
+Nota: cada tópico usa a tabela obrigatória `| Passo | O que Fazer | Como Fazer |` conforme solicitado.
 
 ---
 
-
-
-### 2. Problemas com o Docker (O Motor do Assistente) - (Revisado)
-
-O Docker é o programa que funciona como o **motor** que roda o Assistente SISCAN RPA no seu computador.
-
-#### **Problema: O Docker não está funcionando**
-
-O sintoma é: A mensagem **"Cannot connect to the Docker daemon"** apareceu no seu PowerShell.
+## Regra de Ouro — Antes de agir
 
 | Passo | O que Fazer | Como Fazer |
-| :--- | :--- | :--- |
-| **1. Verificar o Status do Docker Desktop** | **Abra o Docker Desktop no menu Iniciar.** | **Como Fazer:** Clique no menu **Iniciar** do Windows (o ícone da bandeira) e digite `Docker Desktop`. Clique no aplicativo que aparecer. Ao abrir, o ícone do Docker na sua barra de tarefas (perto do relógio) deve ficar verde e a tela inicial do programa deve mostrar um *status* como **"Docker Desktop is running"** (O Docker Desktop está rodando). Se o ícone estiver cinza ou o status for **"Stopped"** (Parado), ele não está funcionando. |
-| **2. Tentar Reiniciar** | No **PowerShell Admin**, digite o comando: `Restart-Service com.docker.service` | Este comando tenta **desligar e ligar** o motor do Docker novamente, corrigindo falhas temporárias. |
-| **3. Verificar Recursos do Computador** | **Certifique-se de que o seu computador tem espaço em disco livre e memória RAM.** | **Como Fazer (Espaço em Disco):** Abra o **Explorador de Arquivos** (o ícone da pasta amarela). Clique em **"Este Computador"**. Verifique o **Disco Local (C:)** para garantir que você tenha pelo menos **20 GB a 50 GB livres**. Se estiver quase cheio, o Docker não tem espaço para as imagens e volumes.  |
-| | | **Como Fazer (Memória RAM):** Pressione as teclas `CTRL + SHIFT + ESC` ao mesmo tempo para abrir o **Gerenciador de Tarefas**. Clique na aba **Desempenho** e olhe o item **Memória**. O número total (por exemplo, 16 GB) é a memória RAM. Se você estiver usando um computador com menos de **8 GB** de RAM, o Docker terá dificuldades para rodar, sendo **16 GB** o recomendado. |
-| **4. Se Usar WSL2 (Subsistema Linux)** | No PowerShell Admin, digite: `wsl --update` | Se você usa o WSL2 para rodar o Docker (geralmente usado por quem instalou o Docker Desktop mais recentemente), este comando **atualiza** o componente WSL e, em seguida, você deve **reiniciar o Docker Desktop** pelo menu do programa. |
----
-
-### 3. Problemas de Acesso (Login, Chaves e Imagens)
-
-O Assistente precisa de permissão para baixar as atualizações (Imagens) de onde elas estão guardadas (`ghcr.io`).
-
-#### **Problema: Falha de Login ou Mensagem "unauthorized" / "pull access denied"**
-
-Significa que a chave (Token) usada para fazer o login no repositório de imagens é inválida ou expirou.
-
-| Passo | O que Fazer | Detalhes para o Leigo |
-| :--- | :--- | :--- |
-| **1. Sair e Entrar Novamente** | No PowerShell Admin, digite: `docker logout ghcr.io` e depois `docker login ghcr.io` | O comando `login` pedirá o **Nome de Usuário do GitHub** e a **Chave/Token de Acesso Pessoal (PAT)**. Certifique-se de usar o token **correto**. |
-| **2. Verificar a Chave (Token)** | Acesse a página de **Tokens de Acesso Pessoal (PAT)** no GitHub. | A chave (Token) usada para o login precisa ter as permissões `read:packages` e, se o repositório for privado, `repo`. Se estiver expirada ou sem as permissões corretas, **gere uma nova**. |
+|---|---|---|
+| 1 | Registrar o incidente | Anotar data, hora, usuário, passos exatos executados antes do erro | Usar arquivo `C:\assistente-siscan\logs\incident-YYYYMMDD.txt` ou abrir `notepad C:\assistente-siscan\logs\incident-YYYYMMDD.txt` e colar as saídas dos comandos a seguir |
+| 2 | Sempre executar diagnósticos com PowerShell como Administrador | Muitos comandos de diagnóstico requerem privilégios elevados para obter informações completas | Menu Iniciar → digitar `PowerShell` → botão direito → `Executar como administrador` → confirmar UAC |
+| 3 | Coletar saídas dos comandos principais antes de alterar configuração | Salve as saídas para permitir reprodutibilidade e análise por suporte | Exemplos: `docker info > C:\assistente-siscan\logs\docker-info.txt`, `docker compose ps > C:\assistente-siscan\logs\compose-ps.txt` |
 
 ---
 
-### 4. Problemas de Permissão de Pastas (Mount denied)
+## 1 — Verificações Rápidas e Coleta de Informações
 
-O Docker precisa de permissão para acessar a pasta do Assistente no seu computador.
-
-#### **Problema: Erro "Mount denied" ou "invalid mount config"**
-
-O Docker não consegue ler ou gravar na pasta do projeto no seu Windows.
-
-| Passo | O que Fazer | Detalhes para o Leigo |
-| :--- | :--- | :--- |
-| **1. Compartilhar o Drive** | **Abra o Docker Desktop** -> Vá em **Settings** (Configurações) -> **Resources** -> **File Sharing** (Compartilhamento de Arquivos). | Certifique-se de que o **Drive C:** (ou o drive onde está a pasta do Assistente) esteja listado e **selecionado** para compartilhamento. |
-| **2. Verificar a Pasta** | Verifique se a pasta de instalação do Assistente no seu computador (**Exemplo:** `C:\assistente-siscan`) realmente existe e se está com as permissões corretas. | O caminho **tem que ser o mesmo** usado no arquivo `docker-compose.yml` ou no script de *deploy*. |
-
----
-
-### 5. Problemas com o Assistente (Containers em Loop)
-
-#### **Problema: Um componente (Container) do Assistente não inicia e fica Reiniciando sem parar**
-
-Isso é chamado de *CrashLoop*. O componente está tentando iniciar, mas encontra um erro e se desliga imediatamente.
-
-| Passo | O que Fazer | Detalhes para o Leigo |
-| :--- | :--- | :--- |
-| **1. Coletar o Log do Erro** | No PowerShell Admin, use o comando para ver os logs do componente que está falhando: `docker logs <NomeDoServiço>` | **Procure por mensagens de erro em letras maiúsculas, *stacktrace*, ou palavras-chave como `ERROR`, `Failed`, ou `Exception`.** Isso geralmente indica qual variável de ambiente está faltando ou se há um arquivo de configuração errado. |
-| **2. Parar e Recriar** | Se a causa for corrigida (ex: variável ajustada), execute: `docker compose down` e depois `docker compose up -d` | Isso força o Docker a parar, remover e recriar o componente com as novas configurações, eliminando o erro de *CrashLoop*. |
-
----
-
-### 6. Problemas com o Windows Defender e Scripts
-
-#### **Problema: O Windows bloqueia a execução do script de instalação (`.ps1`)**
-
-Você pode receber uma mensagem dizendo que o script não pode ser carregado.
-
-| Passo | O que Fazer | Detalhes para o Leigo |
-| :--- | :--- | :--- |
-| **1. Ajustar a Política (Se permitido)** | No PowerShell Admin, digite: `Set-ExecutionPolicy RemoteSigned -Scope LocalMachine` | Este comando permite que *scripts* que você baixou da Internet rodem no seu computador. **Atenção:** Se a sua área de TI não permitir isso, não prossiga. |
-| **2. Checar o Antivírus** | Verifique as notificações e logs do **Windows Defender** ou do seu Antivírus. | O programa pode estar bloqueando o Docker ou a pasta do Assistente. Peça à TI para adicionar o **Docker** e a **pasta do Assistente SISCAN RPA** como exceções. |
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Abrir PowerShell como Administrador | Abrir shell com privilégios para executar os comandos de diagnóstico | Menu Iniciar → digitar `PowerShell` → clicar com o botão direito → `Executar como administrador` |
+| 2 | Verificar status do Docker | Confirmar se o Docker Engine está rodando | `docker info` — salvar saída: `docker info > C:\assistente-siscan\logs\docker-info.txt` |
+| 3 | Listar serviços do compose | Verificar containers e status | `docker compose ps --all > C:\assistente-siscan\logs\compose-ps.txt` |
+| 4 | Coletar logs de um serviço específico | Obter evidência do erro em um container | `docker logs <NomeDoServico> --since 10m > C:\assistente-siscan\logs\<NomeDoServico>-logs.txt` |
+| 5 | Coletar logs de todos os serviços | Obter logs agregados do compose | `docker compose logs --no-log-prefix --since 1h > C:\assistente-siscan\logs\compose-logs.txt` |
+| 6 | Testar conectividade com GHCR | Verificar TLS e rota até GHCR | `Test-NetConnection ghcr.io -Port 443 -InformationLevel Detailed > C:\assistente-siscan\logs\nettest-ghcr.txt` e `curl -v https://ghcr.io/v2/ 2>&1 | Out-File C:\assistente-siscan\logs\curl-ghcr.txt` |
+| 7 | Exportar imagens/localizar tags | Identificar imagens relacionadas ao assistente | `docker images --format '{{.Repository}}:{{.Tag}}' | Select-String 'assistente' > C:\assistente-siscan\logs\images.txt` |
 
 
-#####  Solução para o Erro: "Execução de scripts foi desabilitada"
+## Problema 1 — ExecutionPolicy bloqueando scripts
 
-Você precisa temporariamente relaxar a política de segurança do PowerShell para permitir a execução de scripts locais.
+Mensagem real observada em produção:
 
-| Passo | O que Fazer | Detalhes Importantes |
-| :--- | :--- | :--- |
-| **1. Abrir o PowerShell como Administrador** | Clique no menu Iniciar, digite `PowerShell`, clique com o botão direito em **Windows PowerShell** e escolha **Executar como administrador**. | **É fundamental** que você execute como Administrador, ou o comando no Passo 2 não funcionará. |
-| **2. Ajustar a Política de Execução** | No PowerShell Admin, digite o seguinte comando e pressione Enter: `Set-ExecutionPolicy RemoteSigned -Scope LocalMachine` | Este comando muda a política para `RemoteSigned`, o que significa que scripts criados localmente (como o seu `siscan-assistente.ps1`) podem ser executados, enquanto scripts baixados da internet ainda precisarão de uma assinatura digital. |
-| **3. Confirmar a Mudança** | O PowerShell irá perguntar se você tem certeza. Digite a letra `S` (Sim) e pressione Enter. | Se tudo der certo, o PowerShell voltará para a linha de comando sem mensagens de erro. |
-| **4. Tentar Rodar o Script Novamente** | Feche e reabra o seu terminal normal (sem ser como Administrador) na pasta correta (`C:\Users\jailt\assistente-siscan-rpa>`). | Execute o comando original: `.\siscan-assistente.ps1` |
+`.\siscan-assistente.ps1 : não pode ser carregado porque a execução de scripts foi desabilitada neste sistema.`
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Diagnosticar a política ativa | Executar em PowerShell (Admin): `Get-ExecutionPolicy -List` — verifique as políticas por escopo (MachinePolicy, UserPolicy, Process, CurrentUser, LocalMachine) |
+| 2 | Liberar temporariamente para testar | Em PowerShell (Admin): `Set-ExecutionPolicy RemoteSigned -Scope Process -Force` — isto altera apenas a sessão atual |
+| 3 | Liberar permanentemente (se permitido) | Em PowerShell (Admin): `Set-ExecutionPolicy RemoteSigned -Scope LocalMachine` (confirmar com `S`) — apenas se política local permitir |
+| 4 | Verificar se há GPO forçando bloqueio | Em prompt administrativo: `gpresult /h C:\temp\gpresult.html` e abra o HTML para verificar configurações de Group Policy que definem ExecutionPolicy; alternativamente, peça ao time de TI para revisar a GPO | Se houver GPO com MachinePolicy/UserPolicy definindo política, só o administrador de domínio pode alterar |
+| 5 | Solução temporária alternativa sem mudar GPO | Executar o script invocando PowerShell com `-ExecutionPolicy Bypass` no comando de agendamento ou chamada: `pwsh -NoProfile -ExecutionPolicy Bypass -File C:\assistente-siscan\siscan-assistente.ps1` |
+
+Solução recomendada: aplicar `RemoteSigned` localmente para hosts gerenciados, e registrar exceções de GPO para hosts específicos com autorização da TI.
 
 ---
 
-#####  E se o problema persistir?
+## Problema 2 — Falha de Permissão no Pull da Imagem do GHCR
 
-Se o passo 3 retornar a mensagem **"Acesso negado"**, isso significa que as configurações de segurança da sua empresa (política de grupo) estão impedindo a mudança.
+Comportamento: `docker compose pull` retorna erro `unauthorized: access to the requested resource is not authorized` ou `pull access denied`.
 
-Neste caso, você terá que contatar o **Departamento de TI (NetOps)** da prefeitura para que eles alterem a política de execução ou autorizem a execução do script `siscan-assistente.ps1` no seu computador.
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Detectar o erro exato | Executar: `docker compose pull` e inspecionar saída/erro; redirecionar para arquivo: `docker compose pull 2>&1 | Out-File C:\assistente-siscan\logs\pull-error.txt` |
+| 2 | Verificar status do login Docker | `docker logout ghcr.io` seguido de `docker login ghcr.io -u <GITHUB_USER> -p <PAT>` (PAT com `read:packages`) — confirmar saída `Login Succeeded` |
+| 3 | Resetar credenciais locais do Docker | Windows: abrir Credenciais do Windows (Credential Manager) → procurar entradas relacionadas a `ghcr.io`/`docker` e remover; depois executar `docker login ghcr.io` novamente |
+| 4 | Gerar novo token no GitHub | No GitHub → Settings → Developer settings → Personal access tokens → Generate token com escopo `read:packages` (e `repo` se necessário) — copiar token e usar no `docker login` |
+| 5 | Como o script deve reagir | Script deve: detectar código de erro 401/403, mostrar mensagem clara `Erro de autenticação GHCR — execute docker login ghcr.io` e abortar pull com código de retorno != 0, gravando detalhes em `C:\assistente-siscan\logs\pull-error.txt` |
 
-Deu certo a alteração da política de execução?
+Quando solicitar token novamente: sempre quando `docker login` falhar com 401/403. Não armazenar PAT em repositório; usar `docker login` por sessão ou secret manager local.
 
 ---
 
-## Coleta de Informações para Suporte Avançado
+## Problema 3 — "Nenhum serviço encontrado"
 
-Se nenhuma das soluções acima funcionar, reúna todos os seguintes arquivos e informações para enviar à equipe de suporte.
+Sintoma: comandos PowerShell ou o script retornam mensagem indicando que o serviço do Assistente não existe ou `Get-Service` não lista serviço com nome esperado.
 
-1.  **Logs do Compose:**
-    * `docker compose logs --no-log-prefix > compose-logs.txt`
-2.  **Informações do Docker:**
-    * `docker info > docker-info.txt`
-    * `docker version > docker-version.txt`
-3.  **Status do Sistema:**
-    * **Data e Hora Exata** do momento da falha.
-    * **Passos Exatos** que você seguiu antes do erro ocorrer.
-    * Uma **Captura de Tela (Screenshot)** da mensagem de erro.
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Diagnóstico inicial | Executar PowerShell (Admin): `Get-Service *siscan*` e `docker compose ps` — confirmar ausência do serviço no Windows Services e containers | Se `Get-Service` não retornar nada, o serviço Windows com nome `siscan-*` não está instalado |
+| 2 | Verificar nome correto do serviço | Conferir no `docker-compose.yml` e no script de instalação (`siscan-assistente.ps1`) qual nome foi usado para registrar serviço. Procure por `New-Service`, `sc.exe create` ou instruções de registro. |
+| 3 | Como reinstalar o serviço | Se houver um instalador que registra o serviço Windows: executar o script de instalação como Admin ou executar manualmente (exemplo): `sc create SiscanService binPath= "C:\assistente-siscan\service-wrapper.exe" start= auto` — substituir pelo binário real; preferir usar o script fornecido que automatiza isso |
+| 4 | Verificar logs de instalação | Checar `C:\assistente-siscan\logs\install.log` ou saída do instalador; usar `Get-WinEvent -LogName Application | Where-Object {$_.TimeCreated -gt (Get-Date).AddMinutes(-30)}` para eventos recentes |
 
+Se o assistente roda apenas como container (sem service Windows), confirme `docker compose up` e ajuste o processo de monitoramento da prefeitura para observar containers, não Windows Services.
+
+---
+
+## Problema 4 — `.env` vazio ou não gerado
+
+Sintoma: variáveis de ambiente não preenchidas, containers iniciam com valores vazios ou logs indicam falta de credenciais.
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Verificar `.env` e `.env.sample` | `Get-Content C:\assistente-siscan\.env -Raw` e `Get-Content C:\assistente-siscan\.env.sample -Raw` — comparar chaves e valores |
+| 2 | Causas comuns | Arquivo `.env` não foi copiado; permissões impedem escrita; script falhou ao gerar arquivo | Verificar saída do instalador em `C:\assistente-siscan\logs\install.log` e verificar se o processo que cria `.env` terminou com sucesso |
+| 3 | Recriar `.env` manualmente | `Copy-Item C:\assistente-siscan\.env.sample C:\assistente-siscan\.env -Force` e então editar: `notepad C:\assistente-siscan\.env` preenchendo valores obrigatórios |
+| 4 | Corrigir permissões do arquivo | `icacls C:\assistente-siscan\.env /grant "Administradores:(R,W)"` e garantir que a conta que executa o serviço/container consiga ler o arquivo |
+| 5 | Como o script impede valores vazios | Implementação recomendada no script: antes de prosseguir, validar com `Select-String -Path .env -Pattern '^[A-Z0-9_]+=\s*$'` e abortar com mensagem clara pedindo preenchimento das variáveis obrigatórias |
+
+---
+
+## Problema 5 — Remoção de variáveis de debug/log
+
+Contexto: variáveis sensíveis de debug/log foram removidas antes de entregar ao cliente em produção.
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Quais variáveis foram removidas | Exemplo de variáveis a remover: `DEBUG`, `TRACE`, `DEV_LOG`, `LOCAL_DEBUG_TOKEN`, `SAMPLE_PAYLOAD` — confirmar por audit no repo | Conferir histórico Git: `git log -p -- docs/ .env.sample` e procurar commits que removem `DEBUG`|
+| 2 | Por que não devem ir ao cliente | Variáveis de debug podem vazar dados sensíveis, gerar ruído em produção e expor internals | Documentar política de variáveis sensíveis em `docs/CHECKLISTS.md` e remover do `.env.sample` de produção |
+| 3 | Como o script limpa automaticamente | Implementar/validar presença de rotina no instalador: após copiar `.env.sample` para `.env`, remover chaves proibidas via PowerShell: `Get-Content .env | Where-Object {$_ -notmatch '^(DEBUG|TRACE|DEV_LOG|LOCAL_DEBUG_TOKEN)='} | Set-Content .env` |
+| 4 | Checagem pós-deploy | Script deve validar `.env` e gerar alerta se variáveis proibidas existirem: retornar erro e gravar em `C:\assistente-siscan\logs\security-check.log` |
+
+---
+
+## Problema 6 — Falha no pull por rede instável / firewall
+
+Sintoma: `docker pull` falha intermitentemente, tempo esgota (timeout) ou conexões TLS são interceptadas.
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Diagnóstico básico de rede | `Test-NetConnection ghcr.io -Port 443 -InformationLevel Detailed` e `ping ghcr.io` (ping pode não responder em alguns hosts) |
+| 2 | Testes de rede adicionais | `curl -v https://ghcr.io/v2/` para verificar handshake TLS; `tracert ghcr.io` para identificar hops problemáticos |
+| 3 | Retry manual (PowerShell loop) | Exemplo: `for ($i=0; $i -lt 5; $i++) { docker pull ghcr.io/Prisma-Consultoria/assistente-siscan-rpa:<tag> ; if ($?){ break } ; Start-Sleep -Seconds 30 }` |
+| 4 | Comando alternativo se Docker falhar | Baixar a imagem como tar (quando suportado pelo provider) ou pedir ao time de Infra para disponibilizar mirror interno; alternativamente, usar `docker save`/`docker load` em máquina com acesso e transferir o tar |
+| 5 | Quando envolver TI da prefeitura | Se `Test-NetConnection` falhar repetidamente ou se houver bloqueio por firewall/proxy, abrir chamado com evidência (`tracert`, `curl -v`) solicitando liberação de `ghcr.io` (porta 443) ou configuração de proxy TLS | Forneça logs de `docker pull` e `Test-NetConnection` ao time de TI para acelerar diagnóstico |
+
+---
+
+## Coleta de artefatos para suporte avançado (sempre coletar quando abrir chamado)
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Coletar logs do compose | `docker compose logs --no-log-prefix --since 1h > C:\assistente-siscan\logs\compose-logs.txt` |
+| 2 | Coletar info do Docker | `docker info > C:\assistente-siscan\logs\docker-info.txt` e `docker version > C:\assistente-siscan\logs\docker-version.txt` |
+| 3 | Coletar política de execução do PowerShell | `Get-ExecutionPolicy -List > C:\assistente-siscan\logs\executionpolicy.txt` |
+| 4 | Coletar saída de testes de rede | `Test-NetConnection ghcr.io -Port 443 -InformationLevel Detailed > C:\assistente-siscan\logs\nettest.txt` |
+| 5 | Capturar configuração do serviço agendado | `schtasks /Query /TN "Siscan-Extrator" /V /FO LIST > C:\assistente-siscan\logs\taskinfo.txt` |
