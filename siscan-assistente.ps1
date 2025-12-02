@@ -68,6 +68,35 @@ $CRED_FILE = "credenciais.txt"
 $IMAGE_PATH = "ghcr.io/prisma-consultoria/siscan-rpa-rpa:main"
 $COMPOSE_FILE = Join-Path $PSScriptRoot "docker-compose.yml"
 
+function Is-DockerAvailable {
+    $null = $null
+    try {
+        $ver = docker --version 2>&1
+        if ($LASTEXITCODE -ne 0) { return @{ok=$false; msg=($ver -join "`n")} }
+        return @{ok=$true; msg=($ver -join "`n")} 
+    } catch {
+        return @{ok=$false; msg=$_}
+    }
+}
+
+function Get-ExpectedServiceNames {
+    param([string]$ComposePath)
+    if (-not (Test-Path $ComposePath)) { return @() }
+
+    $lines = Get-Content $ComposePath -ErrorAction SilentlyContinue
+    $services = @()
+    $inServices = $false
+    foreach ($line in $lines) {
+        if ($line -match '^\s*services\s*:') { $inServices = $true; continue }
+        if ($inServices) {
+            if ($line -match '^\s*[^\s]') { break } # fim do bloco services quando voltar ao nivel 0
+            if ($line -match '^\s{2,}([a-zA-Z0-9_-]+)\s*:') { $services += $matches[1] }
+        }
+    }
+
+    return $services
+}
+
 function Get-CredentialsFile {
     if (!(Test-Path $CRED_FILE)) { return $null }
 
@@ -377,7 +406,7 @@ function Docker-UpdateAndRestart { UpdateAndRestart }
 function Docker-CheckService { return Check-Service }
 function Docker-RestartService { Restart-Service }
 
-# Services container (injeção simples)
+# Services container (injecao simples)
 $Services = {
     UI = [ordered]@{
         ShowMenu = { UI-ShowMenu }
@@ -432,7 +461,17 @@ while ($running) {
             if (Check-Service) {
                 Restart-Service
             } else {
-                Write-Host "Nenhum servico encontrado."
+                Write-Host "Nenhum servico encontrado." -ForegroundColor Yellow
+                # Mostrar nomes de serviço esperados a partir do docker-compose.yml
+                $expected = Get-ExpectedServiceNames -ComposePath $COMPOSE_FILE
+                if ($expected -and $expected.Count -gt 0) {
+                    Write-Host "Servicos esperados no docker-compose.yml:" -ForegroundColor Cyan
+                    foreach ($s in $expected) { Write-Host " - $s" }
+                    Write-Host "Verifique se os nomes sao os mesmos ou se o compose esta no caminho correto." -ForegroundColor Yellow
+                } else {
+                    Write-Host "Nao foi possivel extrair nomes de servico do arquivo docker-compose.yml." -ForegroundColor Yellow
+                    Write-Host "Certifique-se de que o arquivo exista em: $COMPOSE_FILE" -ForegroundColor Yellow
+                }
             }
             Pause
         }
