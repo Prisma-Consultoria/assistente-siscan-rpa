@@ -61,6 +61,31 @@ $CRED_FILE = "credenciais.txt"
 $IMAGE_PATH = "ghcr.io/prisma-consultoria/siscan-rpa-rpa:main"
 $COMPOSE_FILE = Join-Path $PSScriptRoot "docker-compose.yml"
 
+# Textos de ajuda para variaveis do .env (usado por Update-EnvFile)
+# Carrega textos de ajuda de .env.help.json se presente, caso contrario usa valores embutidos simples
+$ENV_HELP_TEXTS = @{
+    'SISCAN_USER' = 'Usuário do SISCAN (ex.: nome de usuário fornecido pelo suporte)'
+    'SISCAN_PASSWORD' = 'Senha do SISCAN (mantenha confidencial)'
+    'HOST_MEDIA_ROOT' = 'Pasta local onde o Assistente salva imagens e relatórios (ex: C:\\siscan\\media ou /var/siscan/media)'
+}
+
+$helpPath = Join-Path $PSScriptRoot '.env.help.json'
+if (Test-Path $helpPath) {
+    try {
+        $helpJson = Get-Content $helpPath -Raw | ConvertFrom-Json
+        if ($helpJson -and $helpJson.keys) {
+            $ENV_HELP_TEXTS = @{}
+            foreach ($prop in $helpJson.keys.psobject.properties) {
+                $k = $prop.Name
+                $entry = $helpJson.keys.$k
+                if ($entry -and $entry.help) { $ENV_HELP_TEXTS[$k] = $entry.help }
+            }
+        }
+    } catch {
+        # se falhar ao ler o arquivo, mantemos os textos embutidos
+    }
+}
+
 function Is-DockerAvailable {
     $null = $null
     try {
@@ -317,6 +342,13 @@ function Update-EnvFile {
             $valDisplay = $val.Trim()
 
             Write-Host "`nVariavel: $key = $valDisplay" -ForegroundColor Cyan
+
+            # Se houver texto de ajuda disponivel, mostrar antes do prompt
+            if ($ENV_HELP_TEXTS.ContainsKey($key)) {
+                $help = $ENV_HELP_TEXTS[$key]
+                Write-Host "Ajuda: $help" -ForegroundColor DarkCyan
+            }
+
             $new = Read-Host "Novo valor (Enter para manter)"
 
             if ($new -ne "") {
@@ -434,7 +466,6 @@ function Show-Menu {
     Write-Host "   Assistente SISCASAN RPA - Fácil e seguro"
     Write-Host "========================================"
     Write-Host ""
-
         Write-Host " 1) Reiniciar o SISCAN RPA"
         Write-Host "    - Fecha e inicia o serviço (útil para problemas simples)"
         Write-Host " 2) Atualizar / Instalar o SISCAN RPA"

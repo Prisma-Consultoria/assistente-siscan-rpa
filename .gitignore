@@ -38,6 +38,7 @@ logs/
 .env
 .env.*
 !.env.sample
+!.env.help.json
 secrets.*
 *.key
 *.pem
