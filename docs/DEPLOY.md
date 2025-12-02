@@ -8,6 +8,19 @@ Este documento descreve passo a passo reproduzível para preparar, instalar e op
 
 **Observação:** este guia presume Windows 10/11 (Pro ou Server) com Docker Desktop instalado. Todas as etapas indicam comandos PowerShell para execução local.
 
+## Resumo técnico e informações adicionais
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Verificar requisitos de hardware mínimos | CPU: 2 vCPU (produção: 4+ vCPU); RAM: 4 GB (produção: 8+ GB); Disco: 20 GB livres — confirmar em PowerShell: `Get-CimInstance Win32_ComputerSystem | Select-Object NumberOfLogicalProcessors, TotalPhysicalMemory` e verifique espaço em disco com `Get-PSDrive C` |
+| 2 | Identificar perfis e responsabilidades | Listar papéis que participarão do deploy: Operador, Administrador Windows, DevOps/Infra, Suporte N2/N3 | Documento interno: registrar contatos e responsáveis; exemplo: `Operador: equipe X (contato)` em `docs/CHECKLISTS.md` |
+| 3 | Revisar componentes técnicos do ambiente | Confirmar presença de Docker, Docker Compose, PowerShell e acesso GHCR | Em PowerShell: `docker version`; `docker compose version`; `Get-Host` e teste `Test-NetConnection ghcr.io -Port 443` |
+| 4 | Entender o fluxo de deploy (arquitetura) | Fluxo: autenticar GHCR → pull das imagens → criar containers → mapear volumes → monitorar health endpoints | Executar passos em ordem: `docker login ghcr.io`; `docker compose pull`; `docker compose up -d`; `Invoke-WebRequest http://localhost:8080/health` |
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 5 | Verificar locais de arquivos e logs recomendados | Confirmar paths padrão no host para persitência | Padrões: `C:\assistente-siscan\` (código e compose), `C:\assistente-siscan\media\downloads\`, `C:\assistente-siscan\logs\` — criar com `New-Item -ItemType Directory -Path <path> -Force` |
+
 ## 1 — Pré-requisitos
 
 | Passo | O que Fazer | Como Fazer |
