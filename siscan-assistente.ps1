@@ -435,10 +435,10 @@ function Show-Menu {
     Write-Host "========================================"
     Write-Host ""
 
-        Write-Host " 1) Reiniciar o Assistente"
+        Write-Host " 1) Reiniciar o SISCAN RPA"
         Write-Host "    - Fecha e inicia o serviço (útil para problemas simples)"
-        Write-Host " 2) Atualizar / Entrar (Atualizar o Assistente e informar acesso)"
-        Write-Host "    - Informe seu usuário/token e o Assistente será atualizado e reiniciado"
+        Write-Host " 2) Atualizar / Instalar o SISCAN RPA"
+        Write-Host "    - Baixa a versao mais recente do servico SISCAN RPA"
         Write-Host " 3) Editar configurações básicas"
         Write-Host "    - Ajuste caminhos e opções essenciais (.env)"
         Write-Host " 4) Sair"
