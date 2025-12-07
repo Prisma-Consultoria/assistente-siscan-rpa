@@ -192,19 +192,62 @@ function Test-GitHubToken ($creds) {
         
         if ($response.StatusCode -eq 200) {
             $userData = $response.Content | ConvertFrom-Json
-            Write-Host "  Token valido! Usuario autenticado: $($userData.login)" -ForegroundColor Green
+            Write-Host "  [1/3] Token valido! Usuario: $($userData.login)" -ForegroundColor Green
             
             # Verificar scopes no header
             $scopes = $response.Headers['X-OAuth-Scopes']
             if ($scopes) {
-                Write-Host "  Permissoes do token: $scopes" -ForegroundColor Gray
+                Write-Host "  [2/3] Permissoes do token: $scopes" -ForegroundColor Gray
                 
                 if ($scopes -notmatch 'read:packages') {
                     Write-Host "  AVISO: Token nao tem permissao 'read:packages'!" -ForegroundColor Red
                     Write-Host "  Isso impedira o acesso ao GHCR." -ForegroundColor Red
                     return $false
                 } else {
-                    Write-Host "  Permissao 'read:packages' confirmada." -ForegroundColor Green
+                    Write-Host "  [2/3] Permissao 'read:packages' confirmada." -ForegroundColor Green
+                }
+            }
+            
+            # Testar acesso ao repositorio da organizacao
+            Write-Host "  [3/3] Testando acesso ao repositorio..." -ForegroundColor Cyan
+            try {
+                $repoResponse = Invoke-WebRequest -Uri 'https://api.github.com/repos/Prisma-Consultoria/siscan-rpa-rpa' -Headers $headers -ErrorAction Stop
+                if ($repoResponse.StatusCode -eq 200) {
+                    Write-Host "  [3/3] Acesso ao repositorio confirmado!" -ForegroundColor Green
+                    return $true
+                }
+            } catch {
+                $repoStatusCode = $_.Exception.Response.StatusCode.value__
+                if ($repoStatusCode -eq 404) {
+                    Write-Host "  [3/3] API retornou 404 para o repositorio" -ForegroundColor Yellow
+                    Write-Host "" 
+                    Write-Host "  ============================================" -ForegroundColor Yellow
+                    Write-Host "  CAUSA MAIS PROVAVEL: SSO NAO AUTORIZADO" -ForegroundColor Yellow
+                    Write-Host "  ============================================" -ForegroundColor Yellow
+                    Write-Host "" 
+                    Write-Host "  A organizacao 'Prisma-Consultoria' provavelmente" -ForegroundColor Cyan
+                    Write-Host "  requer autorizacao SSO (Single Sign-On) para tokens." -ForegroundColor Cyan
+                    Write-Host "" 
+                    Write-Host "  Mesmo que voce seja contributor do repositorio," -ForegroundColor Gray
+                    Write-Host "  o token precisa ser autorizado via SSO." -ForegroundColor Gray
+                    Write-Host "" 
+                    Write-Host "  ============================================" -ForegroundColor Green
+                    Write-Host "  SOLUCAO IMEDIATA (2 minutos):" -ForegroundColor Green
+                    Write-Host "  ============================================" -ForegroundColor Green
+                    Write-Host "" 
+                    Write-Host "  1. Acesse: https://github.com/settings/tokens" -ForegroundColor White
+                    Write-Host "  2. Localize seu token na lista" -ForegroundColor Gray
+                    Write-Host "  3. Ao lado do token, clique em 'Configure SSO'" -ForegroundColor White
+                    Write-Host "  4. Autorize para 'Prisma-Consultoria'" -ForegroundColor White
+                    Write-Host "  5. Volte aqui e tente novamente (mesma senha)" -ForegroundColor White
+                    Write-Host "" 
+                    Write-Host "  Se NAO houver botao 'Configure SSO':" -ForegroundColor Yellow
+                    Write-Host "  - Gere um NOVO token e autorize SSO logo apos gerar" -ForegroundColor Gray
+                    Write-Host "" 
+                    return $false
+                } else {
+                    Write-Host "  [3/3] Erro ao verificar repositorio: HTTP $repoStatusCode" -ForegroundColor Yellow
+                    return $true  # Continua tentando mesmo com erro
                 }
             }
             
@@ -243,7 +286,14 @@ function Docker-Login ($creds) {
     # Testar token via API primeiro (opcional, mas recomendado)
     $tokenValid = Test-GitHubToken $creds
     if (-not $tokenValid) {
-        Write-Host "`nToken falhou no teste de API. Tentando login no GHCR mesmo assim..." -ForegroundColor Yellow
+        Write-Host "`nToken falhou no teste de API." -ForegroundColor Red
+        Write-Host "O login no GHCR provavelmente falhara." -ForegroundColor Red
+        Write-Host "`nDeseja continuar mesmo assim? (S/N)" -ForegroundColor Yellow
+        $continuar = Read-Host
+        if ($continuar -notmatch '^[Ss]') {
+            Write-Host "Operacao cancelada pelo usuario." -ForegroundColor Yellow
+            return $false
+        }
     }
 
     # Capturar saida completa do docker login para diagnostico
@@ -251,15 +301,29 @@ function Docker-Login ($creds) {
     $loginExitCode = $LASTEXITCODE
 
     if ($loginExitCode -ne 0) {
-        Write-Host "Erro: Falha na autenticacao com o GitHub Container Registry." -ForegroundColor Red
+        Write-Host "`n============================================" -ForegroundColor Red
+        Write-Host "  FALHA NA AUTENTICACAO GHCR" -ForegroundColor Red
+        Write-Host "============================================" -ForegroundColor Red
         Write-Host "`nDetalhes do erro:" -ForegroundColor Yellow
         Write-Host ($loginOutput | Out-String) -ForegroundColor Gray
         
-        Write-Host "`nPossiveis causas:" -ForegroundColor Cyan
-        Write-Host "  1. Token expirado ou invalido" -ForegroundColor Gray
-        Write-Host "  2. Token sem permissao 'read:packages' para o repositorio" -ForegroundColor Gray
-        Write-Host "  3. Usuario incorreto (deve ser o username do GitHub, nao email)" -ForegroundColor Gray
-        Write-Host "  4. Repositorio privado e token sem acesso a organizacao" -ForegroundColor Gray
+        Write-Host "`nResumo do diagnostico:" -ForegroundColor Cyan
+        Write-Host "  Usuario: $($creds.usuario)" -ForegroundColor Gray
+        Write-Host "  Token valido na API GitHub: $(if ($tokenValid) {'SIM'} else {'NAO'})" -ForegroundColor $(if ($tokenValid) {'Green'} else {'Red'})
+        Write-Host "  Login GHCR: FALHOU" -ForegroundColor Red
+        
+        Write-Host "`n============================================" -ForegroundColor Yellow
+        Write-Host "  DIAGNOSTICO: SSO NAO AUTORIZADO" -ForegroundColor Yellow
+        Write-Host "============================================" -ForegroundColor Yellow
+        Write-Host "" 
+        Write-Host "Se o token e valido mas GHCR falha, o problema e SSO." -ForegroundColor Cyan
+        Write-Host "Organizacoes podem exigir autorizacao SSO por token." -ForegroundColor Gray
+        Write-Host "" 
+        Write-Host "Possiveis causas:" -ForegroundColor Cyan
+        Write-Host "  1. Token sem autorizacao SSO (MAIS PROVAVEL)" -ForegroundColor Yellow
+        Write-Host "  2. Token expirado ou revogado" -ForegroundColor Gray
+        Write-Host "  3. Token sem permissao 'read:packages'" -ForegroundColor Gray
+        Write-Host "  4. Problema de rede/firewall bloqueando GHCR" -ForegroundColor Gray
         
         Write-Host "`n========================================" -ForegroundColor Cyan
         Write-Host "  Comandos de Diagnostico" -ForegroundColor Cyan
@@ -296,6 +360,35 @@ function Docker-Login ($creds) {
         Write-Host "`nOpcao B - Solicitar acesso a organizacao:" -ForegroundColor Yellow
         Write-Host "  Entre em contato com admin da organizacao Prisma-Consultoria" -ForegroundColor Gray
         Write-Host "  e solicite acesso ao repositorio 'siscan-rpa-rpa'" -ForegroundColor Gray
+        
+        Write-Host "`nOpcao C - AUTORIZAR SSO (SOLUCAO MAIS PROVAVEL - 2 min):" -ForegroundColor Green
+        Write-Host "" 
+        Write-Host "  Metodo 1 - Se o token ja existe:" -ForegroundColor White
+        Write-Host "    1. Acesse: https://github.com/settings/tokens" -ForegroundColor Gray
+        Write-Host "    2. Localize o token 'read:packages' na lista" -ForegroundColor Gray
+        Write-Host "    3. Procure por botao 'Configure SSO' verde ao lado" -ForegroundColor Gray
+        Write-Host "    4. Se encontrar: Clique -> Autorize 'Prisma-Consultoria' -> Pronto!" -ForegroundColor Green
+        Write-Host "" 
+        Write-Host "  Metodo 2 - Se NAO houver botao 'Configure SSO':" -ForegroundColor White
+        Write-Host "    Significa que o token foi criado ANTES da org ativar SSO." -ForegroundColor Yellow
+        Write-Host "    Solucao: Gere um NOVO token:" -ForegroundColor Yellow
+        Write-Host "" 
+        Write-Host "    1. Acesse: https://github.com/settings/tokens/new" -ForegroundColor Gray
+        Write-Host "    2. Note: 'SISCAN RPA Read Packages'" -ForegroundColor Gray
+        Write-Host "    3. Expiration: No expiration (ou 90 days)" -ForegroundColor Gray
+        Write-Host "    4. Selecione scopes:" -ForegroundColor Gray
+        Write-Host "       [X] repo (acesso completo a repositorios privados)" -ForegroundColor Green
+        Write-Host "       [X] read:packages" -ForegroundColor Green
+        Write-Host "    5. Clique 'Generate token'" -ForegroundColor Gray
+        Write-Host "    6. COPIE o token (so aparece uma vez!)" -ForegroundColor Red
+        Write-Host "    7. Logo apos gerar, clique 'Configure SSO'" -ForegroundColor Green
+        Write-Host "    8. Autorize para 'Prisma-Consultoria'" -ForegroundColor Green
+        Write-Host "    9. Use o novo token aqui no assistente" -ForegroundColor Gray
+        Write-Host "" 
+        Write-Host "  Documentacao oficial:" -ForegroundColor DarkGray
+        Write-Host "  https://docs.github.com/en/enterprise-cloud@latest/authentication/authenticating-with-saml-single-sign-on/authorizing-a-personal-access-token-for-use-with-saml-single-sign-on" -ForegroundColor DarkGray
+        
+        Write-Host "`n============================================`n" -ForegroundColor Cyan
         
         return $false
     }
