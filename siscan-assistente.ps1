@@ -134,17 +134,37 @@ function Get-CredentialsFile {
 }
 
 function Ask-Credentials {
-    Write-Host "`nPor favor, informe seu usuario e token (necessario para instalar/atualizar):`n"
+    Write-Host "`n========================================" -ForegroundColor Cyan
+    Write-Host "  Autenticacao GitHub Container Registry" -ForegroundColor Cyan
+    Write-Host "========================================`n" -ForegroundColor Cyan
+    
+    Write-Host "Para acessar imagens privadas no GHCR, voce precisa:" -ForegroundColor Yellow
+    Write-Host "  1. Usuario: Seu username do GitHub (nao o email)" -ForegroundColor Gray
+    Write-Host "  2. Token: Personal Access Token (PAT) com permissao 'read:packages'" -ForegroundColor Gray
+    Write-Host "`nGerar token em: https://github.com/settings/tokens/new`n" -ForegroundColor Gray
 
     $user = Read-Host "Usuario"
-    $tok  = Read-Host "Token"
+    
+    # Validacao basica do usuario
+    if ([string]::IsNullOrWhiteSpace($user)) {
+        Write-Host "Aviso: Usuario vazio. Isso provavelmente causara falha de autenticacao." -ForegroundColor Yellow
+    }
+    
+    $tok = Read-Host "Token"
+    
+    # Validacao basica do token
+    if ([string]::IsNullOrWhiteSpace($tok)) {
+        Write-Host "Aviso: Token vazio. Isso provavelmente causara falha de autenticacao." -ForegroundColor Yellow
+    } elseif ($tok.Length -lt 20) {
+        Write-Host "Aviso: Token muito curto. Tokens GitHub PAT tem geralmente 40+ caracteres." -ForegroundColor Yellow
+    }
 
     # Salvamento em disco comentado: nao gravamos credenciais em arquivo por padrao.
     # "usuario=$user" | Out-File $CRED_FILE -Encoding utf8
     # "token=$tok"    | Out-File $CRED_FILE -Encoding utf8 -Append
     # Write-Host "`nCredenciais salvas.`n"
 
-    Write-Host "`nCredenciais recebidas (não serão salvas em disco).`n"
+    Write-Host "`nCredenciais recebidas (nao serao salvas em disco).`n"
 
     return @{ usuario = $user; token = $tok }
 }
@@ -156,12 +176,39 @@ function Ensure-Credentials {
 }
 
 function Docker-Login ($creds) {
-    Write-Host "`nTentando acessar ao servico SISCAN RPA..."
+    Write-Host "`nTentando acessar ao servico SISCAN RPA (ghcr.io)..." -ForegroundColor Cyan
 
-    $null = $creds.token | docker login ghcr.io -u $creds.usuario --password-stdin
+    # Validar se credenciais foram fornecidas
+    if (-not $creds -or -not $creds.usuario -or -not $creds.token) {
+        Write-Host "Erro: Credenciais invalidas ou vazias." -ForegroundColor Red
+        return $false
+    }
 
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Erro: nao foi possivel acessar com essas credenciais." -ForegroundColor Red
+    # Validar formato do token (PAT do GitHub deve começar com ghp_, gho_, ou ghs_)
+    if ($creds.token -notmatch '^gh[pso]_[a-zA-Z0-9]+$') {
+        Write-Host "Aviso: O token nao parece ser um Personal Access Token (PAT) valido do GitHub." -ForegroundColor Yellow
+        Write-Host "  Tokens validos comecam com: ghp_ (classic), gho_ (OAuth), ou ghs_ (server)" -ForegroundColor Yellow
+        Write-Host "  Verifique: https://github.com/settings/tokens" -ForegroundColor Gray
+    }
+
+    # Capturar saida completa do docker login para diagnostico
+    $loginOutput = $creds.token | docker login ghcr.io -u $creds.usuario --password-stdin 2>&1
+    $loginExitCode = $LASTEXITCODE
+
+    if ($loginExitCode -ne 0) {
+        Write-Host "Erro: Falha na autenticacao com o GitHub Container Registry." -ForegroundColor Red
+        Write-Host "`nDetalhes do erro:" -ForegroundColor Yellow
+        Write-Host ($loginOutput | Out-String) -ForegroundColor Gray
+        
+        Write-Host "`nPossiveis causas:" -ForegroundColor Cyan
+        Write-Host "  1. Token expirado ou invalido" -ForegroundColor Gray
+        Write-Host "  2. Token sem permissao 'read:packages' para o repositorio" -ForegroundColor Gray
+        Write-Host "  3. Usuario incorreto (deve ser o username do GitHub, nao email)" -ForegroundColor Gray
+        Write-Host "  4. Repositorio privado e token sem acesso" -ForegroundColor Gray
+        Write-Host "`nPara gerar um novo token:" -ForegroundColor Cyan
+        Write-Host "  https://github.com/settings/tokens/new" -ForegroundColor Gray
+        Write-Host "  Permissoes necessarias: read:packages (e write:packages para push)" -ForegroundColor Gray
+        
         return $false
     }
 
