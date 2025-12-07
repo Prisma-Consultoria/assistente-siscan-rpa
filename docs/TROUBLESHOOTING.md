@@ -52,7 +52,53 @@ Solução recomendada: aplicar `RemoteSigned` localmente para hosts gerenciados,
 
 ---
 
-## Problema 2 — Falha de Permissão no Pull da Imagem do GHCR
+## Problema 2 — Falha de Autenticação no GitHub Container Registry (GHCR)
+
+### Sintomas Comuns
+
+- `Error response from daemon: Get "https://ghcr.io/v2/": denied: denied`
+- `unauthorized: access to the requested resource is not authorized`
+- `pull access denied for ghcr.io/prisma-consultoria/...`
+- Script mostra: `Erro: nao foi possivel acessar com essas credenciais`
+
+### Diagnóstico e Solução
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Verificar formato do token | Token válido do GitHub começa com `ghp_` (classic PAT), `gho_` (OAuth), ou `ghs_` (server). Se seu token não começar assim, está incorreto. | Exemplo válido: `ghp_1A2b3C4d5E6f7G8h9I0j1K2l3M4n5O6p7Q8r` (40+ caracteres) |
+| 2 | Confirmar usuário correto | Deve ser seu **username** do GitHub (não o email). | Ver em: https://github.com/settings/profile → campo "Username" |
+| 3 | Verificar permissões do token | Token deve ter scope `read:packages` no mínimo. Para repositórios privados organizacionais, pode precisar de `repo` também. | GitHub → Settings → Developer settings → Personal access tokens → clicar no token → verificar scopes selecionados |
+| 4 | Testar autenticação manualmente | Fazer logout e login novamente no terminal | `docker logout ghcr.io` seguido de `echo SEU_TOKEN | docker login ghcr.io -u SEU_USERNAME --password-stdin` — deve retornar `Login Succeeded` |
+| 5 | Verificar expiração do token | Tokens podem expirar. Verifique a data de expiração no GitHub. | GitHub → Settings → Developer settings → Personal access tokens → verificar coluna "Expires" |
+| 6 | Gerar novo token (se necessário) | Criar novo token com permissões corretas | Acessar: https://github.com/settings/tokens/new → Nome: "SISCAN RPA Read" → Expiração: 90 dias (ou conforme política) → Scopes: ✓ `read:packages` (✓ `repo` se org privada) → Generate token → **COPIAR IMEDIATAMENTE** (só aparece uma vez) |
+| 7 | Verificar acesso ao repositório | Confirmar que seu usuário tem acesso ao repositório da organização | Acessar: https://github.com/Prisma-Consultoria/siscan-rpa-rpa → se retornar 404, você não tem acesso → solicitar ao admin da org |
+| 8 | Limpar cache de credenciais do Docker | Windows: Credential Manager pode armazenar credenciais antigas | Painel de Controle → Credential Manager → Windows Credentials → procurar `docker-credential-desktop` ou `ghcr.io` → Remove → tentar login novamente |
+| 9 | Testar conectividade com GHCR | Verificar se há bloqueio de firewall/proxy | `Test-NetConnection ghcr.io -Port 443` → State deve ser "Success". Se falhar: `curl -v https://ghcr.io/v2/` → deve retornar HTTP 401 (esperado sem auth), não timeout/erro de rede |
+
+### Checklist Rápido de Validação de Token
+
+Antes de usar o token no assistente, valide:
+
+- [ ] Token começa com `ghp_`, `gho_` ou `ghs_`
+- [ ] Token tem 40+ caracteres
+- [ ] Token foi gerado nas últimas 24h ou não está expirado
+- [ ] Token tem scope `read:packages` habilitado
+- [ ] Username é o correto (não email)
+- [ ] Você tem acesso ao repositório no GitHub (testar acessando a URL no browser logado)
+
+### Como Gerar Token Correto (Passo a Passo)
+
+1. Acessar: https://github.com/settings/tokens/new
+2. **Note**: "SISCAN RPA - Read Packages"
+3. **Expiration**: 90 days (ou conforme política da organização)
+4. **Select scopes**:
+   - ✅ `read:packages` (obrigatório)
+   - ✅ `repo` (apenas se repositório for privado da organização)
+5. Clicar em **Generate token**
+6. **COPIAR O TOKEN IMEDIATAMENTE** (aparece só uma vez)
+7. Salvar em local seguro (gerenciador de senhas)
+
+### Problema 2B — Falha de Permissão no Pull da Imagem do GHCR
 
 Comportamento: `docker compose pull` retorna erro `unauthorized: access to the requested resource is not authorized` ou `pull access denied`.
 
@@ -61,7 +107,7 @@ Comportamento: `docker compose pull` retorna erro `unauthorized: access to the r
 | 1 | Detectar o erro exato | Executar: `docker compose pull` e inspecionar saída/erro; redirecionar para arquivo: `docker compose pull 2>&1 | Out-File C:\assistente-siscan\logs\pull-error.txt` |
 | 2 | Verificar status do login Docker | `docker logout ghcr.io` seguido de `docker login ghcr.io -u <GITHUB_USER> -p <PAT>` (PAT com `read:packages`) — confirmar saída `Login Succeeded` |
 | 3 | Resetar credenciais locais do Docker | Windows: abrir Credenciais do Windows (Credential Manager) → procurar entradas relacionadas a `ghcr.io`/`docker` e remover; depois executar `docker login ghcr.io` novamente |
-| 4 | Gerar novo token no GitHub | No GitHub → Settings → Developer settings → Personal access tokens → Generate token com escopo `read:packages` (e `repo` se necessário) — copiar token e usar no `docker login` |
+| 4 | Seguir passos da seção 2 acima | Ver seção "Problema 2 — Falha de Autenticação" para diagnóstico completo |
 | 5 | Como o script deve reagir | Script deve: detectar código de erro 401/403, mostrar mensagem clara `Erro de autenticação GHCR — execute docker login ghcr.io` e abortar pull com código de retorno != 0, gravando detalhes em `C:\assistente-siscan\logs\pull-error.txt` |
 
 Quando solicitar token novamente: sempre quando `docker login` falhar com 401/403. Não armazenar PAT em repositório; usar `docker login` por sessão ou secret manager local.
