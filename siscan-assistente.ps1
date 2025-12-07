@@ -495,6 +495,153 @@ $Services = {
     }
 }
 
+function Update-AssistantScript {
+    <#
+    .SYNOPSIS
+        Atualiza o proprio script assistente (siscan-assistente.ps1) com rollback automatico.
+    .DESCRIPTION
+        Faz backup do script atual, baixa a versao mais recente do repositorio GitHub,
+        valida o novo script e oferece rollback em caso de falha.
+    #>
+    Write-Host "`n========================================" -ForegroundColor Cyan
+    Write-Host "  Atualizacao do Assistente SISCAN RPA" -ForegroundColor Cyan
+    Write-Host "========================================`n" -ForegroundColor Cyan
+
+    $scriptPath = $PSCommandPath
+    if (-not $scriptPath) {
+        $scriptPath = Join-Path $PSScriptRoot "siscan-assistente.ps1"
+    }
+
+    if (-not (Test-Path $scriptPath)) {
+        Write-Host "Erro: Nao foi possivel localizar o script atual." -ForegroundColor Red
+        return $false
+    }
+
+    $backupPath = "${scriptPath}.backup.$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+    $tempPath = "${scriptPath}.temp"
+    $repoOwner = "Prisma-Consultoria"
+    $repoName = "assistente-siscan-rpa"
+    $branch = "main"
+    $scriptFileName = "siscan-assistente.ps1"
+    $downloadUrl = "https://raw.githubusercontent.com/${repoOwner}/${repoName}/${branch}/${scriptFileName}"
+
+    Write-Host "Script atual: $scriptPath" -ForegroundColor Gray
+    Write-Host "Backup sera salvo em: $backupPath" -ForegroundColor Gray
+    Write-Host "URL de download: $downloadUrl`n" -ForegroundColor Gray
+
+    # Criar backup
+    Write-Host "[1/5] Criando backup do script atual..." -ForegroundColor Cyan
+    try {
+        Copy-Item -Path $scriptPath -Destination $backupPath -Force -ErrorAction Stop
+        Write-Host "✓ Backup criado com sucesso." -ForegroundColor Green
+    } catch {
+        Write-Host "✗ Erro ao criar backup: $_" -ForegroundColor Red
+        return $false
+    }
+
+    # Baixar nova versao
+    Write-Host "`n[2/5] Baixando nova versao do GitHub..." -ForegroundColor Cyan
+    try {
+        # Tenta usar Invoke-WebRequest (pwsh/PS 5.1+)
+        $ProgressPreference = 'SilentlyContinue'  # acelera download
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $tempPath -ErrorAction Stop
+        $ProgressPreference = 'Continue'
+        Write-Host "✓ Download concluido." -ForegroundColor Green
+    } catch {
+        Write-Host "✗ Erro ao baixar: $_" -ForegroundColor Red
+        Write-Host "`nTentando metodo alternativo com curl..." -ForegroundColor Yellow
+        
+        # Fallback: tentar curl
+        try {
+            $curlOutput = curl -L -o $tempPath $downloadUrl 2>&1
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $tempPath)) {
+                Write-Host "✓ Download via curl concluido." -ForegroundColor Green
+            } else {
+                throw "curl falhou ou arquivo nao foi criado."
+            }
+        } catch {
+            Write-Host "✗ Metodo alternativo falhou: $_" -ForegroundColor Red
+            Write-Host "`nRestaurando backup..." -ForegroundColor Yellow
+            if (Test-Path $backupPath) {
+                Copy-Item -Path $backupPath -Destination $scriptPath -Force
+                Write-Host "✓ Script original restaurado." -ForegroundColor Green
+            }
+            return $false
+        }
+    }
+
+    # Validar arquivo baixado
+    Write-Host "`n[3/5] Validando arquivo baixado..." -ForegroundColor Cyan
+    if (-not (Test-Path $tempPath)) {
+        Write-Host "✗ Arquivo temporario nao encontrado apos download." -ForegroundColor Red
+        Write-Host "Restaurando backup..." -ForegroundColor Yellow
+        Copy-Item -Path $backupPath -Destination $scriptPath -Force
+        return $false
+    }
+
+    $tempSize = (Get-Item $tempPath).Length
+    if ($tempSize -lt 1000) {
+        Write-Host "✗ Arquivo baixado muito pequeno ($tempSize bytes). Possivel erro." -ForegroundColor Red
+        Write-Host "Restaurando backup..." -ForegroundColor Yellow
+        Copy-Item -Path $backupPath -Destination $scriptPath -Force
+        Remove-Item $tempPath -Force -ErrorAction SilentlyContinue
+        return $false
+    }
+
+    # Verificar se contem marcadores basicos do script PowerShell
+    $tempContent = Get-Content $tempPath -Raw -ErrorAction SilentlyContinue
+    if (-not $tempContent -or $tempContent -notmatch '#!/usr/bin/env pwsh' -or $tempContent -notmatch 'function') {
+        Write-Host "✗ Arquivo baixado nao parece ser um script PowerShell valido." -ForegroundColor Red
+        Write-Host "Restaurando backup..." -ForegroundColor Yellow
+        Copy-Item -Path $backupPath -Destination $scriptPath -Force
+        Remove-Item $tempPath -Force -ErrorAction SilentlyContinue
+        return $false
+    }
+
+    Write-Host "✓ Validacao basica OK ($tempSize bytes)." -ForegroundColor Green
+
+    # Substituir script atual pelo novo
+    Write-Host "`n[4/5] Aplicando atualizacao..." -ForegroundColor Cyan
+    try {
+        Copy-Item -Path $tempPath -Destination $scriptPath -Force -ErrorAction Stop
+        Remove-Item $tempPath -Force -ErrorAction SilentlyContinue
+        Write-Host "✓ Script atualizado com sucesso." -ForegroundColor Green
+    } catch {
+        Write-Host "✗ Erro ao aplicar atualizacao: $_" -ForegroundColor Red
+        Write-Host "Restaurando backup..." -ForegroundColor Yellow
+        Copy-Item -Path $backupPath -Destination $scriptPath -Force
+        Remove-Item $tempPath -Force -ErrorAction SilentlyContinue
+        return $false
+    }
+
+    # Teste de sintaxe (opcional, melhor esforco)
+    Write-Host "`n[5/5] Verificando sintaxe do novo script..." -ForegroundColor Cyan
+    try {
+        $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content $scriptPath -Raw), [ref]$null)
+        Write-Host "✓ Sintaxe OK." -ForegroundColor Green
+    } catch {
+        Write-Host "! Aviso: Nao foi possivel validar sintaxe: $_" -ForegroundColor Yellow
+        Write-Host "  O script foi atualizado, mas pode conter erros." -ForegroundColor Yellow
+        Write-Host "`nDeseja restaurar o backup? (S/N)" -ForegroundColor Yellow
+        $resp = Read-Host
+        if ($resp -match '^[Ss]') {
+            Copy-Item -Path $backupPath -Destination $scriptPath -Force
+            Write-Host "✓ Backup restaurado." -ForegroundColor Green
+            return $false
+        }
+    }
+
+    Write-Host "`n========================================" -ForegroundColor Green
+    Write-Host "  Atualizacao concluida com sucesso!" -ForegroundColor Green
+    Write-Host "========================================" -ForegroundColor Green
+    Write-Host "`nBackup mantido em: $backupPath" -ForegroundColor Gray
+    Write-Host "Para usar a nova versao, reinicie o assistente." -ForegroundColor Cyan
+    Write-Host "`nPressione qualquer tecla para sair e reiniciar o assistente..." -ForegroundColor Yellow
+    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+    
+    return $true
+}
+
 
 function Show-Menu {
     Clear-Host
@@ -509,7 +656,9 @@ function Show-Menu {
         Write-Host "    - Baixa a versao mais recente do servico SISCAN RPA"
         Write-Host " 3) Editar configurações básicas"
         Write-Host "    - Ajuste caminhos e opções essenciais (.env)"
-        Write-Host " 4) Sair"
+        Write-Host " 4) Atualizar o Assistente"
+        Write-Host "    - Baixa a versao mais recente do assistente com rollback automatico"
+        Write-Host " 5) Sair"
     Write-Host ""
     Write-Host "----------------------------------------"
 }
@@ -524,7 +673,7 @@ $running = $true
 
 while ($running) {
     Show-Menu
-    $op = Read-Host "Escolha uma opção (1-4)"
+    $op = Read-Host "Escolha uma opção (1-5)"
 
     switch ($op) {
         "1" {
@@ -563,6 +712,18 @@ while ($running) {
         }
 
         "4" {
+            $updated = Update-AssistantScript
+            if ($updated) {
+                # Usuario foi instruido a reiniciar; saimos do loop
+                $running = $false
+                break
+            } else {
+                # Falha ou cancelamento; volta ao menu
+                Pause
+            }
+        }
+
+        "5" {
             Write-Host "`nSaindo..."
             $running = $false
             break
