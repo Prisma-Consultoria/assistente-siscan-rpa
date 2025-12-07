@@ -1,5 +1,8 @@
+name: siscan-rpa
+
 services:
   siscan:
+    container_name: extrator-siscan-rpa
     image: ghcr.io/prisma-consultoria/siscan-rpa-rpa:main
     restart: unless-stopped
     environment:
