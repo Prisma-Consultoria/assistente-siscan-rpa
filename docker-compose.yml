@@ -13,17 +13,20 @@ services:
       - CRON_ENABLED=${CRON_ENABLED:-true}
       - CRON_INTERVAL_SECONDS=${CRON_INTERVAL_SECONDS:-1800}
       
-      - HOST_SISCAN_CONSOLIDATED_SHEET_NAME=${HOST_SISCAN_CONSOLIDATED_SHEET_NAME:-relatorios_mamografia.xlsx}
-      - EXCEL_COLUMNS_MAPPING_PATH=${EXCEL_COLUMNS_MAPPING_PATH:-/app/config/excel_columns_mapping.json}
+      # Variáveis para arquivo Excel consolidado
+      - HOST_CONSOLIDATED_EXCEL_FILENAME=${HOST_CONSOLIDATED_EXCEL_FILENAME:-monitoramento_mamografia.xlsx}
+      - HOST_EXCEL_COLUMNS_MAPPING_FILENAME=${HOST_EXCEL_COLUMNS_MAPPING_FILENAME:-excel_columns_mapping.json}
     ports:
       - "${HOST_APP_EXTERNAL_PORT:-5001}:${APP_INTERNAL_PORT:-5000}"
     volumes:
-      # Diretório raiz de mídia
-      - "${HOST_MEDIA_ROOT:-./data/media}:/app/media"
+      # Diretório raiz de mídia (contém downloads/ e reports/)
+      # Estrutura esperada:
+      #   /media/downloads/[PASTA-PERIODO]/extracao_laudo/
+      #   /media/reports/mamografia/consolidado/
+      #   /media/reports/mamografia/consolidado/exames/
+      - "${HOST_MEDIA_ROOT:-./media}:/app/media"
 
-      - "${HOST_SISCAN_CONSOLIDATED_REPORT_PATH:-./data/media/reports}:/app/media/reports"
-      - "${HOST_SISCAN_CONSOLIDATED_PDFS_DIR:-./data/media/reports/pdfs}:/app/media/reports/pdfs"
-
+      # Diretório de configuração (contém excel_columns_mapping.json)
       - "${HOST_EXCEL_COLUMNS_MAPPING_DIR:-./config}:/app/config"
 
     deploy:
