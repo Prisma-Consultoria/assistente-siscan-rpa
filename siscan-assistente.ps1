@@ -175,6 +175,55 @@ function Ensure-Credentials {
     return Ask-Credentials
 }
 
+function Test-GitHubToken ($creds) {
+    <#
+    .SYNOPSIS
+        Testa se o token GitHub e valido e tem as permissoes necessarias.
+    #>
+    Write-Host "`nTestando token GitHub via API..." -ForegroundColor Cyan
+    
+    try {
+        $headers = @{
+            'Authorization' = "Bearer $($creds.token)"
+            'Accept' = 'application/vnd.github.v3+json'
+        }
+        
+        $response = Invoke-WebRequest -Uri 'https://api.github.com/user' -Headers $headers -ErrorAction Stop
+        
+        if ($response.StatusCode -eq 200) {
+            $userData = $response.Content | ConvertFrom-Json
+            Write-Host "  Token valido! Usuario autenticado: $($userData.login)" -ForegroundColor Green
+            
+            # Verificar scopes no header
+            $scopes = $response.Headers['X-OAuth-Scopes']
+            if ($scopes) {
+                Write-Host "  Permissoes do token: $scopes" -ForegroundColor Gray
+                
+                if ($scopes -notmatch 'read:packages') {
+                    Write-Host "  AVISO: Token nao tem permissao 'read:packages'!" -ForegroundColor Red
+                    Write-Host "  Isso impedira o acesso ao GHCR." -ForegroundColor Red
+                    return $false
+                } else {
+                    Write-Host "  Permissao 'read:packages' confirmada." -ForegroundColor Green
+                }
+            }
+            
+            return $true
+        }
+    } catch {
+        $statusCode = $_.Exception.Response.StatusCode.value__
+        Write-Host "  Falha no teste: HTTP $statusCode" -ForegroundColor Red
+        
+        if ($statusCode -eq 401) {
+            Write-Host "  Token invalido ou expirado." -ForegroundColor Red
+        } elseif ($statusCode -eq 403) {
+            Write-Host "  Token sem permissoes necessarias." -ForegroundColor Red
+        }
+        
+        return $false
+    }
+}
+
 function Docker-Login ($creds) {
     Write-Host "`nTentando acessar ao servico SISCAN RPA (ghcr.io)..." -ForegroundColor Cyan
 
@@ -190,6 +239,12 @@ function Docker-Login ($creds) {
         Write-Host "  Tokens validos comecam com: ghp_ (classic), gho_ (OAuth), ou ghs_ (server)" -ForegroundColor Yellow
         Write-Host "  Verifique: https://github.com/settings/tokens" -ForegroundColor Gray
     }
+    
+    # Testar token via API primeiro (opcional, mas recomendado)
+    $tokenValid = Test-GitHubToken $creds
+    if (-not $tokenValid) {
+        Write-Host "`nToken falhou no teste de API. Tentando login no GHCR mesmo assim..." -ForegroundColor Yellow
+    }
 
     # Capturar saida completa do docker login para diagnostico
     $loginOutput = $creds.token | docker login ghcr.io -u $creds.usuario --password-stdin 2>&1
@@ -204,10 +259,43 @@ function Docker-Login ($creds) {
         Write-Host "  1. Token expirado ou invalido" -ForegroundColor Gray
         Write-Host "  2. Token sem permissao 'read:packages' para o repositorio" -ForegroundColor Gray
         Write-Host "  3. Usuario incorreto (deve ser o username do GitHub, nao email)" -ForegroundColor Gray
-        Write-Host "  4. Repositorio privado e token sem acesso" -ForegroundColor Gray
-        Write-Host "`nPara gerar um novo token:" -ForegroundColor Cyan
-        Write-Host "  https://github.com/settings/tokens/new" -ForegroundColor Gray
-        Write-Host "  Permissoes necessarias: read:packages (e write:packages para push)" -ForegroundColor Gray
+        Write-Host "  4. Repositorio privado e token sem acesso a organizacao" -ForegroundColor Gray
+        
+        Write-Host "`n========================================" -ForegroundColor Cyan
+        Write-Host "  Comandos de Diagnostico" -ForegroundColor Cyan
+        Write-Host "========================================" -ForegroundColor Cyan
+        
+        Write-Host "`n1. Verificar se usuario existe no GitHub:" -ForegroundColor Yellow
+        Write-Host "   https://github.com/$($creds.usuario)" -ForegroundColor Gray
+        
+        Write-Host "`n2. Testar autenticacao via API do GitHub:" -ForegroundColor Yellow
+        Write-Host "   curl -H `"Authorization: Bearer SEU_TOKEN`" https://api.github.com/user" -ForegroundColor Gray
+        Write-Host "   (deve retornar JSON com seus dados, nao 401/403)" -ForegroundColor DarkGray
+        
+        Write-Host "`n3. Verificar permissoes do token:" -ForegroundColor Yellow
+        Write-Host "   curl -I -H `"Authorization: Bearer SEU_TOKEN`" https://api.github.com/user" -ForegroundColor Gray
+        Write-Host "   (verifique header 'X-OAuth-Scopes' para confirmar 'read:packages')" -ForegroundColor DarkGray
+        
+        Write-Host "`n4. Testar acesso ao repositorio da organizacao:" -ForegroundColor Yellow
+        Write-Host "   https://github.com/Prisma-Consultoria/siscan-rpa-rpa" -ForegroundColor Gray
+        Write-Host "   (se retornar 404, voce nao tem acesso)" -ForegroundColor DarkGray
+        
+        Write-Host "`n========================================" -ForegroundColor Cyan
+        Write-Host "  Solucoes Recomendadas" -ForegroundColor Cyan
+        Write-Host "========================================" -ForegroundColor Cyan
+        
+        Write-Host "`nOpcao A - Gerar novo token:" -ForegroundColor Yellow
+        Write-Host "  1. Acesse: https://github.com/settings/tokens/new" -ForegroundColor Gray
+        Write-Host "  2. Nome: 'SISCAN RPA - Read Packages'" -ForegroundColor Gray
+        Write-Host "  3. Expiration: 90 days" -ForegroundColor Gray
+        Write-Host "  4. Selecione scopes:" -ForegroundColor Gray
+        Write-Host "     [X] read:packages" -ForegroundColor Green
+        Write-Host "     [X] repo (se repositorio privado organizacional)" -ForegroundColor Green
+        Write-Host "  5. Generate token e COPIE IMEDIATAMENTE" -ForegroundColor Gray
+        
+        Write-Host "`nOpcao B - Solicitar acesso a organizacao:" -ForegroundColor Yellow
+        Write-Host "  Entre em contato com admin da organizacao Prisma-Consultoria" -ForegroundColor Gray
+        Write-Host "  e solicite acesso ao repositorio 'siscan-rpa-rpa'" -ForegroundColor Gray
         
         return $false
     }
