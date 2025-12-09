@@ -908,15 +908,15 @@ while ($running) {
             if (Check-Service) {
                 Restart-Service
             } else {
-                Write-Host "Nenhum serviço do SISCAN RPA em execucao encontrado." -ForegroundColor Yellow
+                Write-Host "Nenhum serviço do SISCAN RPA em execução encontrado." -ForegroundColor Yellow
                 $expected = Get-ExpectedServiceNames -ComposePath $COMPOSE_FILE
                 if ($expected -and $expected.Count -gt 0) {
-                    Write-Host "Servicos esperados no arquivo de configuracao:" -ForegroundColor Cyan
+                    Write-Host "Serviços esperados no arquivo de configuração:" -ForegroundColor Cyan
                     foreach ($s in $expected) { Write-Host " - $s" }
-                    Write-Host "Verifique se o arquivo 'docker-compose.yml' esta no diretorio correto." -ForegroundColor Yellow
+                    Write-Host "Verifique se o arquivo 'docker-compose.yml' está no diretório correto." -ForegroundColor Yellow
                 } else {
-                    Write-Host "Nao foi possivel identificar servicos no arquivo de configuracao." -ForegroundColor Yellow
-                    Write-Host "Verifique a presenca do arquivo: $COMPOSE_FILE" -ForegroundColor Yellow
+                    Write-Host "Não foi possível identificar serviços no arquivo de configuração." -ForegroundColor Yellow
+                    Write-Host "Verifique a presença do arquivo: $COMPOSE_FILE" -ForegroundColor Yellow
                 }
             }
             Pause
