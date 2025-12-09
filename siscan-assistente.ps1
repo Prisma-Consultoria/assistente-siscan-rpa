@@ -225,9 +225,14 @@ function Docker-Login ($creds) {
         }
     }
 
-    # Tentar login
-    $loginOutput = $creds.token | docker login ghcr.io -u $creds.usuario --password-stdin 2>&1
-    $loginExitCode = $LASTEXITCODE
+    # Tentar login usando Write-Output para garantir que o token seja passado corretamente
+    try {
+        $loginOutput = Write-Output $creds.token | docker login ghcr.io -u $creds.usuario --password-stdin 2>&1
+        $loginExitCode = $LASTEXITCODE
+    } catch {
+        $loginOutput = $_.Exception.Message
+        $loginExitCode = 1
+    }
 
     if ($loginExitCode -ne 0) {
         Write-Host "`n============================================" -ForegroundColor Red
@@ -247,17 +252,16 @@ function Docker-Login ($creds) {
         Write-Host "  - Clique com botao direito no menu Iniciar" -ForegroundColor Gray
         Write-Host "  - Selecione 'Windows PowerShell' ou 'Terminal'" -ForegroundColor Gray
         Write-Host "" 
-        Write-Host "  PASSO 2: Digite o seguinte comando no novo terminal:" -ForegroundColor White
-        Write-Host "  ----------------------------------------------------" -ForegroundColor Gray
+        Write-Host "  PASSO 2: Copie e cole o comando abaixo no novo terminal:" -ForegroundColor White
+        Write-Host "  --------------------------------------------------------" -ForegroundColor Gray
         Write-Host "" 
-        Write-Host "  echo <SEU_TOKEN> | docker login ghcr.io -u <SEU_USUARIO> --password-stdin" -ForegroundColor Yellow
+        Write-Host "  Write-Output '$($creds.token)' | docker login ghcr.io -u $($creds.usuario) --password-stdin" -ForegroundColor Yellow
         Write-Host "" 
-        Write-Host "  IMPORTANTE: Substitua os valores entre < >:" -ForegroundColor White
-        Write-Host "  - <SEU_USUARIO> = $($creds.usuario)" -ForegroundColor Cyan
-        Write-Host "  - <SEU_TOKEN> = (o token que voce informou)" -ForegroundColor Cyan
+        Write-Host "  OU use este comando alternativo:" -ForegroundColor Gray
         Write-Host "" 
-        Write-Host "  Exemplo completo:" -ForegroundColor Gray
-        Write-Host "  echo ghp_1234567890abcdef | docker login ghcr.io -u joao.silva --password-stdin" -ForegroundColor DarkGray
+        Write-Host "  docker login ghcr.io -u $($creds.usuario) -p $($creds.token)" -ForegroundColor DarkGray
+        Write-Host "" 
+        Write-Host "  IMPORTANTE: Copie EXATAMENTE como esta acima!" -ForegroundColor White
         Write-Host "" 
         Write-Host "  PASSO 3: Pressione Enter no novo terminal" -ForegroundColor White
         Write-Host "  ------------------------------------------" -ForegroundColor Gray
