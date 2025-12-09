@@ -27,10 +27,11 @@ services:
       #   /media/downloads/[PASTA-PERIODO]/extracao_laudo/
       #   /media/reports/mamografia/consolidado/
       #   /media/reports/mamografia/consolidado/exames/
-      - "${HOST_MEDIA_ROOT:-./media}:/app/media"
+      - "${HOST_MEDIA_ROOT:-./media}:/app/media:rw"
+      - "${HOST_CONSOLIDATED_EXCEL_DIR_PATH:-./media/reports/mamografia/consolidated}:/app/media/reports/mamografia/consolidated:rw"
 
       # Diretório de configuração (contém excel_columns_mapping.json)
-      - "${HOST_EXCEL_COLUMNS_MAPPING_DIR:-./config}:/app/config"
+      - "${HOST_EXCEL_COLUMNS_MAPPING_DIR:-./config}:/app/config:rw"
 
     deploy:
       resources:
