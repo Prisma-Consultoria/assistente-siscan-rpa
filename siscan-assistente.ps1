@@ -407,11 +407,40 @@ function UpdateAndRestart {
         }
     }
 
+    Write-Host "`n============================================" -ForegroundColor Green
+    Write-Host "  DOWNLOAD CONCLUIDO COM SUCESSO!" -ForegroundColor Green
+    Write-Host "============================================`n" -ForegroundColor Green
+
     # Verificar se .env esta configurado antes de iniciar
-    if (-not (Check-EnvConfigured -ShowMessage $true)) {
-        Write-Host "`nImagem atualizada, mas servico nao foi iniciado." -ForegroundColor Yellow
-        Write-Host "Configure o .env (opcao 3) e depois reinicie (opcao 1)." -ForegroundColor Cyan
-        return
+    if (-not (Check-EnvConfigured -ShowMessage $false)) {
+        Write-Host "Agora e necessario configurar as variaveis do sistema." -ForegroundColor Yellow
+        Write-Host "`nDeseja configurar agora? (S/N)" -ForegroundColor Cyan
+        $resposta = Read-Host
+        
+        if ($resposta -match '^[Ss]') {
+            Write-Host "`nAbrindo editor de configuracoes...`n" -ForegroundColor Cyan
+            Start-Sleep -Seconds 1
+            Manage-Env
+            
+            # Verificar novamente apos configuracao
+            Write-Host "`n`nVerificando configuracao..." -ForegroundColor Cyan
+            if (Check-EnvConfigured -ShowMessage $false) {
+                Write-Host "Configuracao OK! Iniciando servicos...`n" -ForegroundColor Green
+            } else {
+                Write-Host "`nConfiguracao ainda incompleta." -ForegroundColor Yellow
+                Write-Host "O servico NAO sera iniciado." -ForegroundColor Red
+                Write-Host "Por favor, volte ao menu e escolha a opcao 3 para completar a configuracao." -ForegroundColor Cyan
+                return
+            }
+        } else {
+            Write-Host "`nImagem atualizada, mas servico NAO foi iniciado." -ForegroundColor Yellow
+            Write-Host "Para iniciar o servico:" -ForegroundColor Cyan
+            Write-Host "  1. Escolha a opcao 3 no menu para configurar as variaveis" -ForegroundColor White
+            Write-Host "  2. Depois escolha a opcao 1 para iniciar o servico" -ForegroundColor White
+            return
+        }
+    } else {
+        Write-Host "Configuracao do .env encontrada e validada." -ForegroundColor Green
     }
     
     # Depois reinicia tudo
@@ -420,7 +449,11 @@ function UpdateAndRestart {
     docker compose up -d
 
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "`nSISCAN RPA atualizado e iniciado com sucesso!" -ForegroundColor Green
+        Write-Host "`n============================================" -ForegroundColor Green
+        Write-Host "  SISCAN RPA PRONTO PARA USO!" -ForegroundColor Green
+        Write-Host "============================================" -ForegroundColor Green
+        Write-Host "`nO servico foi atualizado e iniciado com sucesso!" -ForegroundColor Green
+        Write-Host "Voce pode acessar o sistema em: http://localhost:5001" -ForegroundColor Cyan
     }
     else {
         Write-Host "`nErro ao reiniciar o SISCAN RPA." -ForegroundColor Red
