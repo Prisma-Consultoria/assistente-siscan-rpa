@@ -420,7 +420,7 @@ function UpdateAndRestart {
         if ($resposta -match '^[Ss]') {
             Write-Host "`nAbrindo editor de configuracoes...`n" -ForegroundColor Cyan
             Start-Sleep -Seconds 1
-            Manage-Env
+            Manage-Env -SkipRestart
             
             # Verificar novamente apos configuracao
             Write-Host "`n`nVerificando configuracao..." -ForegroundColor Cyan
@@ -703,6 +703,8 @@ function Update-EnvFile {
 
 
 function Manage-Env {
+    param([switch]$SkipRestart)
+    
     $envFile = Join-Path $PSScriptRoot ".env"
     $templateFiles = @('.env.sample', '.env.example', '.env.template', '.env.dist')
 
@@ -725,6 +727,54 @@ function Manage-Env {
     }
 
     Update-EnvFile -Path $envFile
+    
+    # Após editar o .env, oferecer reiniciar os serviços (exceto se chamado com -SkipRestart)
+    if (-not $SkipRestart) {
+        Write-Host "`n============================================" -ForegroundColor Cyan
+        Write-Host "  APLICAR CONFIGURACOES" -ForegroundColor Cyan
+        Write-Host "============================================" -ForegroundColor Cyan
+        
+        # Verificar se há serviços rodando
+        if (Check-Service) {
+            Write-Host "`nO servico SISCAN RPA esta em execucao." -ForegroundColor Yellow
+            Write-Host "Para aplicar as mudancas no .env, e necessario reiniciar o servico." -ForegroundColor Yellow
+            Write-Host "`nDeseja reiniciar o servico agora? (S/N)" -ForegroundColor Cyan
+            $resposta = Read-Host
+            
+            if ($resposta -match '^[Ss]') {
+                Write-Host "`nReiniciando servico para aplicar as configuracoes...`n" -ForegroundColor Cyan
+                Start-Sleep -Seconds 1
+                
+                # Verificar se configuração está completa antes de reiniciar
+                if (Check-EnvConfigured -ShowMessage $false) {
+                    docker compose down
+                    docker compose up -d
+                    
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Host "`n============================================" -ForegroundColor Green
+                        Write-Host "  CONFIGURACOES APLICADAS!" -ForegroundColor Green
+                        Write-Host "============================================" -ForegroundColor Green
+                        Write-Host "`nO servico foi reiniciado com sucesso." -ForegroundColor Green
+                        Write-Host "As novas configuracoes estao ativas." -ForegroundColor Cyan
+                    } else {
+                        Write-Host "`nErro ao reiniciar o servico." -ForegroundColor Red
+                        Write-Host "Verifique os logs para mais detalhes." -ForegroundColor Yellow
+                    }
+                } else {
+                    Write-Host "`nConfiguracao incompleta. Servico nao foi reiniciado." -ForegroundColor Yellow
+                    Write-Host "Complete as variaveis obrigatorias e tente novamente." -ForegroundColor Cyan
+                }
+            } else {
+                Write-Host "`nServico NAO foi reiniciado." -ForegroundColor Yellow
+                Write-Host "As mudancas no .env serao aplicadas quando o servico for reiniciado." -ForegroundColor Cyan
+                Write-Host "Voce pode reiniciar manualmente escolhendo a opcao 1 no menu." -ForegroundColor Gray
+            }
+        } else {
+            Write-Host "`nNenhum servico em execucao detectado." -ForegroundColor Gray
+            Write-Host "As configuracoes serao aplicadas quando o servico for iniciado." -ForegroundColor Cyan
+            Write-Host "Use a opcao 1 no menu para iniciar o servico." -ForegroundColor Gray
+        }
+    }
 }
 
 # ----- Wrappers / Service adapters (mantem compatibilidade e separam responsabilidades) -----
