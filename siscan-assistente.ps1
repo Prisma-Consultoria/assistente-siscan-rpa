@@ -111,8 +111,16 @@ function Get-ExpectedServiceNames {
     foreach ($line in $lines) {
         if ($line -match '^\s*services\s*:') { $inServices = $true; continue }
         if ($inServices) {
-            if ($line -match '^\s*[^\s]') { break } # fim do bloco services quando voltar ao nivel 0
-            if ($line -match '^\s{2,}([a-zA-Z0-9_-]+)\s*:') { $services += $matches[1] }
+            # Detecta nomes de servicos (identados com 2 espacos, mas nao mais que 4)
+            if ($line -match '^\s{2}([a-zA-Z0-9_-]+)\s*:') {
+                $serviceName = $matches[1]
+                # Ignora propriedades comuns que nao sao servicos
+                if ($serviceName -notmatch '^(version|volumes|networks|configs|secrets)$') {
+                    $services += $serviceName
+                }
+            }
+            # Para quando encontrar outra secao de nivel raiz
+            if ($line -match '^[a-zA-Z]') { break }
         }
     }
 
@@ -178,93 +186,23 @@ function Ensure-Credentials {
 function Test-GitHubToken ($creds) {
     <#
     .SYNOPSIS
-        Testa se o token GitHub e valido e tem as permissoes necessarias.
+        Testa se o token GitHub e valido (teste simplificado).
     #>
-    Write-Host "`nTestando token GitHub via API..." -ForegroundColor Cyan
+    Write-Host "`nValidando credenciais..." -ForegroundColor Cyan
     
-    try {
-        $headers = @{
-            'Authorization' = "Bearer $($creds.token)"
-            'Accept' = 'application/vnd.github.v3+json'
-        }
-        
-        $response = Invoke-WebRequest -Uri 'https://api.github.com/user' -Headers $headers -ErrorAction Stop
-        
-        if ($response.StatusCode -eq 200) {
-            $userData = $response.Content | ConvertFrom-Json
-            Write-Host "  [1/3] Token valido! Usuario: $($userData.login)" -ForegroundColor Green
-            
-            # Verificar scopes no header
-            $scopes = $response.Headers['X-OAuth-Scopes']
-            if ($scopes) {
-                Write-Host "  [2/3] Permissoes do token: $scopes" -ForegroundColor Gray
-                
-                if ($scopes -notmatch 'read:packages') {
-                    Write-Host "  AVISO: Token nao tem permissao 'read:packages'!" -ForegroundColor Red
-                    Write-Host "  Isso impedira o acesso ao GHCR." -ForegroundColor Red
-                    return $false
-                } else {
-                    Write-Host "  [2/3] Permissao 'read:packages' confirmada." -ForegroundColor Green
-                }
-            }
-            
-            # Testar acesso ao repositorio da organizacao
-            Write-Host "  [3/3] Testando acesso ao repositorio..." -ForegroundColor Cyan
-            try {
-                $repoResponse = Invoke-WebRequest -Uri 'https://api.github.com/repos/Prisma-Consultoria/siscan-rpa-rpa' -Headers $headers -ErrorAction Stop
-                if ($repoResponse.StatusCode -eq 200) {
-                    Write-Host "  [3/3] Acesso ao repositorio confirmado!" -ForegroundColor Green
-                    return $true
-                }
-            } catch {
-                $repoStatusCode = $_.Exception.Response.StatusCode.value__
-                if ($repoStatusCode -eq 404) {
-                    Write-Host "  [3/3] API retornou 404 para o repositorio" -ForegroundColor Yellow
-                    Write-Host "" 
-                    Write-Host "  ============================================" -ForegroundColor Yellow
-                    Write-Host "  CAUSA MAIS PROVAVEL: SSO NAO AUTORIZADO" -ForegroundColor Yellow
-                    Write-Host "  ============================================" -ForegroundColor Yellow
-                    Write-Host "" 
-                    Write-Host "  A organizacao 'Prisma-Consultoria' provavelmente" -ForegroundColor Cyan
-                    Write-Host "  requer autorizacao SSO (Single Sign-On) para tokens." -ForegroundColor Cyan
-                    Write-Host "" 
-                    Write-Host "  Mesmo que voce seja contributor do repositorio," -ForegroundColor Gray
-                    Write-Host "  o token precisa ser autorizado via SSO." -ForegroundColor Gray
-                    Write-Host "" 
-                    Write-Host "  ============================================" -ForegroundColor Green
-                    Write-Host "  SOLUCAO IMEDIATA (2 minutos):" -ForegroundColor Green
-                    Write-Host "  ============================================" -ForegroundColor Green
-                    Write-Host "" 
-                    Write-Host "  1. Acesse: https://github.com/settings/tokens" -ForegroundColor White
-                    Write-Host "  2. Localize seu token na lista" -ForegroundColor Gray
-                    Write-Host "  3. Ao lado do token, clique em 'Configure SSO'" -ForegroundColor White
-                    Write-Host "  4. Autorize para 'Prisma-Consultoria'" -ForegroundColor White
-                    Write-Host "  5. Volte aqui e tente novamente (mesma senha)" -ForegroundColor White
-                    Write-Host "" 
-                    Write-Host "  Se NAO houver botao 'Configure SSO':" -ForegroundColor Yellow
-                    Write-Host "  - Gere um NOVO token e autorize SSO logo apos gerar" -ForegroundColor Gray
-                    Write-Host "" 
-                    return $false
-                } else {
-                    Write-Host "  [3/3] Erro ao verificar repositorio: HTTP $repoStatusCode" -ForegroundColor Yellow
-                    return $true  # Continua tentando mesmo com erro
-                }
-            }
-            
-            return $true
-        }
-    } catch {
-        $statusCode = $_.Exception.Response.StatusCode.value__
-        Write-Host "  Falha no teste: HTTP $statusCode" -ForegroundColor Red
-        
-        if ($statusCode -eq 401) {
-            Write-Host "  Token invalido ou expirado." -ForegroundColor Red
-        } elseif ($statusCode -eq 403) {
-            Write-Host "  Token sem permissoes necessarias." -ForegroundColor Red
-        }
-        
+    # Teste basico: apenas verifica se o token tem formato valido
+    if ([string]::IsNullOrWhiteSpace($creds.usuario) -or [string]::IsNullOrWhiteSpace($creds.token)) {
+        Write-Host "  Usuário ou token vazio." -ForegroundColor Red
         return $false
     }
+    
+    if ($creds.token.Length -lt 20) {
+        Write-Host "  Token muito curto (deve ter 40+ caracteres)." -ForegroundColor Yellow
+        return $false
+    }
+    
+    Write-Host "  Formato das credenciais OK." -ForegroundColor Green
+    return $true
 }
 
 function Docker-Login ($creds) {
@@ -272,22 +210,13 @@ function Docker-Login ($creds) {
 
     # Validar se credenciais foram fornecidas
     if (-not $creds -or -not $creds.usuario -or -not $creds.token) {
-        Write-Host "Erro: Credenciais invalidas ou vazias." -ForegroundColor Red
+        Write-Host "Erro: Credenciais inválidas ou vazias." -ForegroundColor Red
         return $false
     }
 
-    # Validar formato do token (PAT do GitHub deve começar com ghp_, gho_, ou ghs_)
-    if ($creds.token -notmatch '^gh[pso]_[a-zA-Z0-9]+$') {
-        Write-Host "Aviso: O token nao parece ser um Personal Access Token (PAT) valido do GitHub." -ForegroundColor Yellow
-        Write-Host "  Tokens validos comecam com: ghp_ (classic), gho_ (OAuth), ou ghs_ (server)" -ForegroundColor Yellow
-        Write-Host "  Verifique: https://github.com/settings/tokens" -ForegroundColor Gray
-    }
-    
-    # Testar token via API primeiro (opcional, mas recomendado)
+    # Validacao basica
     $tokenValid = Test-GitHubToken $creds
     if (-not $tokenValid) {
-        Write-Host "`nToken falhou no teste de API." -ForegroundColor Red
-        Write-Host "O login no GHCR provavelmente falhara." -ForegroundColor Red
         Write-Host "`nDeseja continuar mesmo assim? (S/N)" -ForegroundColor Yellow
         $continuar = Read-Host
         if ($continuar -notmatch '^[Ss]') {
@@ -296,104 +225,92 @@ function Docker-Login ($creds) {
         }
     }
 
-    # Capturar saida completa do docker login para diagnostico
+    # Tentar login
     $loginOutput = $creds.token | docker login ghcr.io -u $creds.usuario --password-stdin 2>&1
     $loginExitCode = $LASTEXITCODE
 
     if ($loginExitCode -ne 0) {
         Write-Host "`n============================================" -ForegroundColor Red
-        Write-Host "  FALHA NA AUTENTICACAO GHCR" -ForegroundColor Red
+        Write-Host "  FALHA NO LOGIN" -ForegroundColor Red
         Write-Host "============================================" -ForegroundColor Red
         Write-Host "`nDetalhes do erro:" -ForegroundColor Yellow
         Write-Host ($loginOutput | Out-String) -ForegroundColor Gray
         
-        Write-Host "`nResumo do diagnostico:" -ForegroundColor Cyan
-        Write-Host "  Usuario: $($creds.usuario)" -ForegroundColor Gray
-        Write-Host "  Token valido na API GitHub: $(if ($tokenValid) {'SIM'} else {'NAO'})" -ForegroundColor $(if ($tokenValid) {'Green'} else {'Red'})
-        Write-Host "  Login GHCR: FALHOU" -ForegroundColor Red
-        
-        Write-Host "`n============================================" -ForegroundColor Yellow
-        Write-Host "  DIAGNOSTICO: SSO NAO AUTORIZADO" -ForegroundColor Yellow
-        Write-Host "============================================" -ForegroundColor Yellow
-        Write-Host "" 
-        Write-Host "Se o token e valido mas GHCR falha, o problema e SSO." -ForegroundColor Cyan
-        Write-Host "Organizacoes podem exigir autorizacao SSO por token." -ForegroundColor Gray
-        Write-Host "" 
-        Write-Host "Possiveis causas:" -ForegroundColor Cyan
-        Write-Host "  1. Token sem autorizacao SSO (MAIS PROVAVEL)" -ForegroundColor Yellow
-        Write-Host "  2. Token expirado ou revogado" -ForegroundColor Gray
-        Write-Host "  3. Token sem permissao 'read:packages'" -ForegroundColor Gray
-        Write-Host "  4. Problema de rede/firewall bloqueando GHCR" -ForegroundColor Gray
-        
         Write-Host "`n========================================" -ForegroundColor Cyan
-        Write-Host "  Comandos de Diagnostico" -ForegroundColor Cyan
+        Write-Host "  O QUE FAZER AGORA" -ForegroundColor Cyan
         Write-Host "========================================" -ForegroundColor Cyan
         
-        Write-Host "`n1. Verificar se usuario existe no GitHub:" -ForegroundColor Yellow
-        Write-Host "   https://github.com/$($creds.usuario)" -ForegroundColor Gray
-        
-        Write-Host "`n2. Testar autenticacao via API do GitHub:" -ForegroundColor Yellow
-        Write-Host "   curl -H `"Authorization: Bearer SEU_TOKEN`" https://api.github.com/user" -ForegroundColor Gray
-        Write-Host "   (deve retornar JSON com seus dados, nao 401/403)" -ForegroundColor DarkGray
-        
-        Write-Host "`n3. Verificar permissoes do token:" -ForegroundColor Yellow
-        Write-Host "   curl -I -H `"Authorization: Bearer SEU_TOKEN`" https://api.github.com/user" -ForegroundColor Gray
-        Write-Host "   (verifique header 'X-OAuth-Scopes' para confirmar 'read:packages')" -ForegroundColor DarkGray
-        
-        Write-Host "`n4. Testar acesso ao repositorio da organizacao:" -ForegroundColor Yellow
-        Write-Host "   https://github.com/Prisma-Consultoria/siscan-rpa-rpa" -ForegroundColor Gray
-        Write-Host "   (se retornar 404, voce nao tem acesso)" -ForegroundColor DarkGray
-        
-        Write-Host "`n========================================" -ForegroundColor Cyan
-        Write-Host "  Solucoes Recomendadas" -ForegroundColor Cyan
-        Write-Host "========================================" -ForegroundColor Cyan
-        
-        Write-Host "`nOpcao A - Gerar novo token:" -ForegroundColor Yellow
-        Write-Host "  1. Acesse: https://github.com/settings/tokens/new" -ForegroundColor Gray
-        Write-Host "  2. Nome: 'SISCAN RPA - Read Packages'" -ForegroundColor Gray
-        Write-Host "  3. Expiration: 90 days" -ForegroundColor Gray
-        Write-Host "  4. Selecione scopes:" -ForegroundColor Gray
-        Write-Host "     [X] read:packages" -ForegroundColor Green
-        Write-Host "     [X] repo (se repositorio privado organizacional)" -ForegroundColor Green
-        Write-Host "  5. Generate token e COPIE IMEDIATAMENTE" -ForegroundColor Gray
-        
-        Write-Host "`nOpcao B - Solicitar acesso a organizacao:" -ForegroundColor Yellow
-        Write-Host "  Entre em contato com admin da organizacao Prisma-Consultoria" -ForegroundColor Gray
-        Write-Host "  e solicite acesso ao repositorio 'siscan-rpa-rpa'" -ForegroundColor Gray
-        
-        Write-Host "`nOpcao C - AUTORIZAR SSO (SOLUCAO MAIS PROVAVEL - 2 min):" -ForegroundColor Green
+        Write-Host "`nOPCAO A - Fazer login manualmente (RECOMENDADO):" -ForegroundColor Green
         Write-Host "" 
-        Write-Host "  Metodo 1 - Se o token ja existe:" -ForegroundColor White
-        Write-Host "    1. Acesse: https://github.com/settings/tokens" -ForegroundColor Gray
-        Write-Host "    2. Localize o token 'read:packages' na lista" -ForegroundColor Gray
-        Write-Host "    3. Procure por botao 'Configure SSO' verde ao lado" -ForegroundColor Gray
-        Write-Host "    4. Se encontrar: Clique -> Autorize 'Prisma-Consultoria' -> Pronto!" -ForegroundColor Green
+        Write-Host "  PASSO 1: Abra um NOVO terminal PowerShell" -ForegroundColor White
+        Write-Host "  ----------------------------------------" -ForegroundColor Gray
+        Write-Host "  - Clique com botao direito no menu Iniciar" -ForegroundColor Gray
+        Write-Host "  - Selecione 'Windows PowerShell' ou 'Terminal'" -ForegroundColor Gray
         Write-Host "" 
-        Write-Host "  Metodo 2 - Se NAO houver botao 'Configure SSO':" -ForegroundColor White
-        Write-Host "    Significa que o token foi criado ANTES da org ativar SSO." -ForegroundColor Yellow
-        Write-Host "    Solucao: Gere um NOVO token:" -ForegroundColor Yellow
+        Write-Host "  PASSO 2: Digite o seguinte comando no novo terminal:" -ForegroundColor White
+        Write-Host "  ----------------------------------------------------" -ForegroundColor Gray
         Write-Host "" 
-        Write-Host "    1. Acesse: https://github.com/settings/tokens/new" -ForegroundColor Gray
-        Write-Host "    2. Note: 'SISCAN RPA Read Packages'" -ForegroundColor Gray
-        Write-Host "    3. Expiration: No expiration (ou 90 days)" -ForegroundColor Gray
-        Write-Host "    4. Selecione scopes:" -ForegroundColor Gray
-        Write-Host "       [X] repo (acesso completo a repositorios privados)" -ForegroundColor Green
-        Write-Host "       [X] read:packages" -ForegroundColor Green
-        Write-Host "    5. Clique 'Generate token'" -ForegroundColor Gray
-        Write-Host "    6. COPIE o token (so aparece uma vez!)" -ForegroundColor Red
-        Write-Host "    7. Logo apos gerar, clique 'Configure SSO'" -ForegroundColor Green
-        Write-Host "    8. Autorize para 'Prisma-Consultoria'" -ForegroundColor Green
-        Write-Host "    9. Use o novo token aqui no assistente" -ForegroundColor Gray
+        Write-Host "  echo <SEU_TOKEN> | docker login ghcr.io -u <SEU_USUARIO> --password-stdin" -ForegroundColor Yellow
         Write-Host "" 
-        Write-Host "  Documentacao oficial:" -ForegroundColor DarkGray
-        Write-Host "  https://docs.github.com/en/enterprise-cloud@latest/authentication/authenticating-with-saml-single-sign-on/authorizing-a-personal-access-token-for-use-with-saml-single-sign-on" -ForegroundColor DarkGray
+        Write-Host "  IMPORTANTE: Substitua os valores entre < >:" -ForegroundColor White
+        Write-Host "  - <SEU_USUARIO> = $($creds.usuario)" -ForegroundColor Cyan
+        Write-Host "  - <SEU_TOKEN> = (o token que voce informou)" -ForegroundColor Cyan
+        Write-Host "" 
+        Write-Host "  Exemplo completo:" -ForegroundColor Gray
+        Write-Host "  echo ghp_1234567890abcdef | docker login ghcr.io -u joao.silva --password-stdin" -ForegroundColor DarkGray
+        Write-Host "" 
+        Write-Host "  PASSO 3: Pressione Enter no novo terminal" -ForegroundColor White
+        Write-Host "  ------------------------------------------" -ForegroundColor Gray
+        Write-Host "" 
+        Write-Host "  PASSO 4: Verifique a mensagem que apareceu:" -ForegroundColor White
+        Write-Host "  -------------------------------------------" -ForegroundColor Gray
+        Write-Host "" 
+        Write-Host "  Se aparecer:" -ForegroundColor White
+        Write-Host "    'Login Succeeded'" -ForegroundColor Green
+        Write-Host "    -> SUCESSO! O login foi realizado corretamente!" -ForegroundColor Green
+        Write-Host "" 
+        Write-Host "  PASSO 5: Volte para ESTE terminal e responda abaixo:" -ForegroundColor White
+        Write-Host "  ----------------------------------------------------" -ForegroundColor Gray
+        Write-Host "  - Pressione S (SIM) se o login funcionou" -ForegroundColor Green
+        Write-Host "  - Pressione N (NAO) se apareceu erro" -ForegroundColor Yellow
         
-        Write-Host "`n============================================`n" -ForegroundColor Cyan
+        Write-Host "`nOPCAO B - Entrar em contato com suporte tecnico:" -ForegroundColor Yellow
+        Write-Host "" 
+        Write-Host "  Se o login manual tambem falhar, entre em contato com:" -ForegroundColor Gray
+        Write-Host "" 
+        Write-Host "  Consultor Tecnico - Prisma Consultoria" -ForegroundColor White
+        Write-Host "" 
+        Write-Host "  Informe a mensagem de erro exibida acima." -ForegroundColor Gray
         
-        return $false
+        Write-Host "`n============================================" -ForegroundColor Cyan
+        Write-Host "" 
+        Write-Host "Voce conseguiu fazer o login manualmente?" -ForegroundColor White
+        Write-Host "(S = Sim, apareceu 'Login Succeeded')" -ForegroundColor Green
+        Write-Host "(N = Nao, apareceu erro ou preciso de ajuda)" -ForegroundColor Yellow
+        $resposta = Read-Host "`nResposta (S/N)"
+        
+        if ($resposta -match '^[Ss]') {
+            Write-Host "`nOtimo! O login foi realizado com sucesso." -ForegroundColor Green
+            Write-Host "Continuando o processo de download..." -ForegroundColor Cyan
+            return $true
+        } else {
+            Write-Host "`n============================================" -ForegroundColor Yellow
+            Write-Host "  ENTRE EM CONTATO COM SUPORTE" -ForegroundColor Yellow
+            Write-Host "============================================" -ForegroundColor Yellow
+            Write-Host "" 
+            Write-Host "Por favor, entre em contato com:" -ForegroundColor White
+            Write-Host "Consultor Tecnico - Prisma Consultoria" -ForegroundColor Cyan
+            Write-Host "" 
+            Write-Host "Tenha em maos:" -ForegroundColor White
+            Write-Host "- A mensagem de erro exibida acima" -ForegroundColor Gray
+            Write-Host "- O usuario informado: $($creds.usuario)" -ForegroundColor Gray
+            Write-Host "" 
+            Write-Host "Operacao cancelada." -ForegroundColor Yellow
+            return $false
+        }
     }
 
-    Write-Host "Acesso realizado com sucesso." -ForegroundColor Green
+    Write-Host "Login realizado com sucesso!" -ForegroundColor Green
     return $true
 }
 
@@ -490,6 +407,13 @@ function UpdateAndRestart {
         }
     }
 
+    # Verificar se .env esta configurado antes de iniciar
+    if (-not (Check-EnvConfigured -ShowMessage $true)) {
+        Write-Host "`nImagem atualizada, mas servico nao foi iniciado." -ForegroundColor Yellow
+        Write-Host "Configure o .env (opcao 3) e depois reinicie (opcao 1)." -ForegroundColor Cyan
+        return
+    }
+    
     # Depois reinicia tudo
     Write-Host "`nRecriando o SISCAN RPA..." -ForegroundColor Cyan
     docker compose down
@@ -508,6 +432,11 @@ function Restart-Service {
         Write-Host "`nArquivo de configuração 'docker-compose.yml' não foi encontrado." 
         return
     }
+    
+    # Verificar se .env esta configurado antes de iniciar
+    if (-not (Check-EnvConfigured -ShowMessage $true)) {
+        return
+    }
 
     Write-Host "`nReiniciando o SISCAN RPA..."
     docker compose down
@@ -521,9 +450,94 @@ function Restart-Service {
 }
 
 function Check-Service {
-    $pattern = "*siscan*"
-    $exists = docker ps --format "{{.Names}}" | Where-Object { $_ -like $pattern }
-    return -not [string]::IsNullOrEmpty($exists)
+    # Verifica se ha containers do projeto rodando
+    # Busca por: container_name especifico OU containers do projeto siscan-rpa
+    $containers = docker ps --format "{{.Names}}" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Aviso: Nao foi possivel consultar containers Docker." -ForegroundColor Yellow
+        return $false
+    }
+    
+    # Procura por padroes: extrator-siscan-rpa, siscan-rpa-*, ou siscan (do compose)
+    $found = $containers | Where-Object { 
+        $_ -like "*extrator-siscan-rpa*" -or 
+        $_ -like "*siscan-rpa-*" -or
+        $_ -like "*siscan*"
+    }
+    
+    return -not [string]::IsNullOrEmpty($found)
+}
+
+function Check-EnvConfigured {
+    <#
+    .SYNOPSIS
+        Verifica se o arquivo .env existe e possui as variaveis obrigatorias configuradas.
+    .DESCRIPTION
+        Retorna $true se o .env existe e tem SISCAN_USER e SISCAN_PASSWORD configurados.
+        Caso contrario, retorna $false e exibe mensagem orientando o usuario.
+    #>
+    param(
+        [switch]$ShowMessage = $true
+    )
+    
+    $envFile = Join-Path $PSScriptRoot ".env"
+    
+    if (-not (Test-Path $envFile)) {
+        if ($ShowMessage) {
+            Write-Host "`n============================================" -ForegroundColor Yellow
+            Write-Host "  CONFIGURACAO NECESSARIA" -ForegroundColor Yellow
+            Write-Host "============================================" -ForegroundColor Yellow
+            Write-Host "`nO arquivo .env nao foi encontrado." -ForegroundColor Red
+            Write-Host "Antes de iniciar o servico, e necessario configurar as variaveis." -ForegroundColor Yellow
+            Write-Host "`nPor favor:" -ForegroundColor Cyan
+            Write-Host "  1. Escolha a opcao 3 no menu principal" -ForegroundColor White
+            Write-Host "  2. Configure as variaveis obrigatorias:" -ForegroundColor White
+            Write-Host "     - SISCAN_USER (usuario do SISCAN)" -ForegroundColor Gray
+            Write-Host "     - SISCAN_PASSWORD (senha do SISCAN)" -ForegroundColor Gray
+            Write-Host "     - HOST_MEDIA_ROOT (pasta para salvar arquivos)" -ForegroundColor Gray
+            Write-Host "`nDepois volte e escolha a opcao 1 para iniciar o servico." -ForegroundColor Cyan
+            Write-Host "============================================`n" -ForegroundColor Yellow
+        }
+        return $false
+    }
+    
+    # Le o arquivo .env e verifica se tem as variaveis obrigatorias
+    $envContent = Get-Content $envFile -ErrorAction SilentlyContinue
+    $hasUser = $false
+    $hasPassword = $false
+    $hasMediaRoot = $false
+    
+    foreach ($line in $envContent) {
+        if ($line -match '^\s*SISCAN_USER\s*=\s*(.+)$' -and $matches[1].Trim() -ne "") {
+            $hasUser = $true
+        }
+        if ($line -match '^\s*SISCAN_PASSWORD\s*=\s*(.+)$' -and $matches[1].Trim() -ne "") {
+            $hasPassword = $true
+        }
+        if ($line -match '^\s*HOST_MEDIA_ROOT\s*=\s*(.+)$' -and $matches[1].Trim() -ne "") {
+            $hasMediaRoot = $true
+        }
+    }
+    
+    if (-not ($hasUser -and $hasPassword -and $hasMediaRoot)) {
+        if ($ShowMessage) {
+            Write-Host "`n============================================" -ForegroundColor Yellow
+            Write-Host "  CONFIGURACAO INCOMPLETA" -ForegroundColor Yellow
+            Write-Host "============================================" -ForegroundColor Yellow
+            Write-Host "`nO arquivo .env existe, mas variaveis obrigatorias estao faltando ou vazias:" -ForegroundColor Red
+            if (-not $hasUser) { Write-Host "  - SISCAN_USER (usuario do SISCAN)" -ForegroundColor Yellow }
+            if (-not $hasPassword) { Write-Host "  - SISCAN_PASSWORD (senha do SISCAN)" -ForegroundColor Yellow }
+            if (-not $hasMediaRoot) { Write-Host "  - HOST_MEDIA_ROOT (pasta para salvar arquivos)" -ForegroundColor Yellow }
+            Write-Host "`nPor favor:" -ForegroundColor Cyan
+            Write-Host "  1. Escolha a opcao 3 no menu principal" -ForegroundColor White
+            Write-Host "  2. Preencha as variaveis que estao faltando" -ForegroundColor White
+            Write-Host "`nDepois volte e escolha a opcao 1 para iniciar o servico." -ForegroundColor Cyan
+            Write-Host "============================================`n" -ForegroundColor Yellow
+        }
+        return $false
+    }
+    
+    return $true
 }
 
 
@@ -909,14 +923,29 @@ while ($running) {
                 Restart-Service
             } else {
                 Write-Host "Nenhum serviço do SISCAN RPA em execução encontrado." -ForegroundColor Yellow
-                $expected = Get-ExpectedServiceNames -ComposePath $COMPOSE_FILE
-                if ($expected -and $expected.Count -gt 0) {
-                    Write-Host "Serviços esperados no arquivo de configuração:" -ForegroundColor Cyan
-                    foreach ($s in $expected) { Write-Host " - $s" }
-                    Write-Host "Verifique se o arquivo 'docker-compose.yml' está no diretório correto." -ForegroundColor Yellow
+                Write-Host "Tentando iniciar o serviço..." -ForegroundColor Cyan
+                
+                if (-not (Test-Path $COMPOSE_FILE)) {
+                    Write-Host "Erro: Arquivo docker-compose.yml nao encontrado em: $COMPOSE_FILE" -ForegroundColor Red
+                } elseif (-not (Check-EnvConfigured -ShowMessage $true)) {
+                    # Mensagem ja exibida pela funcao Check-EnvConfigured
                 } else {
-                    Write-Host "Não foi possível identificar serviços no arquivo de configuração." -ForegroundColor Yellow
-                    Write-Host "Verifique a presença do arquivo: $COMPOSE_FILE" -ForegroundColor Yellow
+                    $expected = Get-ExpectedServiceNames -ComposePath $COMPOSE_FILE
+                    if ($expected -and $expected.Count -gt 0) {
+                        Write-Host "Servicos encontrados no docker-compose.yml:" -ForegroundColor Cyan
+                        foreach ($s in $expected) { Write-Host " - $s" -ForegroundColor Gray }
+                        Write-Host "`nIniciando servicos..." -ForegroundColor Cyan
+                        docker compose up -d
+                        if ($LASTEXITCODE -eq 0) {
+                            Write-Host "Servicos iniciados com sucesso!" -ForegroundColor Green
+                        } else {
+                            Write-Host "Erro ao iniciar os servicos." -ForegroundColor Red
+                        }
+                    } else {
+                        Write-Host "Aviso: Nenhum servico detectado no arquivo docker-compose.yml" -ForegroundColor Yellow
+                        Write-Host "Tentando iniciar mesmo assim..." -ForegroundColor Cyan
+                        docker compose up -d
+                    }
                 }
             }
             Pause
