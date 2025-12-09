@@ -170,6 +170,74 @@ Sintoma: `docker pull` falha intermitentemente, tempo esgota (timeout) ou conex�
 
 ---
 
+## Problema 7 — Erro de Permissão em Volumes Montados (Docker Desktop Windows/WSL2)
+
+### Sintomas Comuns
+
+- `PermissionError: [Errno 13] Permission denied: '/app/media/reports/mamografia/laudos'`
+- Container falha ao iniciar e fica reiniciando
+- Logs mostram erro em `Path(_dir).mkdir(parents=True, exist_ok=True)`
+
+### Diagnóstico e Solução
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Identificar o erro nos logs | `docker compose logs app --tail=50` — procurar por `PermissionError` e anotar o caminho do diretório que falhou |
+| 2 | Verificar se diretório base existe no host | Confirmar que `C:\siscanrpa\media` existe no Windows | `Test-Path C:\siscanrpa\media` — deve retornar `True` |
+| 3 | Criar estrutura de diretórios necessária | Executar PowerShell (Admin): `New-Item -ItemType Directory -Force -Path "C:\siscanrpa\media\reports\mamografia\laudos"` e `New-Item -ItemType Directory -Force -Path "C:\siscanrpa\media\reports\mamografia\consolidated"` e `New-Item -ItemType Directory -Force -Path "C:\siscanrpa\media\downloads"` |
+| 4 | Verificar montagem de volumes duplicada | Abrir `docker-compose.yml` e verificar se não há volumes montando o mesmo caminho duas vezes (ex: `HOST_MEDIA_ROOT` já monta `/app/media` inteiro, não precisa montar subpastas separadamente) | Ver seção "Problema 7B" abaixo |
+| 5 | Executar script de validação | Executar: `.\setup-directories.ps1` (se disponível) para criar automaticamente toda estrutura necessária |
+| 6 | Recriar container após criar diretórios | `docker compose down` seguido de `docker compose up -d --build` |
+| 7 | Verificar logs para confirmar sucesso | `docker compose logs app | Select-String "Validando estrutura"` — deve mostrar `✓ Diretório existe` para cada pasta necessária |
+
+### Problema 7A — Por que a Imagem não Cria os Diretórios Automaticamente?
+
+**Causa**: No Docker Desktop Windows/WSL2, volumes montados do Windows herdam permissões do sistema de arquivos Windows. O usuário dentro do container (geralmente `appuser` ou similar, não-root) não tem permissão para criar novos diretórios nesses volumes montados.
+
+**Solução Ideal (para equipe da imagem)**: Implementar entrypoint que:
+1. Roda como root durante inicialização
+2. Cria diretórios necessários com `mkdir -p`
+3. Ajusta permissões com `chmod` e `chown`
+4. Depois inicia aplicação como usuário não-root
+
+**Solução Temporária (cliente)**: Criar manualmente os diretórios no Windows antes de iniciar o container (ver Passo 3 acima).
+
+### Problema 7B — Volumes Montados Conflitantes
+
+Sintoma: Dois volumes montam o mesmo caminho dentro do container, causando conflitos.
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Revisar `docker-compose.yml` | Abrir `docker-compose.yml` e localizar seção `volumes:` |
+| 2 | Identificar redundância | Verificar se há algo como: `- ${HOST_MEDIA_ROOT}:/app/media:rw` E `- ${HOST_CONSOLIDATED_EXCEL_DIR_PATH}:/app/media/reports/mamografia/consolidated:rw` — **isso é um CONFLITO** |
+| 3 | Decidir estratégia de volumes | **Opção A (Recomendado)**: usar apenas `HOST_MEDIA_ROOT` que monta `/app/media` inteiro, remover segunda linha. **Opção B**: se realmente precisa separar consolidado, mudar caminho dentro do container para `/app/consolidated` ao invés de subpasta de `/app/media` |
+| 4 | Corrigir `.env` conforme escolha | **Opção A**: configurar `HOST_CONSOLIDATED_EXCEL_DIR_PATH=C:\siscanrpa\media\reports\mamografia\consolidated` (dentro de media). **Opção B**: configurar `HOST_CONSOLIDATED_EXCEL_DIR_PATH=C:\siscanrpa\consolidado` (separado) e ajustar compose para montar em `/app/consolidated` |
+| 5 | Aplicar mudanças | `docker compose down` → editar `docker-compose.yml` ou `.env` → `docker compose up -d` |
+
+### Checklist de Validação de Estrutura de Diretórios
+
+Antes de iniciar container pela primeira vez, verificar:
+
+- [ ] `C:\siscanrpa\media` existe
+- [ ] `C:\siscanrpa\media\downloads` existe
+- [ ] `C:\siscanrpa\media\reports\mamografia\laudos` existe
+- [ ] `C:\siscanrpa\media\reports\mamografia\consolidated` existe
+- [ ] `C:\siscanrpa\config` existe
+- [ ] Não há montagens duplicadas em `docker-compose.yml`
+- [ ] `.env` aponta para caminhos corretos (absolutos no Windows)
+
+### Script Auxiliar: `setup-directories.ps1`
+
+Se disponível no repositório, executar antes do primeiro `docker compose up`:
+
+```powershell
+.\setup-directories.ps1
+```
+
+Este script cria automaticamente toda estrutura necessária conforme configuração do `.env`.
+
+---
+
 ## Coleta de artefatos para suporte avançado (sempre coletar quando abrir chamado)
 
 | Passo | O que Fazer | Como Fazer |
@@ -179,3 +247,6 @@ Sintoma: `docker pull` falha intermitentemente, tempo esgota (timeout) ou conex�
 | 3 | Coletar política de execução do PowerShell | `Get-ExecutionPolicy -List > C:\assistente-siscan\logs\executionpolicy.txt` |
 | 4 | Coletar saída de testes de rede | `Test-NetConnection ghcr.io -Port 443 -InformationLevel Detailed > C:\assistente-siscan\logs\nettest.txt` |
 | 5 | Capturar configuração do serviço agendado | `schtasks /Query /TN "Siscan-Extrator" /V /FO LIST > C:\assistente-siscan\logs\taskinfo.txt` |
+| 6 | Verificar estrutura de diretórios criada | `Get-ChildItem C:\siscanrpa -Recurse | Select-Object FullName > C:\assistente-siscan\logs\directory-structure.txt` |
+| 7 | Capturar conteúdo do docker-compose.yml | `Get-Content docker-compose.yml > C:\assistente-siscan\logs\docker-compose.txt` |
+| 8 | Capturar variáveis do .env (sem senhas) | `Get-Content .env | Select-String -Pattern '^[^#]' | ForEach-Object { ($_ -split '=')[0] } > C:\assistente-siscan\logs\env-keys.txt` |
