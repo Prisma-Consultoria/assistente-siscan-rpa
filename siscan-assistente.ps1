@@ -3,7 +3,7 @@
 # CLI do Assistente SIScan
 # -------------------------------------------
 # Arquivo: siscan-assistente.ps1
-# Proposito: Auxiliar no deploy, atualizacao e gerenciamento do ambiente do SIScan RPA.
+# Propósito: Auxiliar no deploy, atualização e gerenciamento do ambiente do SIScan RPA.
 #
 # Uso:
 #   pwsh ./siscan-assistente.ps1            # PowerShell Core (recomendado)
@@ -24,13 +24,13 @@
 #
 # Observacoes:
 #   - O script e propositalmente conservador para suportar PowerShell 5.1 e pwsh.
-#   - Para uso em automacao ou nao interativo, considere extrair as funcoes para um modulo.
+#   - Para uso em automacao ou não interativo, considere extrair as funções para um modulo.
 # -------------------------------------------
 
 # Ajustes robustos de encoding/terminal para multiplos hosts
 # - tenta forcar saida UTF-8 para o console
 # - em Windows tenta ajustar code page via cmd.exe
-# - define defaults para cmdlets de escrita dependendo da versao do PowerShell
+# - define defaults para cmdlets de escrita dependendo da versão do PowerShell
 try {
     $psMajor = 0
     if ($PSVersionTable -and $PSVersionTable.PSVersion) { $psMajor = $PSVersionTable.PSVersion.Major }
@@ -61,7 +61,7 @@ $CRED_FILE = "credenciais.txt"
 $IMAGE_PATH = "ghcr.io/prisma-consultoria/siscan-rpa-rpa:main"
 $COMPOSE_FILE = Join-Path $PSScriptRoot "docker-compose.yml"
 
-# Textos de ajuda para variaveis do .env (usado por Update-EnvFile)
+# Textos de ajuda para variáveis do .env (usado por Update-EnvFile)
 # Carrega textos de ajuda de .env.help.json se presente, caso contrario usa valores embutidos simples
 $ENV_HELP_TEXTS = @{
     'SISCAN_USER' = 'Usuário do SISCAN (ex.: nome de usuário fornecido pelo suporte)'
@@ -111,10 +111,10 @@ function Get-ExpectedServiceNames {
     foreach ($line in $lines) {
         if ($line -match '^\s*services\s*:') { $inServices = $true; continue }
         if ($inServices) {
-            # Detecta nomes de servicos (identados com 2 espacos, mas nao mais que 4)
+            # Detecta nomes de serviços (identados com 2 espacos, mas não mais que 4)
             if ($line -match '^\s{2}([a-zA-Z0-9_-]+)\s*:') {
                 $serviceName = $matches[1]
-                # Ignora propriedades comuns que nao sao servicos
+                # Ignora propriedades comuns que não sao serviços
                 if ($serviceName -notmatch '^(version|volumes|networks|configs|secrets)$') {
                     $services += $serviceName
                 }
@@ -130,11 +130,11 @@ function Get-ExpectedServiceNames {
 function Get-CredentialsFile {
     if (!(Test-Path $CRED_FILE)) { return $null }
 
-    $creds = @{ usuario = $null; token = $null }
+    $creds = @{ usuário = $null; token = $null }
 
     Get-Content $CRED_FILE | ForEach-Object {
         $parts = $_ -split '='
-        if ($parts[0] -eq "usuario") { $creds.usuario = $parts[1] }
+        if ($parts[0] -eq "usuário") { $creds.usuário = $parts[1] }
         if ($parts[0] -eq "token")   { $creds.token   = $parts[1] }
     }
 
@@ -143,42 +143,42 @@ function Get-CredentialsFile {
 
 function Ask-Credentials {
     Write-Host "`n========================================" -ForegroundColor Cyan
-    Write-Host "  Autenticacao GitHub Container Registry" -ForegroundColor Cyan
+    Write-Host "  Autenticação GitHub Container Registry" -ForegroundColor Cyan
     Write-Host "========================================`n" -ForegroundColor Cyan
     
     Write-Host "Para acessar imagens privadas no GHCR, voce precisa:" -ForegroundColor Yellow
-    Write-Host "  1. Usuario: Seu username do GitHub (nao o email)" -ForegroundColor Gray
-    Write-Host "  2. Token: Personal Access Token (PAT) com permissao 'read:packages'" -ForegroundColor Gray
+    Write-Host "  1. Usuário: Seu username do GitHub (não o email)" -ForegroundColor Gray
+    Write-Host "  2. Token: Personal Access Token (PAT) com permissão 'read:packages'" -ForegroundColor Gray
     Write-Host "`nGerar token em: https://github.com/settings/tokens/new`n" -ForegroundColor Gray
 
-    $user = Read-Host "Usuario"
+    $user = Read-Host "Usuário"
     
-    # Validacao basica do usuario
+    # Validação básica do usuário
     if ([string]::IsNullOrWhiteSpace($user)) {
-        Write-Host "Aviso: Usuario vazio. Isso provavelmente causara falha de autenticacao." -ForegroundColor Yellow
+        Write-Host "Aviso: Usuário vazio. Isso provavelmente causará falha de autenticação." -ForegroundColor Yellow
     }
     
     $tok = Read-Host "Token"
     
-    # Validacao basica do token
+    # Validação básica do token
     if ([string]::IsNullOrWhiteSpace($tok)) {
-        Write-Host "Aviso: Token vazio. Isso provavelmente causara falha de autenticacao." -ForegroundColor Yellow
+        Write-Host "Aviso: Token vazio. Isso provavelmente causará falha de autenticação." -ForegroundColor Yellow
     } elseif ($tok.Length -lt 20) {
-        Write-Host "Aviso: Token muito curto. Tokens GitHub PAT tem geralmente 40+ caracteres." -ForegroundColor Yellow
+        Write-Host "Aviso: Token muito curto. Tokens GitHub PAT têm geralmente 40+ caracteres." -ForegroundColor Yellow
     }
 
-    # Salvamento em disco comentado: nao gravamos credenciais em arquivo por padrao.
-    # "usuario=$user" | Out-File $CRED_FILE -Encoding utf8
+    # Salvamento em disco comentário: não gravamos credenciais em arquivo por padrao.
+    # "usuário=$user" | Out-File $CRED_FILE -Encoding utf8
     # "token=$tok"    | Out-File $CRED_FILE -Encoding utf8 -Append
     # Write-Host "`nCredenciais salvas.`n"
 
-    Write-Host "`nCredenciais recebidas (nao serao salvas em disco).`n"
+    Write-Host "`nCredenciais recebidas (não serão salvas em disco).`n"
 
-    return @{ usuario = $user; token = $tok }
+    return @{ usuário = $user; token = $tok }
 }
 
 function Ensure-Credentials {
-    # Sempre solicitar usuario + token do GHCR, mesmo que exista arquivo salvo.
+    # Sempre solicitar usuário + token do GHCR, mesmo que exista arquivo salvo.
     if (Test-Path $CRED_FILE) { Remove-Item $CRED_FILE -ErrorAction SilentlyContinue }
     return Ask-Credentials
 }
@@ -206,7 +206,7 @@ function Test-GitHubToken ($creds) {
 }
 
 function Docker-Login ($creds) {
-    Write-Host "`nTentando acessar ao servico SISCAN RPA (ghcr.io)..." -ForegroundColor Cyan
+    Write-Host "`nTentando acessar ao serviço SISCAN RPA (ghcr.io)..." -ForegroundColor Cyan
 
     # Validar se credenciais foram fornecidas
     if (-not $creds -or -not $creds.usuario -or -not $creds.token) {
@@ -220,7 +220,7 @@ function Docker-Login ($creds) {
         Write-Host "`nDeseja continuar mesmo assim? (S/N)" -ForegroundColor Yellow
         $continuar = Read-Host
         if ($continuar -notmatch '^[Ss]') {
-            Write-Host "Operacao cancelada pelo usuario." -ForegroundColor Yellow
+            Write-Host "Operação cancelada pelo usuário." -ForegroundColor Yellow
             return $false
         }
     }
@@ -278,7 +278,7 @@ function Docker-Login ($creds) {
         Write-Host "  - Pressione S (SIM) se o login funcionou" -ForegroundColor Green
         Write-Host "  - Pressione N (NAO) se apareceu erro" -ForegroundColor Yellow
         
-        Write-Host "`nOPCAO B - Entrar em contato com suporte tecnico:" -ForegroundColor Yellow
+        Write-Host "`nOPCAO B - Entrar em contato com suporte técnico:" -ForegroundColor Yellow
         Write-Host "" 
         Write-Host "  Se o login manual tambem falhar, entre em contato com:" -ForegroundColor Gray
         Write-Host "" 
@@ -307,7 +307,7 @@ function Docker-Login ($creds) {
             Write-Host "" 
             Write-Host "Tenha em maos:" -ForegroundColor White
             Write-Host "- A mensagem de erro exibida acima" -ForegroundColor Gray
-            Write-Host "- O usuario informado: $($creds.usuario)" -ForegroundColor Gray
+            Write-Host "- O usuário informado: $($creds.usuario)" -ForegroundColor Gray
             Write-Host "" 
             Write-Host "Operacao cancelada." -ForegroundColor Yellow
             return $false
@@ -333,28 +333,28 @@ function UpdateAndRestart {
         Write-Host "`nSolicitando suas credenciais ..." -ForegroundColor Cyan
         $creds = Ask-Credentials
         if (-not (Docker-Login $creds)) {
-            Write-Host "Aviso: nao foi possivel fazer login; tentarei baixar a atualização mesmo assim (pode falhar)." -ForegroundColor Yellow
+            Write-Host "Aviso: não foi possível fazer login; tentarei baixar a atualização mesmo assim (pode falhar)." -ForegroundColor Yellow
         }
     }
 
     # Tentar pull direto da imagem especifica (mais robusto para GHCR)
-    Write-Host "`nBaixando a versao mais recente..." -ForegroundColor Cyan
+    Write-Host "`nBaixando a versão mais recente..." -ForegroundColor Cyan
     $pullOutput = docker pull $IMAGE_PATH 2>&1
     $pullCode = $LASTEXITCODE
 
     if ($pullCode -ne 0) {
-        Write-Host "Nao foi possivel baixar diretamente. Verificando Docker e credenciais..." -ForegroundColor Yellow
+        Write-Host "Não foi possível baixar diretamente. Verificando Docker e credenciais..." -ForegroundColor Yellow
 
         # Captura info do Docker para diagnostico
         $dockerInfo = docker info 2>&1
         $dockerInfoStr = $dockerInfo -join "`n"
 
-        # Tenta detectar se ha usuario autenticado (docker info normalmente exibe 'Username:')
+        # Tenta detectar se ha usuário autenticado (docker info normalmente exibe 'Username:')
         $isAuthenticated = $dockerInfoStr -match 'Username\s*:'
         if ($isAuthenticated) {
             Write-Host "Parece que ja esta autenticado no Docker." -ForegroundColor Cyan
         } else {
-            Write-Host "Nao ha autenticacao ativa no Docker." -ForegroundColor Yellow
+            Write-Host "Não há autenticação ativa no Docker." -ForegroundColor Yellow
         }
 
         # Se existir arquivo de credenciais, tentar login com ele primeiro
@@ -372,7 +372,7 @@ function UpdateAndRestart {
             }
         }
 
-        # Se ainda nao obteve sucesso, solicitar novamente credenciais ao usuario e tentar login/pull
+        # Se ainda não obteve sucesso, solicitar novamente credenciais ao usuário e tentar login/pull
         if ($pullCode -ne 0) {
             Write-Host "Por favor, informe usuário e token novamente..." -ForegroundColor Cyan
             $newCreds = Ask-Credentials
@@ -387,11 +387,11 @@ function UpdateAndRestart {
 
         # Se ainda falhar, tentar fallback para 'docker compose pull' uma ultima vez
         if ($pullCode -ne 0) {
-            Write-Host "Ainda nao foi possivel baixar. Tentando 'docker compose pull' como ultimo recurso..." -ForegroundColor Yellow
+            Write-Host "Ainda não foi possível baixar. Tentando 'docker compose pull' como último recurso..." -ForegroundColor Yellow
             $composeOutput = docker compose pull 2>&1
             $composeCode = $LASTEXITCODE
             if ($composeCode -ne 0) {
-                Write-Host "Erro ao baixar a atualizacao via compose." -ForegroundColor Red
+                Write-Host "Erro ao baixar a atualização via compose." -ForegroundColor Red
                 Write-Host "`n--- Detalhes do erro ---`n" -ForegroundColor Red
                 Write-Host "Saida do 'docker pull':" -ForegroundColor Red
                 Write-Host ($pullOutput -join "`n")
@@ -400,8 +400,8 @@ function UpdateAndRestart {
                 Write-Host "`nInformacoes do Docker (diagnostico):" -ForegroundColor Red
                 Write-Host $dockerInfoStr
                 Write-Host "`nAAcoes recomendadas:" -ForegroundColor Yellow
-                Write-Host "- Verifique sua conexao de rede e resolucao DNS para 'ghcr.io'." -ForegroundColor Yellow
-                Write-Host "- Confirme que o token usado tem permissao de leitura de pacotes no GitHub." -ForegroundColor Yellow
+                Write-Host "- Verifique sua conexão de rede e resolução DNS para 'ghcr.io'." -ForegroundColor Yellow
+                Write-Host "- Confirme que o token usado tem permissão de leitura de pacotes no GitHub." -ForegroundColor Yellow
                 Write-Host "- Execute 'docker logout ghcr.io' e tente login manualmente se precisar." -ForegroundColor Yellow
                 Write-Host "- Se estiver atrás de proxy/firewall, confirme regras para https (porta 443)." -ForegroundColor Yellow
                 return
@@ -417,30 +417,30 @@ function UpdateAndRestart {
 
     # Verificar se .env esta configurado antes de iniciar
     if (-not (Check-EnvConfigured -ShowMessage $false)) {
-        Write-Host "Agora e necessario configurar as variaveis do sistema." -ForegroundColor Yellow
+        Write-Host "Agora é necessário configurar as variáveis do sistema." -ForegroundColor Yellow
         Write-Host "`nDeseja configurar agora? (S/N)" -ForegroundColor Cyan
         $resposta = Read-Host
         
         if ($resposta -match '^[Ss]') {
-            Write-Host "`nAbrindo editor de configuracoes...`n" -ForegroundColor Cyan
+            Write-Host "`nAbrindo editor de configurações...`n" -ForegroundColor Cyan
             Start-Sleep -Seconds 1
             Manage-Env -SkipRestart
             
-            # Verificar novamente apos configuracao
-            Write-Host "`n`nVerificando configuracao..." -ForegroundColor Cyan
+            # Verificar novamente apos configuração
+            Write-Host "`n`nVerificando configuração..." -ForegroundColor Cyan
             if (Check-EnvConfigured -ShowMessage $false) {
-                Write-Host "Configuracao OK! Iniciando servicos...`n" -ForegroundColor Green
+                Write-Host "Configuração OK! Iniciando serviços...`n" -ForegroundColor Green
             } else {
-                Write-Host "`nConfiguracao ainda incompleta." -ForegroundColor Yellow
-                Write-Host "O servico NAO sera iniciado." -ForegroundColor Red
-                Write-Host "Por favor, volte ao menu e escolha a opcao 3 para completar a configuracao." -ForegroundColor Cyan
+                Write-Host "`nConfiguração ainda incompleta." -ForegroundColor Yellow
+                Write-Host "O serviço NÃO será iniciado." -ForegroundColor Red
+                Write-Host "Por favor, volte ao menu e escolha a opção 3 para completar a configuração." -ForegroundColor Cyan
                 return
             }
         } else {
-            Write-Host "`nImagem atualizada, mas servico NAO foi iniciado." -ForegroundColor Yellow
-            Write-Host "Para iniciar o servico:" -ForegroundColor Cyan
-            Write-Host "  1. Escolha a opcao 3 no menu para configurar as variaveis" -ForegroundColor White
-            Write-Host "  2. Depois escolha a opcao 1 para iniciar o servico" -ForegroundColor White
+            Write-Host "`nImagem atualizada, mas serviço NAO foi iniciado." -ForegroundColor Yellow
+            Write-Host "Para iniciar o serviço:" -ForegroundColor Cyan
+            Write-Host "  1. Escolha a opção 3 no menu para configurar as variáveis" -ForegroundColor White
+            Write-Host "  2. Depois escolha a opção 1 para iniciar o serviço" -ForegroundColor White
             return
         }
     } else {
@@ -456,7 +456,7 @@ function UpdateAndRestart {
         Write-Host "`n============================================" -ForegroundColor Green
         Write-Host "  SISCAN RPA PRONTO PARA USO!" -ForegroundColor Green
         Write-Host "============================================" -ForegroundColor Green
-        Write-Host "`nO servico foi atualizado e iniciado com sucesso!" -ForegroundColor Green
+        Write-Host "`nO serviço foi atualizado e iniciado com sucesso!" -ForegroundColor Green
         Write-Host "Voce pode acessar o sistema em: http://localhost:5001" -ForegroundColor Cyan
     }
     else {
@@ -508,10 +508,10 @@ function Check-Service {
 function Check-EnvConfigured {
     <#
     .SYNOPSIS
-        Verifica se o arquivo .env existe e possui as variaveis obrigatorias configuradas.
+        Verifica se o arquivo .env existe e possui as variáveis obrigatorias configuradas.
     .DESCRIPTION
         Retorna $true se o .env existe e tem SISCAN_USER e SISCAN_PASSWORD configurados.
-        Caso contrario, retorna $false e exibe mensagem orientando o usuario.
+        Caso contrario, retorna $false e exibe mensagem orientando o usuário.
     #>
     param(
         [switch]$ShowMessage = $true
@@ -524,21 +524,21 @@ function Check-EnvConfigured {
             Write-Host "`n============================================" -ForegroundColor Yellow
             Write-Host "  CONFIGURACAO NECESSARIA" -ForegroundColor Yellow
             Write-Host "============================================" -ForegroundColor Yellow
-            Write-Host "`nO arquivo .env nao foi encontrado." -ForegroundColor Red
-            Write-Host "Antes de iniciar o servico, e necessario configurar as variaveis." -ForegroundColor Yellow
+            Write-Host "`nO arquivo .env não foi encontrado." -ForegroundColor Red
+            Write-Host "Antes de iniciar o serviço, e necessário configurar as variáveis." -ForegroundColor Yellow
             Write-Host "`nPor favor:" -ForegroundColor Cyan
-            Write-Host "  1. Escolha a opcao 3 no menu principal" -ForegroundColor White
-            Write-Host "  2. Configure as variaveis obrigatorias:" -ForegroundColor White
-            Write-Host "     - SISCAN_USER (usuario do SISCAN)" -ForegroundColor Gray
+            Write-Host "  1. Escolha a opção 3 no menu principal" -ForegroundColor White
+            Write-Host "  2. Configure as variáveis obrigatorias:" -ForegroundColor White
+            Write-Host "     - SISCAN_USER (usuário do SISCAN)" -ForegroundColor Gray
             Write-Host "     - SISCAN_PASSWORD (senha do SISCAN)" -ForegroundColor Gray
             Write-Host "     - HOST_MEDIA_ROOT (pasta para salvar arquivos)" -ForegroundColor Gray
-            Write-Host "`nDepois volte e escolha a opcao 1 para iniciar o servico." -ForegroundColor Cyan
+            Write-Host "`nDepois volte e escolha a opção 1 para iniciar o serviço." -ForegroundColor Cyan
             Write-Host "============================================`n" -ForegroundColor Yellow
         }
         return $false
     }
     
-    # Le o arquivo .env e verifica se tem as variaveis obrigatorias
+    # Le o arquivo .env e verifica se tem as variáveis obrigatorias
     $envContent = Get-Content $envFile -ErrorAction SilentlyContinue
     $hasUser = $false
     $hasPassword = $false
@@ -561,14 +561,14 @@ function Check-EnvConfigured {
             Write-Host "`n============================================" -ForegroundColor Yellow
             Write-Host "  CONFIGURACAO INCOMPLETA" -ForegroundColor Yellow
             Write-Host "============================================" -ForegroundColor Yellow
-            Write-Host "`nO arquivo .env existe, mas variaveis obrigatorias estao faltando ou vazias:" -ForegroundColor Red
-            if (-not $hasUser) { Write-Host "  - SISCAN_USER (usuario do SISCAN)" -ForegroundColor Yellow }
+            Write-Host "`nO arquivo .env existe, mas variáveis obrigatorias estao faltando ou vazias:" -ForegroundColor Red
+            if (-not $hasUser) { Write-Host "  - SISCAN_USER (usuário do SISCAN)" -ForegroundColor Yellow }
             if (-not $hasPassword) { Write-Host "  - SISCAN_PASSWORD (senha do SISCAN)" -ForegroundColor Yellow }
             if (-not $hasMediaRoot) { Write-Host "  - HOST_MEDIA_ROOT (pasta para salvar arquivos)" -ForegroundColor Yellow }
             Write-Host "`nPor favor:" -ForegroundColor Cyan
-            Write-Host "  1. Escolha a opcao 3 no menu principal" -ForegroundColor White
-            Write-Host "  2. Preencha as variaveis que estao faltando" -ForegroundColor White
-            Write-Host "`nDepois volte e escolha a opcao 1 para iniciar o servico." -ForegroundColor Cyan
+            Write-Host "  1. Escolha a opção 3 no menu principal" -ForegroundColor White
+            Write-Host "  2. Preencha as variáveis que estao faltando" -ForegroundColor White
+            Write-Host "`nDepois volte e escolha a opção 1 para iniciar o serviço." -ForegroundColor Cyan
             Write-Host "============================================`n" -ForegroundColor Yellow
         }
         return $false
@@ -627,7 +627,7 @@ function Update-EnvFile {
             $entry = $null
             if ($null -ne $ENV_HELP_ENTRIES -and $ENV_HELP_ENTRIES.ContainsKey($key)) { $entry = $ENV_HELP_ENTRIES[$key] }
 
-            # Decide se a variavel e secreta (fallback por nome se info nao existir)
+            # Decide se a variavel e secreta (fallback por nome se info não existir)
             $isSecret = $false
             if ($entry -and $entry.secret) { $isSecret = $entry.secret }
             elseif ($key -match 'PASSWORD|TOKEN|SECRET|KEY') { $isSecret = $true }
@@ -721,10 +721,10 @@ function Manage-Env {
 
         if ($found) {
             Copy-Item $found $envFile -Force
-            Write-Host ".env nao encontrado. Copiado de: $found" -ForegroundColor Yellow
+            Write-Host ".env não encontrado. Copiado de: $found" -ForegroundColor Yellow
         } else {
             New-Item -Path $envFile -ItemType File -Force | Out-Null
-            Write-Host ".env nao encontrado. Criado arquivo vazio: $envFile" -ForegroundColor Yellow
+            Write-Host ".env não encontrado. Criado arquivo vazio: $envFile" -ForegroundColor Yellow
         }
     } else {
         Write-Host ".env encontrado: $envFile" -ForegroundColor Yellow
@@ -740,13 +740,13 @@ function Manage-Env {
         
         # Verificar se há serviços rodando
         if (Check-Service) {
-            Write-Host "`nO servico SISCAN RPA esta em execucao." -ForegroundColor Yellow
-            Write-Host "Para aplicar as mudancas no .env, e necessario reiniciar o servico." -ForegroundColor Yellow
-            Write-Host "`nDeseja reiniciar o servico agora? (S/N)" -ForegroundColor Cyan
+            Write-Host "`nO serviço SISCAN RPA esta em execução." -ForegroundColor Yellow
+            Write-Host "Para aplicar as mudancas no .env, e necessário reiniciar o serviço." -ForegroundColor Yellow
+            Write-Host "`nDeseja reiniciar o serviço agora? (S/N)" -ForegroundColor Cyan
             $resposta = Read-Host
             
             if ($resposta -match '^[Ss]') {
-                Write-Host "`nReiniciando servico para aplicar as configuracoes...`n" -ForegroundColor Cyan
+                Write-Host "`nReiniciando serviço para aplicar as configuracoes...`n" -ForegroundColor Cyan
                 Start-Sleep -Seconds 1
                 
                 # Verificar se configuração está completa antes de reiniciar
@@ -758,25 +758,25 @@ function Manage-Env {
                         Write-Host "`n============================================" -ForegroundColor Green
                         Write-Host "  CONFIGURACOES APLICADAS!" -ForegroundColor Green
                         Write-Host "============================================" -ForegroundColor Green
-                        Write-Host "`nO servico foi reiniciado com sucesso." -ForegroundColor Green
+                        Write-Host "`nO serviço foi reiniciado com sucesso." -ForegroundColor Green
                         Write-Host "As novas configuracoes estao ativas." -ForegroundColor Cyan
                     } else {
-                        Write-Host "`nErro ao reiniciar o servico." -ForegroundColor Red
+                        Write-Host "`nErro ao reiniciar o serviço." -ForegroundColor Red
                         Write-Host "Verifique os logs para mais detalhes." -ForegroundColor Yellow
                     }
                 } else {
-                    Write-Host "`nConfiguracao incompleta. Servico nao foi reiniciado." -ForegroundColor Yellow
-                    Write-Host "Complete as variaveis obrigatorias e tente novamente." -ForegroundColor Cyan
+                    Write-Host "`nConfiguracao incompleta. Servico não foi reiniciado." -ForegroundColor Yellow
+                    Write-Host "Complete as variáveis obrigatorias e tente novamente." -ForegroundColor Cyan
                 }
             } else {
                 Write-Host "`nServico NAO foi reiniciado." -ForegroundColor Yellow
-                Write-Host "As mudancas no .env serao aplicadas quando o servico for reiniciado." -ForegroundColor Cyan
-                Write-Host "Voce pode reiniciar manualmente escolhendo a opcao 1 no menu." -ForegroundColor Gray
+                Write-Host "As mudancas no .env serão aplicadas quando o serviço for reiniciado." -ForegroundColor Cyan
+                Write-Host "Voce pode reiniciar manualmente escolhendo a opção 1 no menu." -ForegroundColor Gray
             }
         } else {
-            Write-Host "`nNenhum servico em execucao detectado." -ForegroundColor Gray
-            Write-Host "As configuracoes serao aplicadas quando o servico for iniciado." -ForegroundColor Cyan
-            Write-Host "Use a opcao 1 no menu para iniciar o servico." -ForegroundColor Gray
+            Write-Host "`nNenhum serviço em execução detectado." -ForegroundColor Gray
+            Write-Host "As configuracoes serão aplicadas quando o serviço for iniciado." -ForegroundColor Cyan
+            Write-Host "Use a opção 1 no menu para iniciar o serviço." -ForegroundColor Gray
         }
     }
 }
@@ -827,13 +827,13 @@ $Services = {
 function Update-AssistantScript {
     <#
     .SYNOPSIS
-        Atualiza o proprio script assistente (siscan-assistente.ps1) com rollback automatico.
+        Atualiza o proprio script assistente (siscan-assistente.ps1) com rollback automático.
     .DESCRIPTION
-        Faz backup do script atual, baixa a versao mais recente do repositorio GitHub,
+        Faz backup do script atual, baixa a versão mais recente do repositório GitHub,
         valida o novo script e oferece rollback em caso de falha.
     #>
     Write-Host "`n========================================" -ForegroundColor Cyan
-    Write-Host "  Atualizacao do Assistente SISCAN RPA" -ForegroundColor Cyan
+    Write-Host "  Atualização do Assistente SISCAN RPA" -ForegroundColor Cyan
     Write-Host "========================================`n" -ForegroundColor Cyan
 
     $scriptPath = $PSCommandPath
@@ -855,7 +855,7 @@ function Update-AssistantScript {
     $downloadUrl = "https://raw.githubusercontent.com/${repoOwner}/${repoName}/${branch}/${scriptFileName}"
 
     Write-Host "Script atual: $scriptPath" -ForegroundColor Gray
-    Write-Host "Backup sera salvo em: $backupPath" -ForegroundColor Gray
+    Write-Host "Backup será salvo em: $backupPath" -ForegroundColor Gray
     Write-Host "URL de download: $downloadUrl`n" -ForegroundColor Gray
 
     # Criar backup
@@ -868,8 +868,8 @@ function Update-AssistantScript {
         return $false
     }
 
-    # Baixar nova versao
-    Write-Host "`n[2/5] Baixando nova versao do GitHub..." -ForegroundColor Cyan
+    # Baixar nova versão
+    Write-Host "`n[2/5] Baixando nova versão do GitHub..." -ForegroundColor Cyan
     try {
         # Tenta usar Invoke-WebRequest (pwsh/PS 5.1+)
         $ProgressPreference = 'SilentlyContinue'  # acelera download
@@ -886,7 +886,7 @@ function Update-AssistantScript {
             if ($LASTEXITCODE -eq 0 -and (Test-Path $tempPath)) {
                 Write-Host "✓ Download via curl concluido." -ForegroundColor Green
             } else {
-                throw "curl falhou ou arquivo nao foi criado."
+                throw "curl falhou ou arquivo não foi criado."
             }
         } catch {
             Write-Host "✗ Metodo alternativo falhou: $_" -ForegroundColor Red
@@ -902,7 +902,7 @@ function Update-AssistantScript {
     # Validar arquivo baixado
     Write-Host "`n[3/5] Validando arquivo baixado..." -ForegroundColor Cyan
     if (-not (Test-Path $tempPath)) {
-        Write-Host "✗ Arquivo temporario nao encontrado apos download." -ForegroundColor Red
+        Write-Host "✗ Arquivo temporario não encontrado apos download." -ForegroundColor Red
         Write-Host "Restaurando backup..." -ForegroundColor Yellow
         Copy-Item -Path $backupPath -Destination $scriptPath -Force
         return $false
@@ -920,7 +920,7 @@ function Update-AssistantScript {
     # Verificar se contem marcadores basicos do script PowerShell
     $tempContent = Get-Content $tempPath -Raw -ErrorAction SilentlyContinue
     if (-not $tempContent -or $tempContent -notmatch '#!/usr/bin/env pwsh' -or $tempContent -notmatch 'function') {
-        Write-Host "✗ Arquivo baixado nao parece ser um script PowerShell valido." -ForegroundColor Red
+        Write-Host "✗ Arquivo baixado não parece ser um script PowerShell valido." -ForegroundColor Red
         Write-Host "Restaurando backup..." -ForegroundColor Yellow
         Copy-Item -Path $backupPath -Destination $scriptPath -Force
         Remove-Item $tempPath -Force -ErrorAction SilentlyContinue
@@ -930,13 +930,13 @@ function Update-AssistantScript {
     Write-Host "✓ Validacao basica OK ($tempSize bytes)." -ForegroundColor Green
 
     # Substituir script atual pelo novo
-    Write-Host "`n[4/5] Aplicando atualizacao..." -ForegroundColor Cyan
+    Write-Host "`n[4/5] Aplicando atualização..." -ForegroundColor Cyan
     try {
         Copy-Item -Path $tempPath -Destination $scriptPath -Force -ErrorAction Stop
         Remove-Item $tempPath -Force -ErrorAction SilentlyContinue
         Write-Host "✓ Script atualizado com sucesso." -ForegroundColor Green
     } catch {
-        Write-Host "✗ Erro ao aplicar atualizacao: $_" -ForegroundColor Red
+        Write-Host "✗ Erro ao aplicar atualização: $_" -ForegroundColor Red
         Write-Host "Restaurando backup..." -ForegroundColor Yellow
         Copy-Item -Path $backupPath -Destination $scriptPath -Force
         Remove-Item $tempPath -Force -ErrorAction SilentlyContinue
@@ -961,10 +961,10 @@ function Update-AssistantScript {
     }
 
     Write-Host "`n========================================" -ForegroundColor Green
-    Write-Host "  Atualizacao concluida com sucesso!" -ForegroundColor Green
+    Write-Host "  Atualização concluida com sucesso!" -ForegroundColor Green
     Write-Host "========================================" -ForegroundColor Green
     Write-Host "`nBackup mantido em: $backupPath" -ForegroundColor Gray
-    Write-Host "Para usar a nova versao, reinicie o assistente." -ForegroundColor Cyan
+    Write-Host "Para usar a nova versão, reinicie o assistente." -ForegroundColor Cyan
     Write-Host "`nPressione qualquer tecla para sair e reiniciar o assistente..." -ForegroundColor Yellow
     $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
     
@@ -982,11 +982,11 @@ function Show-Menu {
         Write-Host " 1) Reiniciar o SISCAN RPA"
         Write-Host "    - Fecha e inicia o serviço (útil para problemas simples)"
         Write-Host " 2) Atualizar / Instalar o SISCAN RPA"
-        Write-Host "    - Baixa a versao mais recente do servico SISCAN RPA"
+        Write-Host "    - Baixa a versão mais recente do serviço SISCAN RPA"
         Write-Host " 3) Editar configurações básicas"
         Write-Host "    - Ajuste caminhos e opções essenciais (.env)"
         Write-Host " 4) Atualizar o Assistente"
-        Write-Host "    - Baixa a versao mais recente do assistente com rollback automatico"
+        Write-Host "    - Baixa a versão mais recente do assistente com rollback automático"
         Write-Host " 5) Sair"
     Write-Host ""
     Write-Host "----------------------------------------"
@@ -1013,7 +1013,7 @@ while ($running) {
                 Write-Host "Tentando iniciar o serviço..." -ForegroundColor Cyan
                 
                 if (-not (Test-Path $COMPOSE_FILE)) {
-                    Write-Host "Erro: Arquivo docker-compose.yml nao encontrado em: $COMPOSE_FILE" -ForegroundColor Red
+                    Write-Host "Erro: Arquivo docker-compose.yml não encontrado em: $COMPOSE_FILE" -ForegroundColor Red
                 } elseif (-not (Check-EnvConfigured -ShowMessage $true)) {
                     # Mensagem ja exibida pela funcao Check-EnvConfigured
                 } else {
@@ -1021,15 +1021,15 @@ while ($running) {
                     if ($expected -and $expected.Count -gt 0) {
                         Write-Host "Servicos encontrados no docker-compose.yml:" -ForegroundColor Cyan
                         foreach ($s in $expected) { Write-Host " - $s" -ForegroundColor Gray }
-                        Write-Host "`nIniciando servicos..." -ForegroundColor Cyan
+                        Write-Host "`nIniciando serviços..." -ForegroundColor Cyan
                         docker compose up -d
                         if ($LASTEXITCODE -eq 0) {
                             Write-Host "Servicos iniciados com sucesso!" -ForegroundColor Green
                         } else {
-                            Write-Host "Erro ao iniciar os servicos." -ForegroundColor Red
+                            Write-Host "Erro ao iniciar os serviços." -ForegroundColor Red
                         }
                     } else {
-                        Write-Host "Aviso: Nenhum servico detectado no arquivo docker-compose.yml" -ForegroundColor Yellow
+                        Write-Host "Aviso: Nenhum serviço detectado no arquivo docker-compose.yml" -ForegroundColor Yellow
                         Write-Host "Tentando iniciar mesmo assim..." -ForegroundColor Cyan
                         docker compose up -d
                     }
@@ -1044,7 +1044,7 @@ while ($running) {
             if (Docker-Login $creds) {
                 UpdateAndRestart -creds $creds
             } else {
-                Write-Host "Aviso: nao foi possivel autenticar. Tentarei atualizar mesmo assim..." -ForegroundColor Yellow
+                Write-Host "Aviso: não foi possivel autenticar. Tentarei atualizar mesmo assim..." -ForegroundColor Yellow
                 UpdateAndRestart -creds $creds
             }
             Pause
