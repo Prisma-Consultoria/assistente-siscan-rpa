@@ -238,6 +238,151 @@ Este script cria automaticamente toda estrutura necessária conforme configuraç
 
 ---
 
+## Problema 8 — Caminhos Windows/UNC com Caracteres Especiais
+
+### Sintomas
+
+Mensagens de erro como:
+- `\\172.19.222.100\siscan_laudos&\Config is not valid windows path`
+- `Error response from daemon: invalid mount config`
+- Docker Compose falha ao montar volumes com caracteres especiais no caminho
+
+### Causa Raiz
+
+Docker Desktop no Windows não consegue montar volumes quando o caminho contém caracteres especiais como:
+- `&` (ampersand)
+- `%` (percent)
+- `!` (exclamation)
+- `$` (dollar)
+- `` ` `` (backtick)
+- `"` `'` (aspas)
+
+Isso é especialmente problemático em:
+- **Caminhos UNC** (compartilhamentos de rede): `\\servidor\pasta&nome\Config`
+- **Nomes de pastas legadas** com caracteres não-padronizados
+
+### Diagnóstico
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Identificar o caminho problemático | Revisar arquivo `.env` e procurar por variáveis `HOST_*_PATH`, `HOST_*_DIR`, `HOST_*_ROOT` | Abrir `.env` no Notepad e procurar caminhos que contenham `&`, `%`, `!`, etc. |
+| 2 | Executar validação automática | O assistente PowerShell já detecta automaticamente ao editar `.env` (opção 3) ou antes de executar compose (opção 2) | `pwsh .\siscan-assistente.ps1` → Opção 3 (Editar configurações) → o script mostrará avisos se houver problemas |
+| 3 | Verificar logs do Docker | Coletar erro completo do Docker Compose | `docker compose up -d 2>&1 | Out-File C:\assistente-siscan\logs\compose-error.txt` |
+
+### Soluções
+
+#### Solução A — Mapear Unidade de Rede (RECOMENDADO para UNC)
+
+Para caminhos UNC problemáticos como `\\172.19.222.100\siscan_laudos&\Config`:
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Mapear unidade de rede permanente | Atribuir letra de unidade ao compartilhamento | PowerShell (Admin): `net use Z: \\172.19.222.100\siscan_laudos /persistent:yes` |
+| 2 | Verificar mapeamento | Confirmar que a unidade aparece no Explorer | `Get-PSDrive -PSProvider FileSystem` deve listar `Z:` |
+| 3 | Atualizar `.env` com letra de unidade | Substituir caminho UNC por letra mapeada | No `.env`: `HOST_CONSOLIDATED_EXCEL_DIR_PATH=Z:/Config` ou `Z:\Config` |
+| 4 | Testar Docker Compose | Validar que o volume monta corretamente | `docker compose up -d` → verificar se container inicia sem erros |
+| 5 | Validar acesso dentro do container | Confirmar que arquivos são visíveis | `docker exec extrator-siscan-rpa ls -la /app/media` |
+
+**Exemplo completo:**
+```powershell
+# Antes (ERRO):
+HOST_CONSOLIDATED_EXCEL_DIR_PATH=\\172.19.222.100\siscan_laudos&\Config
+
+# Mapear unidade:
+net use Z: \\172.19.222.100\siscan_laudos /persistent:yes
+
+# Depois (FUNCIONA):
+HOST_CONSOLIDATED_EXCEL_DIR_PATH=Z:/Config
+```
+
+#### Solução B — Renomear Pastas (RECOMENDADO para caminhos locais)
+
+Se você tem controle sobre os nomes das pastas:
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Parar containers | Garantir que nenhum container está usando o volume | `docker compose down` |
+| 2 | Renomear pasta problemática | Remover caracteres especiais do nome | Explorer: renomear `siscan_laudos&` → `siscan_laudos` |
+| 3 | Atualizar `.env` | Ajustar caminhos para refletir novo nome | Editar `.env` e atualizar variáveis afetadas |
+| 4 | Reiniciar containers | Aplicar mudanças | `docker compose up -d` |
+
+**Exemplo:**
+```powershell
+# Antes:
+C:\siscanrpa\media&data\Config
+
+# Renomear pasta para:
+C:\siscanrpa\mediadata\Config
+
+# Atualizar .env:
+HOST_EXCEL_COLUMNS_MAPPING_DIR=C:/siscanrpa/mediadata/Config
+```
+
+#### Solução C — Usar Barras Normais (Compatibilidade Mista)
+
+Docker aceita barras normais `/` mesmo no Windows:
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Editar `.env` | Substituir `\` por `/` em todos os caminhos | `C:\siscanrpa\media` → `C:/siscanrpa/media` |
+| 2 | Converter caminhos UNC | Substituir `\\` por `//` | `\\172.19.222.100\share` → `//172.19.222.100/share` |
+| 3 | Testar | Reiniciar compose | `docker compose up -d` |
+
+**Nota:** Isso não resolve o problema de caracteres especiais, apenas melhora compatibilidade de barras.
+
+### Prevenção — Validação Automática
+
+O assistente PowerShell (`siscan-assistente.ps1`) versão 4.0+ inclui validação automática:
+
+1. **Durante edição do `.env` (opção 3)**:
+   - Detecta caracteres especiais ao digitar caminhos
+   - Mostra avisos e soluções específicas
+   - Permite cancelar se necessário
+
+2. **Antes de executar `docker compose up` (opção 2)**:
+   - Escaneia todos os caminhos no `.env`
+   - Lista problemas encontrados
+   - Oferece cancelar operação
+
+**Exemplo de saída do assistente:**
+```
+============================================
+  AVISO: Caminho com caracteres especiais
+============================================
+
+Variavel: HOST_CONSOLIDATED_EXCEL_DIR_PATH
+Caminho informado: \\172.19.222.100\siscan_laudos&\Config
+
+Caracteres problematicos encontrados: &
+
+Solucoes para caminhos UNC:
+  1. Use mapeamento de unidade de rede (RECOMENDADO):
+     net use Z: \\172.19.222.100\siscan_laudos&\Config
+     Depois use: Z:\Config
+
+  2. Renomeie pastas com caracteres especiais
+
+  3. Use barras normais: //172.19.222.100/siscan_laudos&/Config
+```
+
+### Checklist de Resolução
+
+- [ ] Identificou a variável do `.env` com caminho problemático
+- [ ] Escolheu solução (A, B ou C conforme contexto)
+- [ ] Parou containers (`docker compose down`)
+- [ ] Aplicou correção (mapeou unidade, renomeou pasta, ou ajustou barras)
+- [ ] Atualizou `.env` com novo caminho
+- [ ] Testou com `docker compose up -d`
+- [ ] Validou que container iniciou sem erros
+- [ ] Verificou acesso aos arquivos dentro do container
+
+### Referências
+
+- Docker Desktop Windows path mapping: https://docs.docker.com/desktop/windows/wsl/#file-sharing
+- PowerShell `net use` documentation: https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2012-r2-and-2012/gg651155(v=ws.11)
+
+---
+
 ## Coleta de artefatos para suporte avançado (sempre coletar quando abrir chamado)
 
 | Passo | O que Fazer | Como Fazer |

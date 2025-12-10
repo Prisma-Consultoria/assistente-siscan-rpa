@@ -100,6 +100,19 @@ docker compose logs -f
 - `docker compose` não encontrado: instale Compose ou use a versão integrada ao Docker Desktop.
 - `docker login` falha: verifique token/usuário e permissões no registry.
 - Problemas de encoding em Windows PowerShell: prefira `pwsh` ou salve scripts com BOM para compatibilidade.
+- **Caminhos Windows com caracteres especiais** (`&`, `%`, `!`): Docker não monta volumes corretamente. **Solução**: use mapeamento de unidade de rede (`net use Z: \\servidor\share`) ou renomeie pastas. Ver [Problema 8 no TROUBLESHOOTING](docs/TROUBLESHOOTING.md#problema-8--caminhos-windowsunc-com-caracteres-especiais).
+
+### Caminhos UNC (compartilhamentos de rede)
+
+Se usar caminhos UNC no `.env`:
+```powershell
+# ❌ ERRO - Docker não consegue montar:
+HOST_MEDIA_ROOT=\\172.19.222.100\siscan_laudos&\media
+
+# ✅ SOLUÇÃO - Mapear unidade primeiro:
+net use Z: \\172.19.222.100\siscan_laudos /persistent:yes
+HOST_MEDIA_ROOT=Z:/media
+```
 
 Referência: repositório da imagem principal — [Prisma-Consultoria/siscan-rpa](https://github.com/Prisma-Consultoria/siscan-rpa)
 

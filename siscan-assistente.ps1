@@ -446,6 +446,41 @@ function UpdateAndRestart {
         Write-Host "Configuracao do .env encontrada e validada." -ForegroundColor Green
     }
     
+    # Validar caminhos no .env antes de executar compose
+    Write-Host "`nValidando caminhos no .env..." -ForegroundColor Cyan
+    $envPath = Join-Path $PSScriptRoot ".env"
+    if (Test-Path $envPath) {
+        $envContent = Get-Content $envPath
+        $pathVars = $envContent | Where-Object { $_ -match '^\s*(HOST_.*(?:PATH|DIR|ROOT|MEDIA|CONFIG))\s*=\s*(.+)$' }
+        
+        $hasProblems = $false
+        foreach ($line in $pathVars) {
+            if ($line -match '^\s*([A-Za-z0-9_]+)\s*=\s*(.+)$') {
+                $varName = $matches[1]
+                $varValue = $matches[2].Trim()
+                
+                if (-not [string]::IsNullOrWhiteSpace($varValue) -and $varValue -notmatch '^\s*$') {
+                    $isValid = Test-WindowsPath -PathValue $varValue -VariableName $varName
+                    if (-not $isValid) {
+                        $hasProblems = $true
+                    }
+                }
+            }
+        }
+        
+        if ($hasProblems) {
+            Write-Host "`nProblemas detectados nos caminhos do .env." -ForegroundColor Red
+            Write-Host "Docker pode falhar ao montar volumes com estes caminhos." -ForegroundColor Yellow
+            Write-Host "`nDeseja continuar mesmo assim? (S/N)" -ForegroundColor Yellow
+            $continue = Read-Host
+            if ($continue -notmatch '^[Ss]') {
+                Write-Host "Operacao cancelada. Corrija os caminhos no .env e tente novamente." -ForegroundColor Yellow
+                Write-Host "Use a opcao 3 do menu para editar o .env." -ForegroundColor Cyan
+                return
+            }
+        }
+    }
+    
     # Depois reinicia tudo
     Write-Host "`nRecriando o SISCAN RPA..." -ForegroundColor Cyan
     docker compose down
@@ -572,6 +607,69 @@ function Check-EnvConfigured {
 }
 
 
+function Test-WindowsPath {
+    <#
+    .SYNOPSIS
+        Valida e sanitiza caminhos Windows (locais e UNC) para uso em Docker.
+    .DESCRIPTION
+        Caminhos UNC com caracteres especiais (&, %, espaços) podem causar problemas.
+        Esta função detecta problemas e sugere correções.
+    #>
+    param(
+        [string]$PathValue,
+        [string]$VariableName
+    )
+    
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return $true  # Caminho vazio é permitido
+    }
+    
+    # Detectar se é caminho UNC
+    $isUNC = $PathValue -match '^\\\\[^\\]+\\[^\\]+'
+    
+    # Caracteres problemáticos em caminhos Docker
+    $problematicChars = @('&', '%', '!', '$', '`', '"', "'")
+    $hasProblems = $false
+    $foundChars = @()
+    
+    foreach ($char in $problematicChars) {
+        if ($PathValue.Contains($char)) {
+            $hasProblems = $true
+            $foundChars += $char
+        }
+    }
+    
+    if ($hasProblems) {
+        Write-Host "`n============================================" -ForegroundColor Yellow
+        Write-Host "  AVISO: Caminho com caracteres especiais" -ForegroundColor Yellow
+        Write-Host "============================================" -ForegroundColor Yellow
+        Write-Host "`nVariavel: $VariableName" -ForegroundColor Cyan
+        Write-Host "Caminho informado: $PathValue" -ForegroundColor Gray
+        Write-Host "`nCaracteres problematicos encontrados: $($foundChars -join ', ')" -ForegroundColor Red
+        Write-Host "`nDocker pode falhar ao montar caminhos com estes caracteres." -ForegroundColor Yellow
+        
+        if ($isUNC) {
+            Write-Host "`nSolucoes para caminhos UNC:" -ForegroundColor Cyan
+            Write-Host "  1. Use mapeamento de unidade de rede (RECOMENDADO):" -ForegroundColor Green
+            Write-Host "     net use Z: $PathValue" -ForegroundColor Gray
+            Write-Host "     Depois use: Z:\...caminho..." -ForegroundColor Gray
+            Write-Host "`n  2. Renomeie pastas com caracteres especiais" -ForegroundColor Yellow
+            Write-Host "     Exemplo: 'Config&Data' -> 'ConfigData'" -ForegroundColor Gray
+            Write-Host "`n  3. Use barras normais ao inves de invertidas:" -ForegroundColor Yellow
+            Write-Host "     $($PathValue -replace '\\','/')" -ForegroundColor Gray
+        } else {
+            Write-Host "`nSolucoes:" -ForegroundColor Cyan
+            Write-Host "  1. Renomeie pastas com caracteres especiais" -ForegroundColor Green
+            Write-Host "  2. Use barras normais: $($PathValue -replace '\\','/')" -ForegroundColor Gray
+        }
+        
+        Write-Host "`n============================================`n" -ForegroundColor Yellow
+        return $false
+    }
+    
+    return $true
+}
+
 function Update-EnvFile {
     param([string]$Path)
     if (-not (Test-Path $Path)) {
@@ -661,6 +759,19 @@ function Update-EnvFile {
             } else {
                 $new = Read-Host "Novo valor (Enter para manter)"
                 if ($new -ne "") {
+                    # Validar caminhos (se a variável parece ser um caminho)
+                    if ($key -match '_PATH$|_DIR$|_ROOT$|MEDIA|CONFIG') {
+                        $pathValid = Test-WindowsPath -PathValue $new -VariableName $key
+                        if (-not $pathValid) {
+                            Write-Host "`nDeseja usar este caminho mesmo assim? (S/N)" -ForegroundColor Yellow
+                            $confirm = Read-Host
+                            if ($confirm -notmatch '^[Ss]') {
+                                Write-Host "Mantendo valor anterior." -ForegroundColor Gray
+                                $updated += $line
+                                continue
+                            }
+                        }
+                    }
                     $updated += "$key=$new"
                 } else {
                     $updated += $line
