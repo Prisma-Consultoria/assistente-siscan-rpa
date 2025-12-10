@@ -66,7 +66,6 @@ $COMPOSE_FILE = Join-Path $PSScriptRoot "docker-compose.yml"
 $ENV_HELP_TEXTS = @{
     'SISCAN_USER' = 'Usuário do SISCAN (ex.: nome de usuário fornecido pelo suporte)'
     'SISCAN_PASSWORD' = 'Senha do SISCAN (mantenha confidencial)'
-    'HOST_MEDIA_ROOT' = 'Pasta local onde o Assistente salva imagens e relatórios (ex: C:\\siscan\\media ou /var/siscan/media)'
 }
 
 $helpPath = Join-Path $PSScriptRoot '.env.help.json'
@@ -531,7 +530,6 @@ function Check-EnvConfigured {
             Write-Host "  2. Configure as variáveis obrigatorias:" -ForegroundColor White
             Write-Host "     - SISCAN_USER (usuário do SISCAN)" -ForegroundColor Gray
             Write-Host "     - SISCAN_PASSWORD (senha do SISCAN)" -ForegroundColor Gray
-            Write-Host "     - HOST_MEDIA_ROOT (pasta para salvar arquivos)" -ForegroundColor Gray
             Write-Host "`nDepois volte e escolha a opção 1 para iniciar o serviço." -ForegroundColor Cyan
             Write-Host "============================================`n" -ForegroundColor Yellow
         }
@@ -551,9 +549,6 @@ function Check-EnvConfigured {
         if ($line -match '^\s*SISCAN_PASSWORD\s*=\s*(.+)$' -and $matches[1].Trim() -ne "") {
             $hasPassword = $true
         }
-        if ($line -match '^\s*HOST_MEDIA_ROOT\s*=\s*(.+)$' -and $matches[1].Trim() -ne "") {
-            $hasMediaRoot = $true
-        }
     }
     
     if (-not ($hasUser -and $hasPassword -and $hasMediaRoot)) {
@@ -564,7 +559,6 @@ function Check-EnvConfigured {
             Write-Host "`nO arquivo .env existe, mas variáveis obrigatorias estao faltando ou vazias:" -ForegroundColor Red
             if (-not $hasUser) { Write-Host "  - SISCAN_USER (usuário do SISCAN)" -ForegroundColor Yellow }
             if (-not $hasPassword) { Write-Host "  - SISCAN_PASSWORD (senha do SISCAN)" -ForegroundColor Yellow }
-            if (-not $hasMediaRoot) { Write-Host "  - HOST_MEDIA_ROOT (pasta para salvar arquivos)" -ForegroundColor Yellow }
             Write-Host "`nPor favor:" -ForegroundColor Cyan
             Write-Host "  1. Escolha a opção 3 no menu principal" -ForegroundColor White
             Write-Host "  2. Preencha as variáveis que estao faltando" -ForegroundColor White
