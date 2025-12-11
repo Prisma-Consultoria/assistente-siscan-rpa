@@ -152,18 +152,35 @@ function Ask-Credentials {
 
     $user = Read-Host "Usuário"
     
-    # Validação básica do usuário
+    # Validação e limpeza do usuário
     if ([string]::IsNullOrWhiteSpace($user)) {
         Write-Host "Aviso: Usuário vazio. Isso provavelmente causará falha de autenticação." -ForegroundColor Yellow
+    } else {
+        # Remover espaços em branco no início e fim (comum em copy/paste)
+        $user = $user.Trim()
+        if ($user.Contains(" ")) {
+            Write-Host "Aviso: Usuário contém espaços. Isso pode causar problemas." -ForegroundColor Yellow
+        }
     }
     
     $tok = Read-Host "Token"
     
-    # Validação básica do token
+    # Validação e limpeza do token
     if ([string]::IsNullOrWhiteSpace($tok)) {
         Write-Host "Aviso: Token vazio. Isso provavelmente causará falha de autenticação." -ForegroundColor Yellow
-    } elseif ($tok.Length -lt 20) {
-        Write-Host "Aviso: Token muito curto. Tokens GitHub PAT têm geralmente 40+ caracteres." -ForegroundColor Yellow
+    } else {
+        # Remover espaços em branco no início e fim (comum em copy/paste)
+        $tok = $tok.Trim()
+        
+        if ($tok.Length -lt 20) {
+            Write-Host "Aviso: Token muito curto. Tokens GitHub PAT têm geralmente 40+ caracteres." -ForegroundColor Yellow
+        }
+        
+        if ($tok.Contains(" ")) {
+            Write-Host "Aviso: Token contém espaços. Removendo automaticamente..." -ForegroundColor Yellow
+            $tok = $tok -replace '\s+', ''
+            Write-Host "Token ajustado (sem espaços)." -ForegroundColor Green
+        }
     }
 
     # Salvamento em disco comentário: não gravamos credenciais em arquivo por padrao.
@@ -213,7 +230,31 @@ function Docker-Login ($creds) {
         return $false
     }
 
-    # Validacao basica
+    # Verificar se Docker está funcionando ANTES de tentar login
+    Write-Host "Verificando se Docker está acessível..." -ForegroundColor Gray
+    try {
+        $dockerCheck = docker info 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "`n============================================" -ForegroundColor Red
+            Write-Host "  DOCKER NÃO ESTÁ FUNCIONANDO" -ForegroundColor Red
+            Write-Host "============================================" -ForegroundColor Red
+            Write-Host "`nO Docker não está respondendo corretamente." -ForegroundColor Yellow
+            Write-Host "Saída do Docker:" -ForegroundColor Gray
+            Write-Host ($dockerCheck | Out-String) -ForegroundColor DarkGray
+            Write-Host "`nVerifique:" -ForegroundColor Cyan
+            Write-Host "  1. Docker Desktop está iniciado e rodando?" -ForegroundColor White
+            Write-Host "  2. Você pode executar 'docker ps' em outro terminal?" -ForegroundColor White
+            Write-Host "  3. Há erros no Docker Desktop?" -ForegroundColor White
+            Write-Host "`n============================================`n" -ForegroundColor Red
+            return $false
+        }
+        Write-Host "Docker está acessível: OK" -ForegroundColor Green
+    } catch {
+        Write-Host "Erro ao verificar Docker: $_" -ForegroundColor Red
+        return $false
+    }
+
+    # Validacao basica do token
     $tokenValid = Test-GitHubToken $creds
     if (-not $tokenValid) {
         Write-Host "`nDeseja continuar mesmo assim? (S/N)" -ForegroundColor Yellow
@@ -224,21 +265,107 @@ function Docker-Login ($creds) {
         }
     }
 
-    # Tentar login usando Write-Output para garantir que o token seja passado corretamente
+    # ESTRATÉGIA 1: Usar echo (funciona melhor em alguns ambientes PowerShell)
+    Write-Host "Tentando autenticação (método 1/3 - echo)..." -ForegroundColor Gray
+    Write-Host "  Usuario: $($creds.usuario)" -ForegroundColor DarkGray
+    Write-Host "  Token: $($creds.token.Substring(0, [Math]::Min(8, $creds.token.Length)))..." -ForegroundColor DarkGray
     try {
-        $loginOutput = Write-Output $creds.token | docker login ghcr.io -u $creds.usuario --password-stdin 2>&1
+        $loginOutput = (echo $creds.token) | docker login ghcr.io -u $creds.usuario --password-stdin 2>&1
         $loginExitCode = $LASTEXITCODE
+        
+        if ($loginExitCode -eq 0) {
+            Write-Host "Login realizado com sucesso! (método echo)" -ForegroundColor Green
+            return $true
+        } else {
+            Write-Host "  Método 1 falhou (exit code: $loginExitCode)" -ForegroundColor DarkGray
+        }
     } catch {
+        Write-Host "  Método 1 com exceção: $($_.Exception.Message)" -ForegroundColor DarkGray
         $loginOutput = $_.Exception.Message
         $loginExitCode = 1
     }
 
+    # ESTRATÉGIA 2: Usar Write-Output com pipeline
+    Write-Host "Tentando autenticação (método 2/3 - Write-Output)..." -ForegroundColor Gray
+    try {
+        $loginOutput = Write-Output $creds.token | docker login ghcr.io -u $creds.usuario --password-stdin 2>&1
+        $loginExitCode = $LASTEXITCODE
+        
+        if ($loginExitCode -eq 0) {
+            Write-Host "Login realizado com sucesso! (método Write-Output)" -ForegroundColor Green
+            return $true
+        } else {
+            Write-Host "  Método 2 falhou (exit code: $loginExitCode)" -ForegroundColor DarkGray
+        }
+    } catch {
+        Write-Host "  Método 2 com exceção: $($_.Exception.Message)" -ForegroundColor DarkGray
+        $loginOutput = $_.Exception.Message
+        $loginExitCode = 1
+    }
+
+    # ESTRATÉGIA 3: Usar arquivo temporário (mais robusto para problemas de encoding/pipeline)
+    Write-Host "Tentando autenticação (método 3/3 - arquivo temporário)..." -ForegroundColor Gray
+    $tempTokenFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "docker_token_$(Get-Random).txt")
+    try {
+        # Escrever token em arquivo temporário sem BOM e sem newline extra
+        $utf8NoBOM = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($tempTokenFile, $creds.token, $utf8NoBOM)
+        
+        # Usar Get-Content com -Raw para ler sem adicionar newlines
+        $loginOutput = Get-Content -Path $tempTokenFile -Raw | docker login ghcr.io -u $creds.usuario --password-stdin 2>&1
+        $loginExitCode = $LASTEXITCODE
+        
+        if ($loginExitCode -eq 0) {
+            Write-Host "Login realizado com sucesso! (método arquivo temporário)" -ForegroundColor Green
+            return $true
+        } else {
+            Write-Host "  Método 3 falhou (exit code: $loginExitCode)" -ForegroundColor DarkGray
+        }
+    } catch {
+        Write-Host "  Método 3 com exceção: $($_.Exception.Message)" -ForegroundColor DarkGray
+        $loginOutput = $_.Exception.Message
+        $loginExitCode = 1
+    } finally {
+        # Remover arquivo temporário
+        if (Test-Path $tempTokenFile) {
+            Remove-Item $tempTokenFile -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Se todas as estratégias falharam, mostrar instruções detalhadas
     if ($loginExitCode -ne 0) {
         Write-Host "`n============================================" -ForegroundColor Red
-        Write-Host "  FALHA NO LOGIN" -ForegroundColor Red
+        Write-Host "  FALHA NO LOGIN (Tentadas 3 estratégias)" -ForegroundColor Red
         Write-Host "============================================" -ForegroundColor Red
-        Write-Host "`nDetalhes do erro:" -ForegroundColor Yellow
+        Write-Host "`nDetalhes do último erro:" -ForegroundColor Yellow
         Write-Host ($loginOutput | Out-String) -ForegroundColor Gray
+        
+        Write-Host "`n========================================" -ForegroundColor Cyan
+        Write-Host "  DIAGNOSTICO" -ForegroundColor Cyan
+        Write-Host "========================================" -ForegroundColor Cyan
+        
+        # Verificar se o Docker está funcionando
+        try {
+            $dockerVersion = docker --version 2>&1
+            Write-Host "Docker encontrado: $dockerVersion" -ForegroundColor Green
+        } catch {
+            Write-Host "PROBLEMA: Docker não está respondendo!" -ForegroundColor Red
+            Write-Host "Verifique se o Docker Desktop está rodando." -ForegroundColor Yellow
+        }
+        
+        # Verificar conectividade com ghcr.io
+        Write-Host "`nTestando conectividade com ghcr.io..." -ForegroundColor Gray
+        try {
+            $pingResult = Test-NetConnection -ComputerName ghcr.io -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+            if ($pingResult) {
+                Write-Host "Conectividade com ghcr.io: OK" -ForegroundColor Green
+            } else {
+                Write-Host "PROBLEMA: Não foi possível conectar a ghcr.io porta 443" -ForegroundColor Red
+                Write-Host "Verifique firewall/proxy corporativo." -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Host "Não foi possível testar conectividade." -ForegroundColor Gray
+        }
         
         Write-Host "`n========================================" -ForegroundColor Cyan
         Write-Host "  O QUE FAZER AGORA" -ForegroundColor Cyan
@@ -251,16 +378,20 @@ function Docker-Login ($creds) {
         Write-Host "  - Clique com botao direito no menu Iniciar" -ForegroundColor Gray
         Write-Host "  - Selecione 'Windows PowerShell' ou 'Terminal'" -ForegroundColor Gray
         Write-Host "" 
-        Write-Host "  PASSO 2: Copie e cole o comando abaixo no novo terminal:" -ForegroundColor White
-        Write-Host "  --------------------------------------------------------" -ForegroundColor Gray
+        Write-Host "  PASSO 2: Teste CADA comando abaixo (copie e cole um de cada vez):" -ForegroundColor White
+        Write-Host "  ------------------------------------------------------------------" -ForegroundColor Gray
         Write-Host "" 
+        Write-Host "  METODO 1 (echo):" -ForegroundColor Cyan
+        Write-Host "  echo '$($creds.token)' | docker login ghcr.io -u $($creds.usuario) --password-stdin" -ForegroundColor Yellow
+        Write-Host "" 
+        Write-Host "  METODO 2 (Write-Output):" -ForegroundColor Cyan
         Write-Host "  Write-Output '$($creds.token)' | docker login ghcr.io -u $($creds.usuario) --password-stdin" -ForegroundColor Yellow
         Write-Host "" 
-        Write-Host "  OU use este comando alternativo:" -ForegroundColor Gray
+        Write-Host "  METODO 3 (senha na linha de comando - menos seguro):" -ForegroundColor Cyan
+        Write-Host "  docker login ghcr.io -u $($creds.usuario) -p '$($creds.token)'" -ForegroundColor DarkYellow
         Write-Host "" 
-        Write-Host "  docker login ghcr.io -u $($creds.usuario) -p $($creds.token)" -ForegroundColor DarkGray
-        Write-Host "" 
-        Write-Host "  IMPORTANTE: Copie EXATAMENTE como esta acima!" -ForegroundColor White
+        Write-Host "  IMPORTANTE: Teste um método de cada vez!" -ForegroundColor White
+        Write-Host "              Pare quando um funcionar (mostrar 'Login Succeeded')" -ForegroundColor White
         Write-Host "" 
         Write-Host "  PASSO 3: Pressione Enter no novo terminal" -ForegroundColor White
         Write-Host "  ------------------------------------------" -ForegroundColor Gray
