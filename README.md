@@ -64,7 +64,10 @@ cp .env.sample .env
 - `HOST_CONSOLIDATED_EXCEL_DIR_PATH` — diretório onde o Excel consolidado será salvo (recomendado definir explicitamente).
 - `HOST_EXCEL_COLUMNS_MAPPING_DIR` — diretório de configuração (recomendado definir explicitamente).
 
-Observação: em ambientes WSL o caminho pode ser `/mnt/c/...` dependendo da configuração do Docker.
+**Importante sobre caminhos:**
+- O instalador converte automaticamente `\` para `/` (formato Docker).
+- Você pode digitar `Z:\media\reports` que será convertido para `Z:/media/reports`.
+- Observação: em ambientes WSL o caminho pode ser `/mnt/c/...` dependendo da configuração do Docker.
 
 ## Comandos úteis
 
@@ -103,6 +106,8 @@ docker compose logs -f
 
 ### Caminhos UNC (compartilhamentos de rede)
 
+**IMPORTANTE:** O instalador converte automaticamente barras invertidas (`\`) para barras normais (`/`).
+
 Se usar caminhos UNC no `.env`:
 ```powershell
 # ❌ ERRO - Docker não consegue montar:
@@ -110,6 +115,10 @@ HOST_MEDIA_ROOT=\\172.19.222.100\siscan_laudos&\media
 
 # ✅ SOLUÇÃO - Mapear unidade primeiro:
 net use Z: \\172.19.222.100\siscan_laudos /persistent:yes
+
+# Pode digitar com \ ou / - será convertido automaticamente:
+HOST_MEDIA_ROOT=Z:\media  (convertido para Z:/media)
+# ou
 HOST_MEDIA_ROOT=Z:/media
 ```
 
@@ -125,4 +134,3 @@ Os documentos completos estão em `docs/`.
 - [TROUBLESHOOTING](docs/TROUBLESHOOTING.md#troubleshooting) — Diagnóstico e coleta de artefatos.
 - [ERRORS_TABLE](docs/ERRORS_TABLE.md#errors) — Tabela de erros comuns.
 - [CHECKLISTS](docs/CHECKLISTS.md#checklists) — Procedimentos operacionais e rollback.
-

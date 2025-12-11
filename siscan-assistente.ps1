@@ -606,6 +606,24 @@ function Check-EnvConfigured {
 }
 
 
+function Convert-PathToDockerFormat {
+    <#
+    .SYNOPSIS
+        Normaliza caminhos Windows para formato compatível com Docker.
+    .DESCRIPTION
+        Converte barras invertidas (\) para barras normais (/) automaticamente.
+        Docker requer barras normais mesmo em Windows.
+    #>
+    param([string]$Path)
+    
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $Path
+    }
+    
+    # Converte todas as barras invertidas para normais
+    return $Path -replace '\\', '/'
+}
+
 function Test-WindowsPath {
     <#
     .SYNOPSIS
@@ -758,8 +776,12 @@ function Update-EnvFile {
             } else {
                 $new = Read-Host "Novo valor (Enter para manter)"
                 if ($new -ne "") {
-                    # Validar caminhos (se a variável parece ser um caminho)
+                    # Normalizar caminhos automaticamente (converte \ para /)
                     if ($key -match '_PATH$|_DIR$|_ROOT$|MEDIA|CONFIG') {
+                        $new = Convert-PathToDockerFormat -Path $new
+                        Write-Host "Caminho normalizado para Docker: $new" -ForegroundColor DarkGray
+                        
+                        # Validar caminhos
                         $pathValid = Test-WindowsPath -PathValue $new -VariableName $key
                         if (-not $pathValid) {
                             Write-Host "`nDeseja usar este caminho mesmo assim? (S/N)" -ForegroundColor Yellow
