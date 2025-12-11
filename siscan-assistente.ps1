@@ -670,6 +670,88 @@ function Check-Service {
     return -not [string]::IsNullOrEmpty($found)
 }
 
+function Run-NightlyScript {
+    <#
+    .SYNOPSIS
+        Executa manualmente o script nightly_rpa_runner.sh dentro do container.
+    .DESCRIPTION
+        Força a execução das tarefas RPA para o dia anterior.
+        O script baixa exames requisitados, laudos e processa mamografias.
+    #>
+    
+    Write-Host "`n============================================" -ForegroundColor Cyan
+    Write-Host "  EXECUÇÃO MANUAL - TAREFAS RPA" -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
+    
+    # Verificar se o serviço está rodando
+    if (-not (Check-Service)) {
+        Write-Host "`nERRO: O serviço SISCAN RPA não está em execução." -ForegroundColor Red
+        Write-Host "Inicie o serviço primeiro (opção 1 do menu)." -ForegroundColor Yellow
+        return
+    }
+    
+    # Obter nome do container
+    $containerName = docker ps --filter "name=extrator-siscan-rpa" --format "{{.Names}}" 2>&1
+    if ([string]::IsNullOrWhiteSpace($containerName)) {
+        # Tentar outro padrão
+        $containerName = docker ps --filter "name=siscan" --format "{{.Names}}" | Select-Object -First 1
+    }
+    
+    if ([string]::IsNullOrWhiteSpace($containerName)) {
+        Write-Host "`nERRO: Não foi possível encontrar o container do SISCAN RPA." -ForegroundColor Red
+        Write-Host "Verifique se o serviço está rodando com 'docker ps'." -ForegroundColor Yellow
+        return
+    }
+    
+    Write-Host "`nContainer encontrado: $containerName" -ForegroundColor Green
+    Write-Host "`nEste script executará as seguintes tarefas:" -ForegroundColor Yellow
+    Write-Host "  1. Baixar exames requisitados (status R)" -ForegroundColor Gray
+    Write-Host "  2. Baixar exames com laudos (status C)" -ForegroundColor Gray
+    Write-Host "  3. Baixar exames com laudo requisitado (status L)" -ForegroundColor Gray
+    Write-Host "  4. Processar laudos de mamografia (exportar XLSX/CSV)" -ForegroundColor Gray
+    Write-Host "`nData de referência: DIA ANTERIOR" -ForegroundColor Cyan
+    Write-Host "`nEsta operação pode demorar vários minutos dependendo da quantidade de dados." -ForegroundColor Yellow
+    Write-Host "`nDeseja continuar? (S/N)" -ForegroundColor White
+    $confirm = Read-Host
+    
+    if ($confirm -notmatch '^[Ss]') {
+        Write-Host "Operação cancelada." -ForegroundColor Yellow
+        return
+    }
+    
+    Write-Host "`n============================================" -ForegroundColor Cyan
+    Write-Host "  EXECUTANDO TAREFAS RPA..." -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host ""
+    
+    # Executar o script dentro do container
+    $scriptPath = "/app/scripts/nightly_rpa_runner.sh"
+    Write-Host "Executando: docker exec $containerName sh $scriptPath" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "Aguarde... Este processo pode demorar vários minutos." -ForegroundColor Yellow
+    Write-Host "(A saída será exibida em tempo real)`n" -ForegroundColor Gray
+    
+    # Executar diretamente sem try/catch para não bloquear a saída
+    docker exec $containerName sh $scriptPath
+    $exitCode = $LASTEXITCODE
+    
+    Write-Host ""
+    if ($exitCode -eq 0) {
+        Write-Host "============================================" -ForegroundColor Green
+        Write-Host "  TAREFAS CONCLUÍDAS COM SUCESSO!" -ForegroundColor Green
+        Write-Host "============================================" -ForegroundColor Green
+        Write-Host "`nOs arquivos processados devem estar disponíveis nos diretórios configurados." -ForegroundColor Cyan
+    } else {
+        Write-Host "============================================" -ForegroundColor Red
+        Write-Host "  ERRO NA EXECUÇÃO (Exit Code: $exitCode)" -ForegroundColor Red
+        Write-Host "============================================" -ForegroundColor Red
+        Write-Host "`nPara mais detalhes, verifique os logs do container:" -ForegroundColor Yellow
+        Write-Host "  docker logs $containerName" -ForegroundColor Gray
+        Write-Host "`nOu acompanhe em tempo real:" -ForegroundColor Yellow
+        Write-Host "  docker logs -f $containerName" -ForegroundColor Gray
+    }
+}
+
 function Check-EnvConfigured {
     <#
     .SYNOPSIS
@@ -1242,9 +1324,11 @@ function Show-Menu {
         Write-Host "    - Baixa a versão mais recente do serviço SISCAN RPA"
         Write-Host " 3) Editar configurações básicas"
         Write-Host "    - Ajuste caminhos e opções essenciais (.env)"
-        Write-Host " 4) Atualizar o Assistente"
+        Write-Host " 4) Executar tarefas RPA manualmente"
+        Write-Host "    - Força execução do script de download/processamento (dia anterior)"
+        Write-Host " 5) Atualizar o Assistente"
         Write-Host "    - Baixa a versão mais recente do assistente com rollback automático"
-        Write-Host " 5) Sair"
+        Write-Host " 6) Sair"
     Write-Host ""
     Write-Host "----------------------------------------"
 }
@@ -1259,7 +1343,7 @@ $running = $true
 
 while ($running) {
     Show-Menu
-    $op = Read-Host "Escolha uma opção (1-5)"
+    $op = Read-Host "Escolha uma opção (1-6)"
 
     switch ($op) {
         "1" {
@@ -1313,6 +1397,11 @@ while ($running) {
         }
 
         "4" {
+            Run-NightlyScript
+            Pause
+        }
+
+        "5" {
             $updated = Update-AssistantScript
             if ($updated) {
                 # Usuario foi instruido a reiniciar; saimos do loop
@@ -1324,7 +1413,7 @@ while ($running) {
             }
         }
 
-        "5" {
+        "6" {
             Write-Host "`nSaindo..."
             $running = $false
             break
