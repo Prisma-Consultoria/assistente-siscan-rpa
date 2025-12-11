@@ -575,7 +575,6 @@ function Check-EnvConfigured {
     $envContent = Get-Content $envFile -ErrorAction SilentlyContinue
     $hasUser = $false
     $hasPassword = $false
-    $hasMediaRoot = $false
     
     foreach ($line in $envContent) {
         if ($line -match '^\s*SISCAN_USER\s*=\s*(.+)$' -and $matches[1].Trim() -ne "") {
@@ -586,7 +585,7 @@ function Check-EnvConfigured {
         }
     }
     
-    if (-not ($hasUser -and $hasPassword -and $hasMediaRoot)) {
+    if (-not ($hasUser -and $hasPassword)) {
         if ($ShowMessage) {
             Write-Host "`n============================================" -ForegroundColor Yellow
             Write-Host "  CONFIGURACAO INCOMPLETA" -ForegroundColor Yellow

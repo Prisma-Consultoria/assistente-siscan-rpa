@@ -60,10 +60,9 @@ cp .env.sample .env
 
 1. Preencha os campos obrigatórios, por exemplo:
 
-- `SISCAN_USER` / `SISCAN_PASSWORD` — credenciais do SISCAN.
-- `HOST_MEDIA_ROOT` — pasta onde screenshots e downloads serão salvos.
-- `HOST_DOWNLOAD_DIR` — pasta de downloads do Playwright.
-- `HOST_SISCAN_REPORTS_INPUT_DIR` / `HOST_SISCAN_REPORTS_OUTPUT_DIR` — entradas e saídas de relatórios.
+- `SISCAN_USER` / `SISCAN_PASSWORD` — credenciais do SISCAN (OBRIGATÓRIO).
+- `HOST_CONSOLIDATED_EXCEL_DIR_PATH` — diretório onde o Excel consolidado será salvo (recomendado definir explicitamente).
+- `HOST_EXCEL_COLUMNS_MAPPING_DIR` — diretório de configuração (recomendado definir explicitamente).
 
 Observação: em ambientes WSL o caminho pode ser `/mnt/c/...` dependendo da configuração do Docker.
 
