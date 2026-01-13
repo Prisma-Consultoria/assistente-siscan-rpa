@@ -1315,7 +1315,7 @@ function Show-Menu {
     Clear-Host
 
     Write-Host "========================================"
-    Write-Host "   Assistente SISCASAN RPA - Fácil e seguro"
+    Write-Host "   Assistente SISCAN RPA - Fácil e seguro"
     Write-Host "========================================"
     Write-Host ""
         Write-Host " 1) Reiniciar o SISCAN RPA"
