@@ -126,14 +126,82 @@ function Get-ExpectedServiceNames {
     return $services
 }
 
+function Docker-PullWithProgress {
+    <#
+    .SYNOPSIS
+        Executa docker pull com barra de progresso visual.
+    .DESCRIPTION
+        Mostra uma barra de progresso animada enquanto o Docker faz o download da imagem.
+        Similar ao comportamento da biblioteca rich do Python.
+    #>
+    param(
+        [string]$ImagePath,
+        [string]$Activity = "Baixando imagem Docker"
+    )
+    
+    $job = Start-Job -ScriptBlock {
+        param($img)
+        docker pull $img 2>&1
+        return @{
+            Output = $LASTOUTPUT
+            ExitCode = $LASTEXITCODE
+        }
+    } -ArgumentList $ImagePath
+    
+    $percent = 0
+    $direction = 1
+    $status = "Conectando ao registro..."
+    $stages = @(
+        "Conectando ao registro...",
+        "Verificando camadas...",
+        "Baixando camadas...",
+        "Extraindo camadas...",
+        "Finalizando..."
+    )
+    $currentStage = 0
+    $counter = 0
+    
+    while ($job.State -eq 'Running') {
+        # Animação de progresso pulsante (0-100-0)
+        $percent += $direction * 5
+        if ($percent -ge 100) {
+            $percent = 100
+            $direction = -1
+            $currentStage = ($currentStage + 1) % $stages.Length
+            $status = $stages[$currentStage]
+        } elseif ($percent -le 0) {
+            $percent = 0
+            $direction = 1
+        }
+        
+        # Animação de spinner no status
+        $spinnerChars = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+        $spinner = $spinnerChars[$counter % $spinnerChars.Length]
+        $counter++
+        
+        Write-Progress -Activity $Activity -Status "$spinner $status" -PercentComplete $percent
+        Start-Sleep -Milliseconds 100
+    }
+    
+    # Aguardar conclusão
+    $result = Receive-Job -Job $job -Wait -AutoRemoveJob
+    Write-Progress -Activity $Activity -Completed
+    
+    # Retornar output e exit code
+    return @{
+        Output = $result
+        ExitCode = $job.ChildJobs[0].Output.ExitCode
+    }
+}
+
 function Get-CredentialsFile {
     if (!(Test-Path $CRED_FILE)) { return $null }
 
-    $creds = @{ usuário = $null; token = $null }
+    $creds = @{ usuario = $null; token = $null }
 
     Get-Content $CRED_FILE | ForEach-Object {
         $parts = $_ -split '='
-        if ($parts[0] -eq "usuário") { $creds.usuário = $parts[1] }
+        if ($parts[0] -eq "usuario") { $creds.usuario = $parts[1] }
         if ($parts[0] -eq "token")   { $creds.token   = $parts[1] }
     }
 
@@ -184,13 +252,13 @@ function Ask-Credentials {
     }
 
     # Salvamento em disco comentário: não gravamos credenciais em arquivo por padrao.
-    # "usuário=$user" | Out-File $CRED_FILE -Encoding utf8
+    # "usuario=$user" | Out-File $CRED_FILE -Encoding utf8
     # "token=$tok"    | Out-File $CRED_FILE -Encoding utf8 -Append
     # Write-Host "`nCredenciais salvas.`n"
 
     Write-Host "`nCredenciais recebidas (não serão salvas em disco).`n"
 
-    return @{ usuário = $user; token = $tok }
+    return @{ usuario = $user; token = $tok }
 }
 
 function Ensure-Credentials {
@@ -265,16 +333,22 @@ function Docker-Login ($creds) {
         }
     }
 
-    # ESTRATÉGIA 1: Usar echo (funciona melhor em alguns ambientes PowerShell)
-    Write-Host "Tentando autenticação (método 1/3 - echo)..." -ForegroundColor Gray
+    # ESTRATÉGIA 1: Usar arquivo temporário (mais confiável - evita problemas de pipeline/encoding)
+    Write-Host "Tentando autenticação (método 1/3 - arquivo temporário)..." -ForegroundColor Gray
     Write-Host "  Usuario: $($creds.usuario)" -ForegroundColor DarkGray
     Write-Host "  Token: $($creds.token.Substring(0, [Math]::Min(8, $creds.token.Length)))..." -ForegroundColor DarkGray
+    $tempTokenFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "docker_token_$(Get-Random).txt")
     try {
-        $loginOutput = (echo $creds.token) | docker login ghcr.io -u $creds.usuario --password-stdin 2>&1
+        # Escrever token em arquivo temporário SEM BOM e SEM newline (crítico!)
+        $utf8NoBOM = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($tempTokenFile, $creds.token, $utf8NoBOM)
+        
+        # Usar type (cmd) que lê sem adicionar newlines extras
+        $loginOutput = cmd /c "type `"$tempTokenFile`" | docker login ghcr.io -u $($creds.usuario) --password-stdin" 2>&1
         $loginExitCode = $LASTEXITCODE
         
         if ($loginExitCode -eq 0) {
-            Write-Host "Login realizado com sucesso! (método echo)" -ForegroundColor Green
+            Write-Host "Login realizado com sucesso! (método arquivo temporário)" -ForegroundColor Green
             return $true
         } else {
             Write-Host "  Método 1 falhou (exit code: $loginExitCode)" -ForegroundColor DarkGray
@@ -283,19 +357,44 @@ function Docker-Login ($creds) {
         Write-Host "  Método 1 com exceção: $($_.Exception.Message)" -ForegroundColor DarkGray
         $loginOutput = $_.Exception.Message
         $loginExitCode = 1
+    } finally {
+        # Remover arquivo temporário
+        if (Test-Path $tempTokenFile) {
+            Remove-Item $tempTokenFile -Force -ErrorAction SilentlyContinue
+        }
     }
 
-    # ESTRATÉGIA 2: Usar Write-Output com pipeline
-    Write-Host "Tentando autenticação (método 2/3 - Write-Output)..." -ForegroundColor Gray
+    # ESTRATÉGIA 2: Usar .NET StreamWriter diretamente no stdin do processo Docker
+    Write-Host "Tentando autenticação (método 2/3 - .NET Process)..." -ForegroundColor Gray
     try {
-        $loginOutput = Write-Output $creds.token | docker login ghcr.io -u $creds.usuario --password-stdin 2>&1
-        $loginExitCode = $LASTEXITCODE
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "docker"
+        $psi.Arguments = "login ghcr.io -u $($creds.usuario) --password-stdin"
+        $psi.RedirectStandardInput = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $psi
+        $process.Start() | Out-Null
+        
+        # Escrever token SEM newline
+        $process.StandardInput.Write($creds.token)
+        $process.StandardInput.Close()
+        
+        $loginOutput = $process.StandardOutput.ReadToEnd()
+        $errorOutput = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        $loginExitCode = $process.ExitCode
         
         if ($loginExitCode -eq 0) {
-            Write-Host "Login realizado com sucesso! (método Write-Output)" -ForegroundColor Green
+            Write-Host "Login realizado com sucesso! (método .NET Process)" -ForegroundColor Green
             return $true
         } else {
             Write-Host "  Método 2 falhou (exit code: $loginExitCode)" -ForegroundColor DarkGray
+            $loginOutput = $errorOutput
         }
     } catch {
         Write-Host "  Método 2 com exceção: $($_.Exception.Message)" -ForegroundColor DarkGray
@@ -303,20 +402,23 @@ function Docker-Login ($creds) {
         $loginExitCode = 1
     }
 
-    # ESTRATÉGIA 3: Usar arquivo temporário (mais robusto para problemas de encoding/pipeline)
-    Write-Host "Tentando autenticação (método 3/3 - arquivo temporário)..." -ForegroundColor Gray
-    $tempTokenFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "docker_token_$(Get-Random).txt")
+    # ESTRATÉGIA 3: Usar [Console]::In para simular stdin
+    Write-Host "Tentando autenticação (método 3/3 - Console stdin)..." -ForegroundColor Gray
+    $tempTokenFile2 = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "docker_token2_$(Get-Random).txt")
     try {
-        # Escrever token em arquivo temporário sem BOM e sem newline extra
-        $utf8NoBOM = New-Object System.Text.UTF8Encoding($false)
-        [System.IO.File]::WriteAllText($tempTokenFile, $creds.token, $utf8NoBOM)
+        # Criar script temporário que faz o login
+        $scriptContent = @"
+`$token = '$($creds.token)'
+`$token | docker login ghcr.io -u $($creds.usuario) --password-stdin
+exit `$LASTEXITCODE
+"@
+        [System.IO.File]::WriteAllText($tempTokenFile2, $scriptContent, [System.Text.Encoding]::UTF8)
         
-        # Usar Get-Content com -Raw para ler sem adicionar newlines
-        $loginOutput = Get-Content -Path $tempTokenFile -Raw | docker login ghcr.io -u $creds.usuario --password-stdin 2>&1
+        $loginOutput = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tempTokenFile2 2>&1
         $loginExitCode = $LASTEXITCODE
         
         if ($loginExitCode -eq 0) {
-            Write-Host "Login realizado com sucesso! (método arquivo temporário)" -ForegroundColor Green
+            Write-Host "Login realizado com sucesso! (método Console stdin)" -ForegroundColor Green
             return $true
         } else {
             Write-Host "  Método 3 falhou (exit code: $loginExitCode)" -ForegroundColor DarkGray
@@ -327,8 +429,8 @@ function Docker-Login ($creds) {
         $loginExitCode = 1
     } finally {
         # Remover arquivo temporário
-        if (Test-Path $tempTokenFile) {
-            Remove-Item $tempTokenFile -Force -ErrorAction SilentlyContinue
+        if (Test-Path $tempTokenFile2) {
+            Remove-Item $tempTokenFile2 -Force -ErrorAction SilentlyContinue
         }
     }
 
@@ -469,8 +571,12 @@ function UpdateAndRestart {
 
     # Tentar pull direto da imagem especifica (mais robusto para GHCR)
     Write-Host "`nBaixando a versão mais recente..." -ForegroundColor Cyan
-    $pullOutput = docker pull $IMAGE_PATH 2>&1
-    $pullCode = $LASTEXITCODE
+    Write-Host "Imagem: $IMAGE_PATH" -ForegroundColor Gray
+    Write-Host ""
+    
+    $pullResult = Docker-PullWithProgress -ImagePath $IMAGE_PATH -Activity "Baixando SISCAN RPA"
+    $pullOutput = $pullResult.Output
+    $pullCode = if ($pullResult.ExitCode) { $pullResult.ExitCode } else { $LASTEXITCODE }
 
     if ($pullCode -ne 0) {
         Write-Host "Não foi possível baixar diretamente. Verificando Docker e credenciais..." -ForegroundColor Yellow
@@ -495,8 +601,10 @@ function UpdateAndRestart {
             $triedLogin = $true
             if (Docker-Login $savedCreds) {
                 Write-Host "Acesso com credenciais salvas OK. Tentando baixar novamente..." -ForegroundColor Cyan
-                $pullOutput = docker pull $IMAGE_PATH 2>&1
-                if ($LASTEXITCODE -eq 0) { Write-Host "Download concluído com sucesso." -ForegroundColor Green } else { $pullCode = $LASTEXITCODE }
+                Write-Host ""
+                $pullResult = Docker-PullWithProgress -ImagePath $IMAGE_PATH -Activity "Baixando SISCAN RPA"
+                $pullOutput = $pullResult.Output
+                if ($LASTEXITCODE -eq 0) { Write-Host "\nDownload concluído com sucesso." -ForegroundColor Green } else { $pullCode = $LASTEXITCODE }
             } else {
                 Write-Host "Acesso com credenciais salvas falhou." -ForegroundColor Yellow
             }
@@ -508,7 +616,9 @@ function UpdateAndRestart {
             $newCreds = Ask-Credentials
             if (Docker-Login $newCreds) {
                 Write-Host "Acesso com novas credenciais OK. Tentando baixar novamente..." -ForegroundColor Cyan
-                $pullOutput = docker pull $IMAGE_PATH 2>&1
+                Write-Host ""
+                $pullResult = Docker-PullWithProgress -ImagePath $IMAGE_PATH -Activity "Baixando SISCAN RPA"
+                $pullOutput = $pullResult.Output
                 $pullCode = $LASTEXITCODE
             } else {
                 Write-Host "Acesso com novas credenciais falhou." -ForegroundColor Yellow
@@ -1211,9 +1321,30 @@ function Update-AssistantScript {
     Write-Host "`n[2/5] Baixando nova versão do GitHub..." -ForegroundColor Cyan
     try {
         # Tenta usar Invoke-WebRequest (pwsh/PS 5.1+)
-        $ProgressPreference = 'SilentlyContinue'  # acelera download
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $tempPath -ErrorAction Stop
-        $ProgressPreference = 'Continue'
+        # Usar job para permitir barra de progresso
+        $downloadJob = Start-Job -ScriptBlock {
+            param($url, $output)
+            $ProgressPreference = 'SilentlyContinue'
+            Invoke-WebRequest -Uri $url -OutFile $output -ErrorAction Stop
+            return $?
+        } -ArgumentList $downloadUrl, $tempPath
+        
+        # Mostrar progresso animado
+        $percent = 0
+        $direction = 1
+        while ($downloadJob.State -eq 'Running') {
+            $percent += $direction * 8
+            if ($percent -ge 100) { $percent = 100; $direction = -1 }
+            elseif ($percent -le 0) { $percent = 0; $direction = 1 }
+            
+            Write-Progress -Activity "Baixando atualização do assistente" -Status "Conectando ao GitHub..." -PercentComplete $percent
+            Start-Sleep -Milliseconds 120
+        }
+        
+        $downloadResult = Receive-Job -Job $downloadJob -Wait -AutoRemoveJob
+        Write-Progress -Activity "Baixando atualização do assistente" -Completed
+        
+        if (-not $downloadResult) { throw "Download falhou" }
         Write-Host "✓ Download concluido." -ForegroundColor Green
     } catch {
         Write-Host "✗ Erro ao baixar: $_" -ForegroundColor Red
