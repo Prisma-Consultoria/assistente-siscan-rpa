@@ -780,6 +780,164 @@ function Check-Service {
     return -not [string]::IsNullOrEmpty($found)
 }
 
+function Show-SystemHistory {
+    <#
+    .SYNOPSIS
+        Exibe histórico de desligamentos e reinicializações do sistema.
+    .DESCRIPTION
+        Mostra eventos de desligamento, crashes e inicializações do Windows
+        para diagnóstico de problemas e estabilidade do sistema.
+    #>
+    
+    Write-Host "`n============================================" -ForegroundColor Cyan
+    Write-Host "  HISTÓRICO DO SISTEMA (Últimos 30 dias)" -ForegroundColor Cyan
+    Write-Host "============================================`n" -ForegroundColor Cyan
+    
+    Write-Host "Coletando eventos do sistema..." -ForegroundColor Gray
+    Write-Host "Isso pode demorar alguns segundos...`n" -ForegroundColor Gray
+    
+    try {
+        # Coletar eventos dos últimos 30 dias
+        $events = Get-WinEvent -FilterHashtable @{
+            LogName='System'
+            ID=1074, 41, 6005, 6006, 6008
+            StartTime=(Get-Date).AddDays(-30)
+        } -ErrorAction Stop | Select-Object TimeCreated, Id, Message
+        
+        if (-not $events -or $events.Count -eq 0) {
+            Write-Host "Nenhum evento encontrado nos últimos 30 dias." -ForegroundColor Yellow
+            return
+        }
+        
+        # Processar e classificar eventos
+        $processedEvents = $events | ForEach-Object {
+            $tipo = switch ($_.Id) {
+                1074 { 'Desligamento Planejado' }
+                41   { 'CRASH / Queda de Energia' }
+                6006 { 'Desligou Corretamente' }
+                6008 { 'Desligamento Inesperado' }
+                6005 { 'Sistema Iniciou' }
+                Default { 'Outro' }
+            }
+            
+            $cor = switch ($_.Id) {
+                1074 { 'Cyan' }
+                41   { 'Red' }
+                6006 { 'Green' }
+                6008 { 'Yellow' }
+                6005 { 'Green' }
+                Default { 'Gray' }
+            }
+            
+            [PSCustomObject]@{
+                TimeCreated = $_.TimeCreated
+                DataFormatada = $_.TimeCreated.ToString("dd/MM/yyyy HH:mm:ss")
+                Tipo = $tipo
+                Cor = $cor
+                ID = $_.Id
+                Detalhes = $_.Message.Split("`n")[0].Trim().Substring(0, [Math]::Min(80, $_.Message.Length))
+            }
+        }
+        
+        # Estatísticas
+        Write-Host "RESUMO:" -ForegroundColor White
+        Write-Host "========" -ForegroundColor White
+        $stats = $processedEvents | Group-Object Tipo | Sort-Object Count -Descending
+        foreach ($stat in $stats) {
+            $cor = ($processedEvents | Where-Object Tipo -eq $stat.Name | Select-Object -First 1).Cor
+            Write-Host "  $($stat.Name): " -NoNewline
+            Write-Host "$($stat.Count) eventos" -ForegroundColor $cor
+        }
+        
+        # Alertas importantes
+        $crashes = ($processedEvents | Where-Object ID -eq 41).Count
+        $unexpected = ($processedEvents | Where-Object ID -eq 6008).Count
+        
+        if ($crashes -gt 0 -or $unexpected -gt 0) {
+            Write-Host "`n⚠️  ATENÇÃO:" -ForegroundColor Yellow
+            if ($crashes -gt 0) {
+                Write-Host "  - Foram detectados $crashes crash(es) ou queda(s) de energia!" -ForegroundColor Red
+                Write-Host "    Verifique a estabilidade elétrica e do hardware." -ForegroundColor Yellow
+            }
+            if ($unexpected -gt 0) {
+                Write-Host "  - Foram detectados $unexpected desligamento(s) inesperado(s)!" -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "`n✓ Sistema estável - Nenhum problema crítico detectado." -ForegroundColor Green
+        }
+        
+        # Listar eventos
+        Write-Host "`n============================================" -ForegroundColor Cyan
+        Write-Host "  EVENTOS DETALHADOS" -ForegroundColor Cyan
+        Write-Host "============================================`n" -ForegroundColor Cyan
+        
+        foreach ($event in $processedEvents | Sort-Object TimeCreated -Descending | Select-Object -First 20) {
+            Write-Host "$($event.DataFormatada) - " -NoNewline -ForegroundColor Gray
+            Write-Host "$($event.Tipo)" -ForegroundColor $event.Cor
+            if ($event.Detalhes.Length -gt 0) {
+                Write-Host "  └─ $($event.Detalhes)" -ForegroundColor DarkGray
+            }
+            Write-Host ""
+        }
+        
+        if ($processedEvents.Count -gt 20) {
+            Write-Host "... e mais $($processedEvents.Count - 20) eventos (mostrando apenas os 20 mais recentes)`n" -ForegroundColor Gray
+        }
+        
+        # Opção de exportar
+        Write-Host "============================================" -ForegroundColor Cyan
+        Write-Host "Deseja exportar o relatório completo? (S/N)" -ForegroundColor Yellow
+        $export = Read-Host
+        
+        if ($export -match '^[Ss]') {
+            $reportPath = Join-Path $PSScriptRoot "relatorio-sistema-$(Get-Date -Format 'yyyyMMdd-HHmmss').txt"
+            
+            $reportContent = @"
+============================================
+  RELATÓRIO DE HISTÓRICO DO SISTEMA
+  Gerado em: $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')
+============================================
+
+RESUMO:
+========
+$($stats | ForEach-Object { "  $($_.Name): $($_.Count) eventos" } | Out-String)
+
+EVENTOS DETALHADOS:
+===================
+$($processedEvents | Sort-Object TimeCreated -Descending | ForEach-Object { "$($_.DataFormatada) - $($_.Tipo)`n  └─ $($_.Detalhes)`n" } | Out-String)
+
+============================================
+Fim do relatório
+============================================
+"@
+            
+            $reportContent | Out-File -FilePath $reportPath -Encoding UTF8
+            Write-Host "`n✓ Relatório exportado para:" -ForegroundColor Green
+            Write-Host "  $reportPath" -ForegroundColor Cyan
+        }
+        
+    } catch [System.Security.SecurityException] {
+        Write-Host "`n============================================" -ForegroundColor Red
+        Write-Host "  ERRO: PERMISSÕES INSUFICIENTES" -ForegroundColor Red
+        Write-Host "============================================" -ForegroundColor Red
+        Write-Host "`nEsta funcionalidade requer privilégios de administrador." -ForegroundColor Yellow
+        Write-Host "`nPara visualizar o histórico do sistema:" -ForegroundColor Cyan
+        Write-Host "  1. Feche este terminal" -ForegroundColor White
+        Write-Host "  2. Clique com botão direito no PowerShell/Terminal" -ForegroundColor White
+        Write-Host "  3. Selecione 'Executar como Administrador'" -ForegroundColor White
+        Write-Host "  4. Execute o assistente novamente`n" -ForegroundColor White
+    } catch [System.Exception] {
+        Write-Host "`n============================================" -ForegroundColor Red
+        Write-Host "  ERRO AO COLETAR EVENTOS" -ForegroundColor Red
+        Write-Host "============================================" -ForegroundColor Red
+        Write-Host "`nDetalhes: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "`nPossíveis causas:" -ForegroundColor Cyan
+        Write-Host "  - Serviço de Log de Eventos do Windows parado" -ForegroundColor Gray
+        Write-Host "  - Logs corrompidos" -ForegroundColor Gray
+        Write-Host "  - Permissões insuficientes`n" -ForegroundColor Gray
+    }
+}
+
 function Run-NightlyScript {
     <#
     .SYNOPSIS
@@ -1457,9 +1615,11 @@ function Show-Menu {
         Write-Host "    - Ajuste caminhos e opções essenciais (.env)"
         Write-Host " 4) Executar tarefas RPA manualmente"
         Write-Host "    - Força execução do script de download/processamento (dia anterior)"
-        Write-Host " 5) Atualizar o Assistente"
+        Write-Host " 5) Histórico do Sistema"
+        Write-Host "    - Visualiza desligamentos, crashes e reinicializações"
+        Write-Host " 6) Atualizar o Assistente"
         Write-Host "    - Baixa a versão mais recente do assistente com rollback automático"
-        Write-Host " 6) Sair"
+        Write-Host " 7) Sair"
     Write-Host ""
     Write-Host "----------------------------------------"
 }
@@ -1474,7 +1634,7 @@ $running = $true
 
 while ($running) {
     Show-Menu
-    $op = Read-Host "Escolha uma opção (1-6)"
+    $op = Read-Host "Escolha uma opção (1-7)"
 
     switch ($op) {
         "1" {
@@ -1533,6 +1693,11 @@ while ($running) {
         }
 
         "5" {
+            Show-SystemHistory
+            Pause
+        }
+
+        "6" {
             $updated = Update-AssistantScript
             if ($updated) {
                 # Usuario foi instruido a reiniciar; saimos do loop
@@ -1544,7 +1709,7 @@ while ($running) {
             }
         }
 
-        "6" {
+        "7" {
             Write-Host "`nSaindo..."
             $running = $false
             break
