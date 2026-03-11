@@ -10,26 +10,26 @@ services:
       - SECRET_KEY=${SECRET_KEY}
 
       - RPA_MAX_ATTEMPTS=${RPA_MAX_ATTEMPTS:-3}
-      
+
       - CRON_ENABLED=true
       - CRON_INTERVAL_SECONDS=${CRON_INTERVAL_SECONDS:-1800}
-      
-      # Variáveis para arquivo Excel consolidado
-      - HOST_CONSOLIDATED_EXCEL_FILENAME=${HOST_CONSOLIDATED_EXCEL_FILENAME:-monitoramento_mamografia.xlsx}
-      - HOST_EXCEL_COLUMNS_MAPPING_FILENAME=${HOST_EXCEL_COLUMNS_MAPPING_FILENAME:-excel_columns_mapping.json}
+
+      - PW_HEADLESS=true
+      - PW_BROWSER=chromium
+      - PW_CONTEXT_STORAGE_STATE=data/.artifacts/auth/storage_state.json
+
+      # Diagnóstico desabilitado em produção (fixo — não sobrescrito por .env)
+      - TAKE_SCREENSHOT=false
+      - PW_RECORD_VIDEO=false
+      - PW_TRACING=false
+      - SAVE_PAGE_HTML=false
     ports:
       - "${HOST_APP_EXTERNAL_PORT:-5001}:${APP_INTERNAL_PORT:-5000}"
     volumes:
-      # Diretório raiz de mídia (contém downloads/ e reports/)
-      # Estrutura esperada:
-      #   /media/downloads/[PASTA-PERIODO]/extracao_laudo/
-      #   /media/reports/mamografia/consolidado/
-      #   /media/reports/mamografia/consolidado/exames/
-      # - "${HOST_MEDIA_ROOT:-./media}:/app/media:rw"
-      - "${HOST_CONSOLIDATED_EXCEL_DIR_PATH:-./media/reports/mamografia/consolidated}:/app/media/reports/mamografia/consolidated:rw"
-
-      # Diretório de configuração (contém excel_columns_mapping.json)
-      - "${HOST_EXCEL_COLUMNS_MAPPING_DIR:-./config}:/app/config:rw"
+      - ${VOLUME_DATA:-siscan-data}:/app/data
+      - ${VOLUME_MEDIA:-siscan-media}:/app/media
+      - ${VOLUME_LOGS:-siscan-logs}:/app/logs
+      - ${VOLUME_CONFIG:-siscan-config}:/app/config
 
     deploy:
       resources:
@@ -45,6 +45,13 @@ services:
       timeout: 3s
       retries: 5
 
-    # Se o cliente usar o Docker Desktop no Windows, eles devem apontar os
-    # HOST_* variables (abaixo em .env.prd.sample) para paths no host Windows
-    # (ex: C:\data\siscan\media ou /c/data/siscan/media dependendo do setup).
+volumes:
+  ${VOLUME_DATA:-siscan-data}:
+    # Banco SQLite e autenticação do Playwright
+  ${VOLUME_MEDIA:-siscan-media}:
+    # Downloads, relatórios de laudos e Excel consolidado
+  ${VOLUME_LOGS:-siscan-logs}:
+    # Logs operacionais
+  ${VOLUME_CONFIG:-siscan-config}:
+    # Arquivo JSON de mapeamento de colunas do Excel (opcional)
+    # Insira via: docker compose cp excel_columns_mapping.json siscan:/app/config/
