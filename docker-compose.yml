@@ -7,13 +7,14 @@ services:
     restart: unless-stopped
     environment:
       - PRODUCTION=true
+      - SECRET_KEY=${SECRET_KEY}
 
       - SISCAN_USER=${SISCAN_USER}
       - SISCAN_PASSWORD=${SISCAN_PASSWORD}
 
       - RPA_MAX_ATTEMPTS=${RPA_MAX_ATTEMPTS:-3}
       
-      - CRON_ENABLED=${CRON_ENABLED:-true}
+      - CRON_ENABLED=true
       - CRON_INTERVAL_SECONDS=${CRON_INTERVAL_SECONDS:-1800}
       
       # Variáveis para arquivo Excel consolidado

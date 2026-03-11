@@ -94,17 +94,19 @@ _load_env_help_json() {
     while IFS= read -r k; do
         [ -z "${k}" ] && continue
 
-        local help secret required example
+        local help secret required example type_val
         help="$(jq -r --arg k "${k}" '.keys[$k].help // ""' "${help_path}" 2>/dev/null)"
         secret="$(jq -r --arg k "${k}" '.keys[$k].secret // "false"' "${help_path}" 2>/dev/null)"
         required="$(jq -r --arg k "${k}" '.keys[$k].required // "false"' "${help_path}" 2>/dev/null)"
         example="$(jq -r --arg k "${k}" '.keys[$k].example // ""' "${help_path}" 2>/dev/null)"
+        type_val="$(jq -r --arg k "${k}" '.keys[$k].type // ""' "${help_path}" 2>/dev/null)"
 
         [ -n "${help}" ] && ENV_HELP_TEXTS["${k}"]="${help}"
         ENV_HELP_ENTRIES["${k}__help"]="${help}"
         ENV_HELP_ENTRIES["${k}__secret"]="${secret}"
         ENV_HELP_ENTRIES["${k}__required"]="${required}"
         ENV_HELP_ENTRIES["${k}__example"]="${example}"
+        ENV_HELP_ENTRIES["${k}__type"]="${type_val}"
     done <<< "${keys}"
 }
 
@@ -1009,6 +1011,21 @@ run_nightly_script() {
 # Lê o arquivo .env linha a linha e para cada KEY=VALUE solicita novo valor.
 # Usa read -s para variáveis secretas.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# _generate_secret
+# Gera uma chave hexadecimal de 64 caracteres (256 bits) usando a melhor
+# fonte disponível no ambiente.
+# ---------------------------------------------------------------------------
+_generate_secret() {
+    if command -v openssl &>/dev/null; then
+        openssl rand -hex 32
+    elif command -v python3 &>/dev/null; then
+        python3 -c "import secrets; print(secrets.token_hex(32))"
+    else
+        tr -dc 'a-f0-9' < /dev/urandom | head -c 64
+    fi
+}
+
 update_env_file() {
     local env_path="${1}"
     if [ ! -f "${env_path}" ]; then
@@ -1046,6 +1063,34 @@ update_env_file() {
             local help_text="${ENV_HELP_TEXTS["${key}"]:-}"
             local example_text="${ENV_HELP_ENTRIES["${key}__example"]:-}"
             local required_text="${ENV_HELP_ENTRIES["${key}__required"]:-}"
+            local key_type="${ENV_HELP_ENTRIES["${key}__type"]:-}"
+
+            # Chave gerada automaticamente (ex.: SECRET_KEY)
+            if [ "${key_type}" = "generated_secret" ]; then
+                printf "\n${CYAN}Variável: %s${NC}\n" "${key}"
+                [ -n "${help_text}" ] && printf "${DARK_CYAN}Ajuda: %s${NC}\n" "${help_text}"
+                if [ -n "${val}" ]; then
+                    printf "${DARK_GRAY}Valor atual: (configurado)${NC}\n"
+                    printf "${YELLOW}Deseja regenerar a chave? Isso invalidará sessões ativas. (S/N) ${NC}"
+                    local regen=""
+                    read -rp "" regen
+                    if [[ "${regen}" =~ ^[Ss] ]]; then
+                        local new_secret
+                        new_secret="$(_generate_secret)"
+                        printf "${GREEN}Nova chave gerada com sucesso.${NC}\n"
+                        printf '%s=%s\n' "${key}" "${new_secret}" >> "${tmp_file}"
+                    else
+                        printf '%s\n' "${line}" >> "${tmp_file}"
+                    fi
+                else
+                    printf "${DARK_GRAY}Valor atual: (vazio — gerando automaticamente)${NC}\n"
+                    local new_secret
+                    new_secret="$(_generate_secret)"
+                    printf "${GREEN}Chave gerada automaticamente.${NC}\n"
+                    printf '%s=%s\n' "${key}" "${new_secret}" >> "${tmp_file}"
+                fi
+                continue
+            fi
 
             printf "\n${CYAN}Variável: %s${NC}\n" "${key}"
 
