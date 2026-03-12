@@ -1500,8 +1500,10 @@ show_menu() {
 }
 
 # ---------------------------------------------------------------------------
-# MAIN LOOP
+# MAIN LOOP — só executa quando o script é chamado diretamente (não via source)
 # ---------------------------------------------------------------------------
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+
 CRED_USER=""
 CRED_TOKEN=""
 
@@ -1597,3 +1599,5 @@ while ${running}; do
             ;;
     esac
 done
+
+fi # fim do guard BASH_SOURCE
