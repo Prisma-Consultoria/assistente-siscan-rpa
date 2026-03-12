@@ -62,8 +62,7 @@ CRED_TOKEN=""
 # Estes são os padrões embutidos; podem ser sobrescritos por .env.help.json
 # ---------------------------------------------------------------------------
 declare -A ENV_HELP_TEXTS=(
-    [SISCAN_USER]="Usuário do SISCAN (ex.: nome de usuário fornecido pelo suporte)"
-    [SISCAN_PASSWORD]="Senha do SISCAN (mantenha confidencial)"
+    [SECRET_KEY]="Chave de assinatura de sessão web. Gerada automaticamente se estiver vazia. Não compartilhe este valor."
 )
 
 # Entradas completas do help (preenchido via .env.help.json se disponível)
@@ -533,7 +532,7 @@ docker_login() {
 
 # ---------------------------------------------------------------------------
 # check_env_configured
-# Verifica se o .env existe e possui SISCAN_USER e SISCAN_PASSWORD configurados.
+# Verifica se o .env existe e possui SECRET_KEY e variáveis HOST_* obrigatórias.
 # Parâmetro: show_message (true|false) — se deve exibir mensagens de orientação.
 # Retorna 0 se OK, 1 se não configurado.
 # ---------------------------------------------------------------------------
@@ -550,17 +549,22 @@ check_env_configured() {
             printf "${YELLOW}Antes de iniciar o serviço, é necessário configurar as variáveis.${NC}\n"
             printf "${CYAN}\nPor favor:${NC}\n"
             printf "${WHITE}  1. Escolha a opção 3 no menu principal${NC}\n"
-            printf "${WHITE}  2. Configure as variáveis obrigatórias:${NC}\n"
-            printf "${GRAY}     - SISCAN_USER (usuário do SISCAN)${NC}\n"
-            printf "${GRAY}     - SISCAN_PASSWORD (senha do SISCAN)${NC}\n"
+            printf "${WHITE}  2. Configure as variáveis obrigatórias (caminhos HOST_* e SECRET_KEY)${NC}\n"
             printf "${CYAN}\nDepois volte e escolha a opção 1 para iniciar o serviço.${NC}\n"
             printf "${YELLOW}============================================${NC}\n\n"
         fi
         return 1
     fi
 
-    local has_user=false
-    local has_password=false
+    local has_secret_key=false
+    local -A host_vars=(
+        [HOST_DATABASE_PATH]=""
+        [HOST_LOG_DIR]=""
+        [HOST_SISCAN_REPORTS_INPUT_DIR]=""
+        [HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR]=""
+        [HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR]=""
+        [HOST_CONFIG_DIR]=""
+    )
 
     while IFS= read -r line || [ -n "${line}" ]; do
         # Ignora comentários e linhas vazias
@@ -574,22 +578,33 @@ check_env_configured() {
         lval="${lval#"${lval%%[![:space:]]*}"}"
         lval="${lval%"${lval##*[![:space:]]}"}"
 
-        if [ "${lkey}" = "SISCAN_USER" ] && [ -n "${lval}" ]; then
-            has_user=true
+        if [ "${lkey}" = "SECRET_KEY" ] && [ -n "${lval}" ]; then
+            has_secret_key=true
         fi
-        if [ "${lkey}" = "SISCAN_PASSWORD" ] && [ -n "${lval}" ]; then
-            has_password=true
+        if [[ -v host_vars["${lkey}"] ]] && [ -n "${lval}" ]; then
+            host_vars["${lkey}"]="${lval}"
         fi
     done < "${env_file}"
 
-    if ! ${has_user} || ! ${has_password}; then
+    local missing=()
+    if ! ${has_secret_key}; then
+        missing+=("SECRET_KEY (chave de sessão web — gerada automaticamente pelo assistente)")
+    fi
+    for k in "${!host_vars[@]}"; do
+        if [ -z "${host_vars[${k}]}" ]; then
+            missing+=("${k}")
+        fi
+    done
+
+    if [ ${#missing[@]} -gt 0 ]; then
         if [ "${show_message}" = "true" ]; then
             printf "\n${YELLOW}============================================${NC}\n"
             printf "${YELLOW}  CONFIGURAÇÃO INCOMPLETA${NC}\n"
             printf "${YELLOW}============================================${NC}\n"
             printf "${RED}\nO arquivo .env existe, mas variáveis obrigatórias estão faltando ou vazias:${NC}\n"
-            ${has_user}     || printf "${YELLOW}  - SISCAN_USER (usuário do SISCAN)${NC}\n"
-            ${has_password} || printf "${YELLOW}  - SISCAN_PASSWORD (senha do SISCAN)${NC}\n"
+            for m in "${missing[@]}"; do
+                printf "${YELLOW}  - %s${NC}\n" "${m}"
+            done
             printf "${CYAN}\nPor favor:${NC}\n"
             printf "${WHITE}  1. Escolha a opção 3 no menu principal${NC}\n"
             printf "${WHITE}  2. Preencha as variáveis que estão faltando${NC}\n"
@@ -600,6 +615,82 @@ check_env_configured() {
     fi
 
     return 0
+}
+
+# ---------------------------------------------------------------------------
+# ensure_host_paths
+# Cria no host os diretórios e o arquivo de banco definidos no .env.
+# Deve ser chamado antes de `docker compose up` para evitar que o Docker
+# materialize diretórios no lugar de arquivos (caso de HOST_DATABASE_PATH).
+# Retorna 0 se tudo OK, 1 se algum caminho não pôde ser criado.
+# ---------------------------------------------------------------------------
+ensure_host_paths() {
+    local env_file="${SCRIPT_DIR}/.env"
+    [ ! -f "${env_file}" ] && return 1
+
+    local db_path=""
+    local -A dir_vars=(
+        [HOST_LOG_DIR]=""
+        [HOST_SISCAN_REPORTS_INPUT_DIR]=""
+        [HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR]=""
+        [HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR]=""
+        [HOST_CONFIG_DIR]=""
+    )
+
+    while IFS= read -r line || [ -n "${line}" ]; do
+        [[ "${line}" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// }" ]] && continue
+        local lkey="${line%%=*}"
+        local lval="${line#*=}"
+        lkey="${lkey#"${lkey%%[![:space:]]*}"}"
+        lkey="${lkey%"${lkey##*[![:space:]]}"}"
+        lval="${lval#"${lval%%[![:space:]]*}"}"
+        lval="${lval%"${lval##*[![:space:]]}"}"
+        [ "${lkey}" = "HOST_DATABASE_PATH" ] && db_path="${lval}"
+        if [[ -v dir_vars["${lkey}"] ]]; then
+            dir_vars["${lkey}"]="${lval}"
+        fi
+    done < "${env_file}"
+
+    local failed=0
+
+    # Cria diretórios
+    for k in "${!dir_vars[@]}"; do
+        local p="${dir_vars[${k}]}"
+        [ -z "${p}" ] && continue
+        if [ ! -d "${p}" ]; then
+            if mkdir -p "${p}" 2>/dev/null; then
+                printf "${GREEN}Diretório criado: %s${NC}\n" "${p}"
+            else
+                printf "${RED}Erro ao criar diretório: %s${NC}\n" "${p}"
+                failed=1
+            fi
+        fi
+    done
+
+    # Cria o arquivo de banco (HOST_DATABASE_PATH deve ser arquivo, não diretório)
+    if [ -n "${db_path}" ]; then
+        local db_dir
+        db_dir="$(dirname "${db_path}")"
+        if [ ! -d "${db_dir}" ]; then
+            if mkdir -p "${db_dir}" 2>/dev/null; then
+                printf "${GREEN}Diretório criado: %s${NC}\n" "${db_dir}"
+            else
+                printf "${RED}Erro ao criar diretório do banco: %s${NC}\n" "${db_dir}"
+                failed=1
+            fi
+        fi
+        if [ ${failed} -eq 0 ] && [ ! -f "${db_path}" ]; then
+            if touch "${db_path}" 2>/dev/null; then
+                printf "${GREEN}Arquivo de banco criado: %s${NC}\n" "${db_path}"
+            else
+                printf "${RED}Erro ao criar arquivo de banco: %s${NC}\n" "${db_path}"
+                failed=1
+            fi
+        fi
+    fi
+
+    return ${failed}
 }
 
 # ---------------------------------------------------------------------------
@@ -718,6 +809,9 @@ update_and_restart() {
         printf "${GREEN}Configuração do .env encontrada e validada.${NC}\n"
     fi
 
+    # Garante que os caminhos do host existem antes de subir os containers
+    ensure_host_paths
+
     # Recria os serviços
     printf "\n${CYAN}Recriando o SISCAN RPA...${NC}\n"
     (cd "${SCRIPT_DIR}" && docker compose down && docker compose up -d)
@@ -749,6 +843,8 @@ restart_service() {
     if ! check_env_configured "true"; then
         return 1
     fi
+
+    ensure_host_paths
 
     printf "\n${CYAN}Reiniciando o SISCAN RPA...${NC}\n"
     (cd "${SCRIPT_DIR}" && docker compose down && docker compose up -d)
@@ -1195,6 +1291,7 @@ manage_env() {
             sleep 1
 
             if check_env_configured "false"; then
+                ensure_host_paths
                 (cd "${SCRIPT_DIR}" && docker compose down && docker compose up -d)
                 local rc=$?
                 if [ ${rc} -eq 0 ]; then
@@ -1403,8 +1500,10 @@ show_menu() {
 }
 
 # ---------------------------------------------------------------------------
-# MAIN LOOP
+# MAIN LOOP — só executa quando o script é chamado diretamente (não via source)
 # ---------------------------------------------------------------------------
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+
 CRED_USER=""
 CRED_TOKEN=""
 
@@ -1441,6 +1540,7 @@ while ${running}; do
                         printf "${CYAN}Tentando iniciar mesmo assim...${NC}\n"
                     fi
 
+                    ensure_host_paths
                     (cd "${SCRIPT_DIR}" && docker compose up -d)
                     if [ $? -eq 0 ]; then
                         printf "${GREEN}Serviços iniciados com sucesso!${NC}\n"
@@ -1499,3 +1599,5 @@ while ${running}; do
             ;;
     esac
 done
+
+fi # fim do guard BASH_SOURCE
