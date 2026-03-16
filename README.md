@@ -175,6 +175,16 @@ docker compose ps
 
 Os testes unitários usam o framework [bats-core](https://github.com/bats-core/bats-core) (Bash Automated Testing System), incluído como submodule git junto com os helpers [bats-support](https://github.com/bats-core/bats-support) e [bats-assert](https://github.com/bats-core/bats-assert).
 
+### Por que submodules?
+
+A alternativa seria instalar o bats via package manager (`apt-get install bats`) ou exigir instalação manual antes de rodar os testes. Optamos por submodules pelos seguintes motivos:
+
+- **Versão fixada**: o repositório aponta para commits específicos dos três projetos bats, garantindo que todos — desenvolvedores e CI — rodem exatamente a mesma versão do framework.
+- **Zero dependências externas**: qualquer pessoa que clonar o repositório com `--recurse-submodules` pode rodar `./tests/bats/bin/bats tests/unit/` imediatamente, sem instalar nada no sistema.
+- **Reprodutibilidade em CI**: o workflow usa `actions/checkout@v4` com `submodules: recursive`, sem precisar de etapa separada de instalação.
+
+A desvantagem é que o clone inicial é ligeiramente mais pesado e requer o flag `--recurse-submodules`. Esse custo foi considerado aceitável dado que os scripts são em bash e o próprio bats é leve.
+
 ### Clonar com submodules
 
 ```bash
