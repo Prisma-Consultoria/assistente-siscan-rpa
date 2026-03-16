@@ -1122,6 +1122,67 @@ _generate_secret() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# _validate_linux_path VARNAME VALUE
+# Detecta caminhos no formato Windows (drive letter, UNC, backslash) e avisa
+# o usuário. Retorna 0 se o caminho parece compatível com Linux, 1 se suspeito.
+# ---------------------------------------------------------------------------
+_validate_linux_path() {
+    local var_name="${1}"
+    local path_val="${2}"
+
+    [ -z "${path_val}" ] && return 0
+
+    local is_unc=false
+    local is_drive=false
+    local has_backslash=false
+    local -a problems=()
+
+    # Caminho UNC: \\servidor\share
+    if [[ "${path_val}" =~ ^\\\\[^\\]+ ]]; then
+        is_unc=true
+        problems+=("caminho UNC (\\\\servidor\\share) não é suportado diretamente no Linux")
+    fi
+
+    # Letra de drive Windows: C:\ ou C:/
+    if [[ "${path_val}" =~ ^[A-Za-z]:[/\\] ]]; then
+        is_drive=true
+        problems+=("caminho com letra de drive Windows (ex: C:\\...)")
+    fi
+
+    # Backslash como separador (exceto se já detectado como UNC)
+    if [[ "${path_val}" == *\\* ]] && ! ${is_unc}; then
+        has_backslash=true
+        problems+=("usa '\\' como separador — Linux requer '/'")
+    fi
+
+    [ ${#problems[@]} -eq 0 ] && return 0
+
+    printf "\n${YELLOW}============================================${NC}\n"
+    printf "${YELLOW}  AVISO: Caminho com formato Windows${NC}\n"
+    printf "${YELLOW}============================================${NC}\n"
+    printf "${CYAN}Variável: %s${NC}\n" "${var_name}"
+    printf "${GRAY}Caminho informado: %s${NC}\n" "${path_val}"
+    printf "\n${RED}Problemas encontrados:${NC}\n"
+    for p in "${problems[@]}"; do
+        printf "  - %s\n" "${p}"
+    done
+    printf "\n${CYAN}Soluções:${NC}\n"
+    if ${is_unc}; then
+        printf "  - Monte o compartilhamento de rede no Linux e use o ponto de montagem\n"
+        printf "    ${GRAY}Exemplo: /mnt/siscan-dados${NC}\n"
+    fi
+    if ${is_drive}; then
+        printf "  - Use um caminho Linux absoluto\n"
+        printf "    ${GRAY}Exemplo: /home/usuario/siscan/dados${NC}\n"
+    fi
+    if ${has_backslash}; then
+        printf "  - Substitua '\\\\' por '/'\n"
+    fi
+    printf "${YELLOW}============================================${NC}\n\n"
+    return 1
+}
+
 update_env_file() {
     local env_path="${1}"
     if [ ! -f "${env_path}" ]; then
@@ -1218,6 +1279,18 @@ update_env_file() {
                 local new_val=""
                 read -rp "Novo valor (Enter para manter): " new_val
                 if [ -n "${new_val}" ]; then
+                    if [[ "${key}" =~ _PATH$|_DIR$|_ROOT$|MEDIA|CONFIG ]]; then
+                        if ! _validate_linux_path "${key}" "${new_val}"; then
+                            printf "${YELLOW}Deseja usar este caminho mesmo assim? (S/N) ${NC}"
+                            local confirm=""
+                            read -rp "" confirm
+                            if [[ ! "${confirm}" =~ ^[Ss] ]]; then
+                                printf "${GRAY}Mantendo valor anterior.${NC}\n"
+                                printf '%s\n' "${line}" >> "${tmp_file}"
+                                continue
+                            fi
+                        fi
+                    fi
                     printf '%s=%s\n' "${key}" "${new_val}" >> "${tmp_file}"
                 else
                     printf '%s\n' "${line}" >> "${tmp_file}"
