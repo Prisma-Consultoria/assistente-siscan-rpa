@@ -202,7 +202,27 @@ if ! command -v docker &>/dev/null; then
     fail "Docker não encontrado. Instale com: https://docs.docker.com/engine/install/"
 fi
 if ! docker info &>/dev/null; then
-    fail "Não foi possível conectar ao daemon Docker. Verifique se o serviço está ativo e se '${CURRENT_USER}' está no grupo 'docker'."
+    # Diagnosticar a causa específica
+    printf "\n${RED}ERRO: Não foi possível conectar ao daemon Docker.${NC}\n\n"
+    # Serviço ativo?
+    if command -v systemctl &>/dev/null && ! systemctl is-active --quiet docker 2>/dev/null; then
+        printf "  ${YELLOW}•${NC} O serviço Docker não está ativo.\n"
+        printf "    Inicie com: ${CYAN}sudo systemctl start docker${NC}\n"
+        printf "    Habilite no boot: ${CYAN}sudo systemctl enable docker${NC}\n"
+    fi
+    # Usuário no grupo docker?
+    if ! id -nG "${CURRENT_USER}" 2>/dev/null | grep -qw docker; then
+        printf "  ${YELLOW}•${NC} O usuário '${CURRENT_USER}' não está no grupo 'docker'.\n"
+        printf "    Adicione com: ${CYAN}sudo usermod -aG docker %s${NC}\n" "${CURRENT_USER}"
+        printf "    Depois faça logout/login e execute o script novamente.\n"
+    fi
+    # Socket existe?
+    if [ ! -S /var/run/docker.sock ]; then
+        printf "  ${YELLOW}•${NC} O socket ${GRAY}/var/run/docker.sock${NC} não existe.\n"
+        printf "    O daemon Docker pode não ter sido iniciado ainda.\n"
+    fi
+    printf "\n"
+    exit 1
 fi
 DOCKER_VERSION=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo "desconhecida")
 DOCKER_MAJOR=$(echo "${DOCKER_VERSION}" | cut -d. -f1)
