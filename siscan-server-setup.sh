@@ -179,8 +179,9 @@ ensure_host_paths() {
 }
 
 # ════════════════════════════════════════════════════════════════════════════
-# Início
+# MAIN — só executa quando o script é chamado diretamente (não via source)
 # ════════════════════════════════════════════════════════════════════════════
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 
 printf "\n${WHITE}╔════════════════════════════════════════════════════╗${NC}\n"
 printf "${WHITE}║  SISCAN RPA — Setup do Servidor                    ║${NC}\n"
@@ -613,3 +614,5 @@ printf "  6. Para acompanhar os logs da stack após o primeiro deploy:\n"
 printf "     ${CYAN}docker compose -f %s/%s logs -f${NC}\n\n" "${COMPOSE_DIR}" "${COMPOSE_FILE}"
 
 printf "  ${GRAY}Referência completa: docs/DEPLOY_AUTOMATICO.md — Opção 1.A${NC}\n\n"
+
+fi # fim do guard BASH_SOURCE
