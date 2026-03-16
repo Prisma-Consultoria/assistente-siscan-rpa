@@ -171,6 +171,44 @@ docker compose ps
 
 ---
 
+## Testes
+
+Os testes unitários usam o framework [bats-core](https://github.com/bats-core/bats-core) (Bash Automated Testing System), incluído como submodule git junto com os helpers [bats-support](https://github.com/bats-core/bats-support) e [bats-assert](https://github.com/bats-core/bats-assert).
+
+### Clonar com submodules
+
+```bash
+git clone --recurse-submodules https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git
+```
+
+Se já clonou sem `--recurse-submodules`:
+
+```bash
+git submodule update --init --recursive
+```
+
+### Rodar os testes
+
+```bash
+./tests/bats/bin/bats tests/unit/
+```
+
+### Estrutura
+
+```
+tests/
+  bats/                        # submodule — bats-core (runner)
+  test_helper/
+    bats-support/              # submodule — helpers de output
+    bats-assert/               # submodule — asserções
+  unit/                        # testes unitários (.bats)
+  fixtures/                    # arquivos de apoio aos testes
+```
+
+Os testes são executados automaticamente no GitHub Actions a cada pull request para `main` (`.github/workflows/test.yml`).
+
+---
+
 ## Documentação adicional
 
 - [DEPLOY](docs/DEPLOY.md) — Manual de deploy: requisitos e passo a passo.
