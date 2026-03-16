@@ -1,0 +1,27 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-01-01",
+  "keys": {
+    "SECRET_KEY": {
+      "help": "Chave de assinatura de sessão web.",
+      "example": "",
+      "required": true,
+      "type": "generated_secret",
+      "secret": true
+    },
+    "HOST_DATABASE_PATH": {
+      "help": "Caminho do arquivo SQLite no host.",
+      "example": "/opt/siscan-rpa/data/database.db",
+      "required": true,
+      "type": "string",
+      "secret": false
+    },
+    "APP_LOG_LEVEL": {
+      "help": "Nível de log.",
+      "example": "INFO",
+      "required": false,
+      "type": "string",
+      "secret": false
+    }
+  }
+}

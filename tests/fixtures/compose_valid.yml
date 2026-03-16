@@ -1,0 +1,23 @@
+name: siscan-rpa
+
+services:
+  migrate:
+    image: ghcr.io/prisma-consultoria/siscan-rpa-rpa:main
+    restart: "no"
+
+  app:
+    image: ghcr.io/prisma-consultoria/siscan-rpa-rpa:main
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  rpa-scheduler:
+    image: ghcr.io/prisma-consultoria/siscan-rpa-rpa:main
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  siscan-data-artifacts:

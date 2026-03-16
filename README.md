@@ -119,6 +119,8 @@ cp .env.sample .env
 | Variável | Padrão | Obrigatório | Descrição |
 |---|---|---|---|
 | `HOST_APP_EXTERNAL_PORT` | `5001` | não | Porta externa da aplicação web |
+| `APP_LOG_LEVEL` | `INFO` | não | Nível de log (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `WEB_CONCURRENCY` | `1` | não | Workers HTTP do Gunicorn |
 | `DATABASE_NAME` | `siscan_rpa` | não | Nome do banco PostgreSQL |
 | `DATABASE_USER` | `siscan_rpa` | não | Usuário do banco PostgreSQL |
 | `DATABASE_PASSWORD` | `siscan_rpa` | **sim** | Senha do banco — altere antes do primeiro start |
