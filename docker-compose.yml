@@ -37,7 +37,7 @@ services:
       POSTGRES_USER: ${DATABASE_USER:-siscan_rpa}
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-siscan_rpa}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-siscan_rpa} -d ${DATABASE_NAME:-siscan_rpa}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
