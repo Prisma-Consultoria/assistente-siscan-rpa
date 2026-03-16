@@ -1,0 +1,12 @@
+HOST_APP_EXTERNAL_PORT=5001
+APP_LOG_LEVEL=INFO
+WEB_CONCURRENCY=1
+HOST_DATABASE_PATH=/tmp/siscan_test/data/database.db
+HOST_LOG_DIR=/tmp/siscan_test/logs
+HOST_SISCAN_REPORTS_INPUT_DIR=/tmp/siscan_test/media/downloads
+HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR=/tmp/siscan_test/media/reports/consolidated
+HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR=/tmp/siscan_test/media/reports/consolidated/laudos
+HOST_CONFIG_DIR=/tmp/siscan_test/config
+CRON_INTERVAL_SECONDS=1800
+RPA_MAX_ATTEMPTS=3
+SECRET_KEY=aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899

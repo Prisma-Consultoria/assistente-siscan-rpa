@@ -64,8 +64,7 @@ $COMPOSE_FILE = Join-Path $PSScriptRoot "docker-compose.yml"
 # Textos de ajuda para variáveis do .env (usado por Update-EnvFile)
 # Carrega textos de ajuda de .env.help.json se presente, caso contrario usa valores embutidos simples
 $ENV_HELP_TEXTS = @{
-    'SISCAN_USER' = 'Usuário do SISCAN (ex.: nome de usuário fornecido pelo suporte)'
-    'SISCAN_PASSWORD' = 'Senha do SISCAN (mantenha confidencial)'
+    'SECRET_KEY' = 'Chave de assinatura de sessão web. Gerada automaticamente se estiver vazia. Não compartilhe este valor.'
 }
 
 $helpPath = Join-Path $PSScriptRoot '.env.help.json'
@@ -722,6 +721,9 @@ function UpdateAndRestart {
         }
     }
     
+    # Garante que os caminhos do host existem antes de subir os containers
+    Ensure-HostPaths
+
     # Depois reinicia tudo
     Write-Host "`nRecriando o SISCAN RPA..." -ForegroundColor Cyan
     docker compose down
@@ -749,6 +751,8 @@ function Restart-Service {
     if (-not (Check-EnvConfigured -ShowMessage $true)) {
         return
     }
+
+    Ensure-HostPaths
 
     Write-Host "`nReiniciando o SISCAN RPA..."
     docker compose down
@@ -1025,15 +1029,15 @@ function Check-EnvConfigured {
     .SYNOPSIS
         Verifica se o arquivo .env existe e possui as variáveis obrigatorias configuradas.
     .DESCRIPTION
-        Retorna $true se o .env existe e tem SISCAN_USER e SISCAN_PASSWORD configurados.
+        Retorna $true se o .env existe e tem SECRET_KEY e as variáveis HOST_* obrigatorias configuradas.
         Caso contrario, retorna $false e exibe mensagem orientando o usuário.
     #>
     param(
         [switch]$ShowMessage = $true
     )
-    
+
     $envFile = Join-Path $PSScriptRoot ".env"
-    
+
     if (-not (Test-Path $envFile)) {
         if ($ShowMessage) {
             Write-Host "`n============================================" -ForegroundColor Yellow
@@ -1043,37 +1047,50 @@ function Check-EnvConfigured {
             Write-Host "Antes de iniciar o serviço, e necessário configurar as variáveis." -ForegroundColor Yellow
             Write-Host "`nPor favor:" -ForegroundColor Cyan
             Write-Host "  1. Escolha a opção 3 no menu principal" -ForegroundColor White
-            Write-Host "  2. Configure as variáveis obrigatorias:" -ForegroundColor White
-            Write-Host "     - SISCAN_USER (usuário do SISCAN)" -ForegroundColor Gray
-            Write-Host "     - SISCAN_PASSWORD (senha do SISCAN)" -ForegroundColor Gray
+            Write-Host "  2. Configure as variáveis obrigatorias (caminhos HOST_* e SECRET_KEY)" -ForegroundColor White
             Write-Host "`nDepois volte e escolha a opção 1 para iniciar o serviço." -ForegroundColor Cyan
             Write-Host "============================================`n" -ForegroundColor Yellow
         }
         return $false
     }
-    
-    # Le o arquivo .env e verifica se tem as variáveis obrigatorias
+
     $envContent = Get-Content $envFile -ErrorAction SilentlyContinue
-    $hasUser = $false
-    $hasPassword = $false
-    
+    $hasSecretKey = $false
+    $requiredHostVars = @(
+        'HOST_DATABASE_PATH',
+        'HOST_LOG_DIR',
+        'HOST_SISCAN_REPORTS_INPUT_DIR',
+        'HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR',
+        'HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR',
+        'HOST_CONFIG_DIR'
+    )
+    $foundHostVars = @{}
+    foreach ($v in $requiredHostVars) { $foundHostVars[$v] = $false }
+
     foreach ($line in $envContent) {
-        if ($line -match '^\s*SISCAN_USER\s*=\s*(.+)$' -and $matches[1].Trim() -ne "") {
-            $hasUser = $true
+        if ($line -match '^\s*SECRET_KEY\s*=\s*(.+)$' -and $matches[1].Trim() -ne "") {
+            $hasSecretKey = $true
         }
-        if ($line -match '^\s*SISCAN_PASSWORD\s*=\s*(.+)$' -and $matches[1].Trim() -ne "") {
-            $hasPassword = $true
+        foreach ($v in $requiredHostVars) {
+            if ($line -match "^\s*${v}\s*=\s*(.+)$" -and $matches[1].Trim() -ne "") {
+                $foundHostVars[$v] = $true
+            }
         }
     }
-    
-    if (-not ($hasUser -and $hasPassword)) {
+
+    $missing = @()
+    if (-not $hasSecretKey) { $missing += "SECRET_KEY (chave de sessão web — gerada automaticamente pelo assistente)" }
+    foreach ($v in $requiredHostVars) {
+        if (-not $foundHostVars[$v]) { $missing += $v }
+    }
+
+    if ($missing.Count -gt 0) {
         if ($ShowMessage) {
             Write-Host "`n============================================" -ForegroundColor Yellow
             Write-Host "  CONFIGURACAO INCOMPLETA" -ForegroundColor Yellow
             Write-Host "============================================" -ForegroundColor Yellow
             Write-Host "`nO arquivo .env existe, mas variáveis obrigatorias estao faltando ou vazias:" -ForegroundColor Red
-            if (-not $hasUser) { Write-Host "  - SISCAN_USER (usuário do SISCAN)" -ForegroundColor Yellow }
-            if (-not $hasPassword) { Write-Host "  - SISCAN_PASSWORD (senha do SISCAN)" -ForegroundColor Yellow }
+            foreach ($m in $missing) { Write-Host "  - $m" -ForegroundColor Yellow }
             Write-Host "`nPor favor:" -ForegroundColor Cyan
             Write-Host "  1. Escolha a opção 3 no menu principal" -ForegroundColor White
             Write-Host "  2. Preencha as variáveis que estao faltando" -ForegroundColor White
@@ -1082,8 +1099,87 @@ function Check-EnvConfigured {
         }
         return $false
     }
-    
+
     return $true
+}
+
+function Generate-Secret {
+    <#
+    .SYNOPSIS
+        Gera uma chave aleatória de 32 bytes em hexadecimal (equivalente a openssl rand -hex 32).
+    #>
+    try {
+        $bytes = [byte[]]::new(32)
+        [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+        return [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
+    } catch {
+        # fallback via GUID duplo
+        return ([System.Guid]::NewGuid().ToString("N") + [System.Guid]::NewGuid().ToString("N")).Substring(0, 64)
+    }
+}
+
+function Ensure-HostPaths {
+    <#
+    .SYNOPSIS
+        Cria no host os diretórios e o arquivo de banco definidos no .env.
+        Deve ser chamado antes de `docker compose up` para evitar que o Docker
+        materialize diretórios no lugar do arquivo database.db.
+    #>
+    $envFile = Join-Path $PSScriptRoot ".env"
+    if (-not (Test-Path $envFile)) { return }
+
+    $dbPath = $null
+    $dirVars = @(
+        'HOST_LOG_DIR',
+        'HOST_SISCAN_REPORTS_INPUT_DIR',
+        'HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR',
+        'HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR',
+        'HOST_CONFIG_DIR'
+    )
+    $dirPaths = @{}
+    foreach ($v in $dirVars) { $dirPaths[$v] = $null }
+
+    foreach ($line in (Get-Content $envFile -ErrorAction SilentlyContinue)) {
+        if ($line -match '^\s*HOST_DATABASE_PATH\s*=\s*(.+)$') { $dbPath = $matches[1].Trim() }
+        foreach ($v in $dirVars) {
+            if ($line -match "^\s*${v}\s*=\s*(.+)$") { $dirPaths[$v] = $matches[1].Trim() }
+        }
+    }
+
+    # Cria diretórios
+    foreach ($v in $dirVars) {
+        $p = $dirPaths[$v]
+        if ([string]::IsNullOrWhiteSpace($p)) { continue }
+        if (-not (Test-Path $p)) {
+            try {
+                New-Item -ItemType Directory -Path $p -Force | Out-Null
+                Write-Host "Diretório criado: $p" -ForegroundColor Green
+            } catch {
+                Write-Host "Erro ao criar diretório: $p" -ForegroundColor Red
+            }
+        }
+    }
+
+    # Cria o arquivo de banco (HOST_DATABASE_PATH deve ser arquivo, não diretório)
+    if (-not [string]::IsNullOrWhiteSpace($dbPath)) {
+        $dbDir = Split-Path $dbPath -Parent
+        if (-not (Test-Path $dbDir)) {
+            try {
+                New-Item -ItemType Directory -Path $dbDir -Force | Out-Null
+                Write-Host "Diretório criado: $dbDir" -ForegroundColor Green
+            } catch {
+                Write-Host "Erro ao criar diretório do banco: $dbDir" -ForegroundColor Red
+            }
+        }
+        if ((Test-Path $dbDir) -and -not (Test-Path $dbPath)) {
+            try {
+                New-Item -ItemType File -Path $dbPath -Force | Out-Null
+                Write-Host "Arquivo de banco criado: $dbPath" -ForegroundColor Green
+            } catch {
+                Write-Host "Erro ao criar arquivo de banco: $dbPath" -ForegroundColor Red
+            }
+        }
+    }
 }
 
 
@@ -1246,6 +1342,27 @@ function Update-EnvFile {
                 try { return [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr) } finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
             }
 
+            # Chave gerada automaticamente (ex.: SECRET_KEY)
+            $keyType = if ($entry -and $entry.type) { $entry.type } else { "" }
+            if ($keyType -eq "generated_secret") {
+                if ($valDisplay -ne "") {
+                    Write-Host "Deseja regenerar a chave? Isso invalidará sessões ativas. (S/N)" -ForegroundColor Yellow
+                    $regen = Read-Host
+                    if ($regen -match '^[Ss]') {
+                        $newSecret = Generate-Secret
+                        Write-Host "Nova chave gerada com sucesso." -ForegroundColor Green
+                        $updated += "$key=$newSecret"
+                    } else {
+                        $updated += $line
+                    }
+                } else {
+                    $newSecret = Generate-Secret
+                    Write-Host "Chave gerada automaticamente." -ForegroundColor Green
+                    $updated += "$key=$newSecret"
+                }
+                continue
+            }
+
             if ($isSecret) {
                 $secure = Read-Host "Novo valor (Enter para manter)" -AsSecureString
                 $newPlain = Convert-SecureToPlain $secure
@@ -1358,6 +1475,7 @@ function Manage-Env {
                 
                 # Verificar se configuração está completa antes de reiniciar
                 if (Check-EnvConfigured -ShowMessage $false) {
+                    Ensure-HostPaths
                     docker compose down
                     docker compose up -d
                     
@@ -1654,6 +1772,7 @@ while ($running) {
                         Write-Host "Servicos encontrados no docker-compose.yml:" -ForegroundColor Cyan
                         foreach ($s in $expected) { Write-Host " - $s" -ForegroundColor Gray }
                         Write-Host "`nIniciando serviços..." -ForegroundColor Cyan
+                        Ensure-HostPaths
                         docker compose up -d
                         if ($LASTEXITCODE -eq 0) {
                             Write-Host "Servicos iniciados com sucesso!" -ForegroundColor Green
@@ -1663,6 +1782,7 @@ while ($running) {
                     } else {
                         Write-Host "Aviso: Nenhum serviço detectado no arquivo docker-compose.yml" -ForegroundColor Yellow
                         Write-Host "Tentando iniciar mesmo assim..." -ForegroundColor Cyan
+                        Ensure-HostPaths
                         docker compose up -d
                     }
                 }
