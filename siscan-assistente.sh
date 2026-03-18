@@ -51,7 +51,7 @@ NC='\033[0m'   # No Color / Reset
 # ---------------------------------------------------------------------------
 CRED_FILE="credenciais.txt"
 IMAGE_PATH="ghcr.io/prisma-consultoria/siscan-rpa-rpa:main"
-COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
+COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.prd.host.yml"
 
 # Credenciais em memória (não persistidas por padrão)
 CRED_USER=""
@@ -140,7 +140,7 @@ is_docker_available() {
 
 # ---------------------------------------------------------------------------
 # get_expected_service_names
-# Analisa docker-compose.yml e retorna os nomes dos serviços (um por linha).
+# Analisa o compose file e retorna os nomes dos serviços (um por linha).
 # ---------------------------------------------------------------------------
 get_expected_service_names() {
     local compose_path="${1:-${COMPOSE_FILE}}"
@@ -558,7 +558,6 @@ check_env_configured() {
 
     local has_secret_key=false
     local -A host_vars=(
-        [HOST_DATABASE_PATH]=""
         [HOST_LOG_DIR]=""
         [HOST_SISCAN_REPORTS_INPUT_DIR]=""
         [HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR]=""
@@ -619,22 +618,23 @@ check_env_configured() {
 
 # ---------------------------------------------------------------------------
 # ensure_host_paths
-# Cria no host os diretórios e o arquivo de banco definidos no .env.
-# Deve ser chamado antes de `docker compose up` para evitar que o Docker
-# materialize diretórios no lugar de arquivos (caso de HOST_DATABASE_PATH).
+# Cria no host os diretórios de bind mount definidos no .env.
+# Deve ser chamado antes de `docker compose up` para garantir que os
+# diretórios existam antes da montagem.
 # Retorna 0 se tudo OK, 1 se algum caminho não pôde ser criado.
 # ---------------------------------------------------------------------------
 ensure_host_paths() {
     local env_file="${SCRIPT_DIR}/.env"
     [ ! -f "${env_file}" ] && return 1
 
-    local db_path=""
     local -A dir_vars=(
         [HOST_LOG_DIR]=""
         [HOST_SISCAN_REPORTS_INPUT_DIR]=""
         [HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR]=""
         [HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR]=""
         [HOST_CONFIG_DIR]=""
+        [HOST_SCRIPTS_CLIENTS]=""
+        [HOST_BACKUPS_DIR]=""
     )
 
     while IFS= read -r line || [ -n "${line}" ]; do
@@ -646,7 +646,6 @@ ensure_host_paths() {
         lkey="${lkey%"${lkey##*[![:space:]]}"}"
         lval="${lval#"${lval%%[![:space:]]*}"}"
         lval="${lval%"${lval##*[![:space:]]}"}"
-        [ "${lkey}" = "HOST_DATABASE_PATH" ] && db_path="${lval}"
         if [[ -v dir_vars["${lkey}"] ]]; then
             dir_vars["${lkey}"]="${lval}"
         fi
@@ -654,7 +653,6 @@ ensure_host_paths() {
 
     local failed=0
 
-    # Cria diretórios
     for k in "${!dir_vars[@]}"; do
         local p="${dir_vars[${k}]}"
         [ -z "${p}" ] && continue
@@ -668,28 +666,6 @@ ensure_host_paths() {
         fi
     done
 
-    # Cria o arquivo de banco (HOST_DATABASE_PATH deve ser arquivo, não diretório)
-    if [ -n "${db_path}" ]; then
-        local db_dir
-        db_dir="$(dirname "${db_path}")"
-        if [ ! -d "${db_dir}" ]; then
-            if mkdir -p "${db_dir}" 2>/dev/null; then
-                printf "${GREEN}Diretório criado: %s${NC}\n" "${db_dir}"
-            else
-                printf "${RED}Erro ao criar diretório do banco: %s${NC}\n" "${db_dir}"
-                failed=1
-            fi
-        fi
-        if [ ${failed} -eq 0 ] && [ ! -f "${db_path}" ]; then
-            if touch "${db_path}" 2>/dev/null; then
-                printf "${GREEN}Arquivo de banco criado: %s${NC}\n" "${db_path}"
-            else
-                printf "${RED}Erro ao criar arquivo de banco: %s${NC}\n" "${db_path}"
-                failed=1
-            fi
-        fi
-    fi
-
     return ${failed}
 }
 
@@ -701,7 +677,7 @@ update_and_restart() {
     printf "\n${YELLOW}Atualizando o SISCAN RPA e reiniciando (pode demorar)...${NC}\n"
 
     if [ ! -f "${COMPOSE_FILE}" ]; then
-        printf "${RED}Arquivo de configuração 'docker-compose.yml' não encontrado em: %s${NC}\n" "${COMPOSE_FILE}"
+        printf "${RED}Arquivo de configuração 'docker-compose.prd.host.yml' não encontrado em: %s${NC}\n" "${COMPOSE_FILE}"
         return 1
     fi
 
@@ -836,7 +812,7 @@ update_and_restart() {
 # ---------------------------------------------------------------------------
 restart_service() {
     if [ ! -f "${COMPOSE_FILE}" ]; then
-        printf "\n${RED}Arquivo de configuração 'docker-compose.yml' não foi encontrado.${NC}\n"
+        printf "\n${RED}Arquivo de configuração 'docker-compose.prd.host.yml' não foi encontrado.${NC}\n"
         return 1
     fi
 
@@ -1318,7 +1294,7 @@ update_env_file() {
 manage_env() {
     local skip_restart="${1:-}"
     local env_file="${SCRIPT_DIR}/.env"
-    local template_files=('.env.sample' '.env.example' '.env.template' '.env.dist')
+    local template_files=('.env.host.sample' '.env.example' '.env.template' '.env.dist')
 
     if [ ! -f "${env_file}" ]; then
         local found_template=""
@@ -1596,20 +1572,20 @@ while ${running}; do
                 printf "${CYAN}Tentando iniciar o serviço...${NC}\n"
 
                 if [ ! -f "${COMPOSE_FILE}" ]; then
-                    printf "${RED}Erro: Arquivo docker-compose.yml não encontrado em: %s${NC}\n" "${COMPOSE_FILE}"
+                    printf "${RED}Erro: Arquivo docker-compose.prd.host.yml não encontrado em: %s${NC}\n" "${COMPOSE_FILE}"
                 elif ! check_env_configured "true"; then
                     : # Mensagem já exibida por check_env_configured
                 else
                     # Lista serviços esperados
                     local_services="$(get_expected_service_names "${COMPOSE_FILE}")"
                     if [ -n "${local_services}" ]; then
-                        printf "${CYAN}Serviços encontrados no docker-compose.yml:${NC}\n"
+                        printf "${CYAN}Serviços encontrados no docker-compose.prd.host.yml:${NC}\n"
                         while IFS= read -r svc; do
                             printf "${GRAY} - %s${NC}\n" "${svc}"
                         done <<< "${local_services}"
                         printf "\n${CYAN}Iniciando serviços...${NC}\n"
                     else
-                        printf "${YELLOW}Aviso: Nenhum serviço detectado no arquivo docker-compose.yml${NC}\n"
+                        printf "${YELLOW}Aviso: Nenhum serviço detectado no arquivo docker-compose.prd.host.yml${NC}\n"
                         printf "${CYAN}Tentando iniciar mesmo assim...${NC}\n"
                     fi
 
