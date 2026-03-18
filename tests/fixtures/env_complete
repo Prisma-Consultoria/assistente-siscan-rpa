@@ -1,7 +1,6 @@
 HOST_APP_EXTERNAL_PORT=5001
 APP_LOG_LEVEL=INFO
 WEB_CONCURRENCY=1
-HOST_DATABASE_PATH=/tmp/siscan_test/data/database.db
 HOST_LOG_DIR=/tmp/siscan_test/logs
 HOST_SISCAN_REPORTS_INPUT_DIR=/tmp/siscan_test/media/downloads
 HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR=/tmp/siscan_test/media/reports/consolidated

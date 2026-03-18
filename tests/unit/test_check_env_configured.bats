@@ -50,7 +50,6 @@ teardown() {
     cp "${FIXTURES_DIR}/env_missing_host" "${TEST_DIR}/.env"
     run check_env_configured "true"
     assert_failure
-    assert_output --partial "HOST_DATABASE_PATH"
     assert_output --partial "HOST_SISCAN_REPORTS_INPUT_DIR"
     assert_output --partial "HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR"
 }
