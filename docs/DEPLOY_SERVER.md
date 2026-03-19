@@ -91,7 +91,7 @@ Todos os passos da instalação devem ser executados como esse usuário.
 | Docker Engine | ≥ 28.x (não Docker Desktop) | `docker version` — deve mostrar `Server: Docker Engine` |
 | Docker Compose | ≥ 2.37 | `docker compose version` |
 | git | qualquer versão recente | `git --version` |
-| Conectividade de saída HTTPS | `github.com` e `ghcr.io` porta 443 | `curl -s -o /dev/null -w "%{http_code}" https://ghcr.io` deve retornar `200` ou `301` |
+| Conectividade de saída HTTPS | `github.com` e `ghcr.io` porta 443 | `curl -Iv https://github.com` — handshake TLS deve completar. Falha de handshake indica firewall/proxy bloqueando — ver [Problema 3 no TROUBLESHOOTING.md](TROUBLESHOOTING.md#problema-3--falha-tls-ao-conectar-ao-github-handshake-interrompido) |
 
 ### Servidor de banco de dados (externo)
 
