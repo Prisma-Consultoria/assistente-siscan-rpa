@@ -128,13 +128,6 @@ services:
     command: ["/bin/sh", "-c", "python cli.py db-ensure-current && if [ \"$(echo ${CRON_ENABLED:-true} | tr '[:upper:]' '[:lower:]')\" != \"true\" ]; then echo 'rpa-scheduler disabled'; sleep infinity; fi; exec /bin/bash /app/scripts/prod/cron_loop.sh"]
     volumes: *app-common-volumes
 
-networks:
-  default:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: ${COMPOSE_NETWORK_SUBNET:-192.168.10.0/24}
-
 volumes:
   siscan-data-artifacts:
     # Diretório auxiliar para artefatos do Playwright.
