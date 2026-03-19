@@ -67,6 +67,18 @@ flowchart TD
 
 ## Pré-requisitos
 
+### Usuário dedicado
+
+O GitHub Actions runner **não pode ser instalado como root**. Crie e use um usuário dedicado:
+
+```bash
+sudo useradd -m -s /bin/bash siscan
+sudo usermod -aG docker siscan
+sudo su - siscan
+```
+
+Todos os passos da instalação devem ser executados como esse usuário.
+
 ### Servidor de aplicação
 
 | Requisito | Mínimo | Verificação |

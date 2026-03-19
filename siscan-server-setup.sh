@@ -198,6 +198,19 @@ printf "  ${GRAY}Label do runner    : %s${NC}\n" "${RUNNER_LABEL}"
 step "FASE 1 — Verificação de pré-requisitos"
 # ════════════════════════════════════════════════════════════════════════════
 
+# Root
+if [ "$(id -u)" -eq 0 ]; then
+    printf "\n${RED}ERRO: Este script não pode ser executado como root.${NC}\n\n"
+    printf "  O GitHub Actions runner recusa instalação com privilégios de superusuário.\n"
+    printf "  Execute como um usuário dedicado, por exemplo:\n\n"
+    printf "    ${CYAN}sudo useradd -m -s /bin/bash siscan${NC}\n"
+    printf "    ${CYAN}sudo usermod -aG docker siscan${NC}\n"
+    printf "    ${CYAN}sudo su - siscan${NC}\n\n"
+    printf "  Em seguida, clone o repositório e execute o script novamente.\n\n"
+    exit 1
+fi
+ok "Usuário não-root: ${CURRENT_USER}"
+
 # Docker
 if ! command -v docker &>/dev/null; then
     fail "Docker não encontrado. Instale com: https://docs.docker.com/engine/install/"
