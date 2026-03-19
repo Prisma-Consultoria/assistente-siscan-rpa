@@ -183,9 +183,33 @@ Verifica se os seguintes componentes estão disponíveis e funcionando:
 - **Docker Engine**: checa `docker info` (daemon rodando, usuário com acesso ao socket). Se falhar, o script diagnostica a causa — serviço parado, usuário fora do grupo `docker` ou socket ausente — e exibe o comando correto para resolver.
 - **Docker Compose v2** (plugin): checa `docker compose version`.
 - **curl**: necessário para baixar o runner.
-- **sudo**: necessário para criar `/opt/siscan-rpa` e instalar o runner como serviço systemd.
+- **sudo**: necessário para criar o `COMPOSE_DIR` e instalar o runner como serviço systemd.
 
 O script **não prossegue** se algum desses itens estiver ausente.
+
+---
+
+### Diagnóstico contínuo via workflow
+
+Após o setup, cada execução do workflow de CD inclui um **job de diagnóstico** que roda automaticamente no servidor antes do deploy. Ele verifica os mesmos pré-requisitos acima e gera um relatório completo disponível para download em:
+
+**GitHub → siscan-rpa → Actions → run → Artifacts → `diagnostico-servidor-<N>`**
+
+O relatório cobre:
+
+| Verificação | O que é checado |
+|---|---|
+| Usuário e permissões | `whoami`, `id`, permissões do `COMPOSE_DIR`, `.env` e compose file |
+| Sistema operacional | `lsb_release`, CPUs, memória, disco |
+| Docker | Versão do Engine e Compose, `daemon.json`, redes existentes e sub-redes |
+| Criação de rede | Testa `docker network create` manualmente para confirmar se o daemon consegue criar redes |
+| Conectividade HTTPS | `github.com` e `ghcr.io` (necessários para pull do runner e das imagens) |
+| Diretórios `HOST_*` | Lê os valores do `.env` e verifica se cada diretório existe e com quais permissões |
+| Variáveis obrigatórias | Confirma presença de `SECRET_KEY`, `DATABASE_HOST`, `DATABASE_PASSWORD` etc. sem expor valores |
+| Runner | Status do serviço systemd |
+| Containers | `docker ps` e imagens siscan disponíveis |
+
+O relatório fica disponível por **7 dias** após cada execução. Use-o para diagnosticar falhas sem precisar de acesso direto ao servidor.
 
 ---
 
