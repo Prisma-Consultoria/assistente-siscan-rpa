@@ -566,12 +566,13 @@ else
     ok "Runner registrado: $(hostname)-siscan-rpa [${RUNNER_LABEL}]"
 
     # Instalar e iniciar como serviço systemd
+    # sudo não preserva o diretório de trabalho — passar via bash -c para garantir
     info "Instalando runner como serviço systemd (usuário: ${CURRENT_USER})..."
-    if ! (cd "${RUNNER_DIR}" && sudo ./svc.sh install "${CURRENT_USER}"); then
+    if ! sudo bash -c "cd '${RUNNER_DIR}' && ./svc.sh install '${CURRENT_USER}'"; then
         fail "Falha ao instalar o serviço systemd do runner."
     fi
 
-    if ! (cd "${RUNNER_DIR}" && sudo ./svc.sh start); then
+    if ! sudo bash -c "cd '${RUNNER_DIR}' && ./svc.sh start"; then
         fail "Falha ao iniciar o serviço do runner."
     fi
     ok "Serviço do runner instalado e iniciado"
