@@ -272,6 +272,11 @@ if [ "$(id -u)" -eq 0 ]; then
         ok "Usuário 'siscan' adicionado ao grupo 'docker'"
     fi
 
+    # Transferir propriedade do diretório do script para siscan
+    # (caso tenha sido clonado como root, evita "Permission denied" no .git)
+    chown -R siscan:siscan "${SCRIPT_DIR}"
+    ok "Permissões de ${SCRIPT_DIR} transferidas para 'siscan'"
+
     info "Re-executando o script como usuário 'siscan'..."
     SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
     exec sudo -u siscan COMPOSE_DIR="${COMPOSE_DIR}" RUNNER_DIR="${RUNNER_DIR}" RUNNER_LABEL="${RUNNER_LABEL}" bash "${SCRIPT_PATH}"
