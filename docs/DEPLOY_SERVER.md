@@ -160,6 +160,20 @@ O script percorre 8 fases em sequência. As perguntas interativas e os valores e
 
 ## Fases do script
 
+### Pré-requisito: executar como usuário não-root
+
+O GitHub Actions runner **recusa instalação como root** por segurança — ele executa código vindo do GitHub Actions e, se rodasse como root, qualquer workflow poderia comprometer o servidor inteiro. Com um usuário dedicado, o acesso fica isolado.
+
+Antes de executar o script, crie o usuário e mude para ele:
+
+```bash
+sudo useradd -m -s /bin/bash siscan
+sudo usermod -aG docker siscan
+sudo su - siscan
+```
+
+Todos os passos abaixo devem ser executados como esse usuário. O script falha na Fase 1 com mensagem clara caso seja iniciado como root.
+
 ### Fase 1 — Verificação de pré-requisitos
 
 Verifica se os seguintes componentes estão disponíveis e funcionando:
