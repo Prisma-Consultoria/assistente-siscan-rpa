@@ -321,9 +321,10 @@ if [ ! -f "${ENV_FILE}" ]; then
     # Procurar sample em ordem de preferência
     ENV_SAMPLE=""
     for candidate in \
+        "${COMPOSE_DIR}/.env.server.sample" \
+        "${SCRIPT_DIR}/.env.server.sample" \
         "${COMPOSE_DIR}/.env.host.sample" \
-        "${SCRIPT_DIR}/.env.host.sample" \
-        "${SCRIPT_DIR}/.env.sample"; do
+        "${SCRIPT_DIR}/.env.host.sample"; do
         if [ -f "${candidate}" ]; then
             ENV_SAMPLE="${candidate}"
             break

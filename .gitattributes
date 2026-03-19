@@ -1,0 +1,15 @@
+# Força LF em todos os arquivos de texto para evitar problemas de CRLF
+# no Linux/CI ao fazer source de scripts shell via bats.
+* text=auto eol=lf
+
+# Scripts shell sempre LF
+*.sh text eol=lf
+*.bats text eol=lf
+
+# PowerShell pode usar CRLF no Windows
+*.ps1 text eol=crlf
+
+# Arquivos binários
+*.png binary
+*.jpg binary
+*.pdf binary

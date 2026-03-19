@@ -59,7 +59,7 @@ try {
 
 $CRED_FILE = "credenciais.txt"
 $IMAGE_PATH = "ghcr.io/prisma-consultoria/siscan-rpa-rpa:main"
-$COMPOSE_FILE = Join-Path $PSScriptRoot "docker-compose.yml"
+$COMPOSE_FILE = Join-Path $PSScriptRoot "docker-compose.prd.host.yml"
 
 # Textos de ajuda para variáveis do .env (usado por Update-EnvFile)
 # Carrega textos de ajuda de .env.help.json se presente, caso contrario usa valores embutidos simples
@@ -554,8 +554,8 @@ function UpdateAndRestart {
 
     Write-Host "`nAtualizando o SISCAN RPA e reiniciando (pode demorar)..." -ForegroundColor Yellow
 
-    if (-not (Test-Path "./docker-compose.yml")) {
-        Write-Host "Arquivo de configuração 'docker-compose.yml' não encontrado." -ForegroundColor Red
+    if (-not (Test-Path "./docker-compose.prd.host.yml")) {
+        Write-Host "Arquivo de configuração 'docker-compose.prd.host.yml' não encontrado." -ForegroundColor Red
         return
     }
 
@@ -743,7 +743,7 @@ function UpdateAndRestart {
 
 function Restart-Service {
     if (!(Test-Path $COMPOSE_FILE)) {
-        Write-Host "`nArquivo de configuração 'docker-compose.yml' não foi encontrado." 
+        Write-Host "`nArquivo de configuração 'docker-compose.prd.host.yml' não foi encontrado." 
         return
     }
     
@@ -1057,7 +1057,6 @@ function Check-EnvConfigured {
     $envContent = Get-Content $envFile -ErrorAction SilentlyContinue
     $hasSecretKey = $false
     $requiredHostVars = @(
-        'HOST_DATABASE_PATH',
         'HOST_LOG_DIR',
         'HOST_SISCAN_REPORTS_INPUT_DIR',
         'HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR',
@@ -1121,32 +1120,31 @@ function Generate-Secret {
 function Ensure-HostPaths {
     <#
     .SYNOPSIS
-        Cria no host os diretórios e o arquivo de banco definidos no .env.
-        Deve ser chamado antes de `docker compose up` para evitar que o Docker
-        materialize diretórios no lugar do arquivo database.db.
+        Cria no host os diretórios de bind mount definidos no .env.
+        Deve ser chamado antes de `docker compose up` para garantir que os
+        diretórios existam antes da montagem.
     #>
     $envFile = Join-Path $PSScriptRoot ".env"
     if (-not (Test-Path $envFile)) { return }
 
-    $dbPath = $null
     $dirVars = @(
         'HOST_LOG_DIR',
         'HOST_SISCAN_REPORTS_INPUT_DIR',
         'HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR',
         'HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR',
-        'HOST_CONFIG_DIR'
+        'HOST_CONFIG_DIR',
+        'HOST_SCRIPTS_CLIENTS',
+        'HOST_BACKUPS_DIR'
     )
     $dirPaths = @{}
     foreach ($v in $dirVars) { $dirPaths[$v] = $null }
 
     foreach ($line in (Get-Content $envFile -ErrorAction SilentlyContinue)) {
-        if ($line -match '^\s*HOST_DATABASE_PATH\s*=\s*(.+)$') { $dbPath = $matches[1].Trim() }
         foreach ($v in $dirVars) {
             if ($line -match "^\s*${v}\s*=\s*(.+)$") { $dirPaths[$v] = $matches[1].Trim() }
         }
     }
 
-    # Cria diretórios
     foreach ($v in $dirVars) {
         $p = $dirPaths[$v]
         if ([string]::IsNullOrWhiteSpace($p)) { continue }
@@ -1156,27 +1154,6 @@ function Ensure-HostPaths {
                 Write-Host "Diretório criado: $p" -ForegroundColor Green
             } catch {
                 Write-Host "Erro ao criar diretório: $p" -ForegroundColor Red
-            }
-        }
-    }
-
-    # Cria o arquivo de banco (HOST_DATABASE_PATH deve ser arquivo, não diretório)
-    if (-not [string]::IsNullOrWhiteSpace($dbPath)) {
-        $dbDir = Split-Path $dbPath -Parent
-        if (-not (Test-Path $dbDir)) {
-            try {
-                New-Item -ItemType Directory -Path $dbDir -Force | Out-Null
-                Write-Host "Diretório criado: $dbDir" -ForegroundColor Green
-            } catch {
-                Write-Host "Erro ao criar diretório do banco: $dbDir" -ForegroundColor Red
-            }
-        }
-        if ((Test-Path $dbDir) -and -not (Test-Path $dbPath)) {
-            try {
-                New-Item -ItemType File -Path $dbPath -Force | Out-Null
-                Write-Host "Arquivo de banco criado: $dbPath" -ForegroundColor Green
-            } catch {
-                Write-Host "Erro ao criar arquivo de banco: $dbPath" -ForegroundColor Red
             }
         }
     }
@@ -1434,7 +1411,7 @@ function Manage-Env {
     param([switch]$SkipRestart)
     
     $envFile = Join-Path $PSScriptRoot ".env"
-    $templateFiles = @('.env.sample', '.env.example', '.env.template', '.env.dist')
+    $templateFiles = @('.env.host.sample', '.env.example', '.env.template', '.env.dist')
 
     if (-not (Test-Path $envFile)) {
         $found = $null
@@ -1763,13 +1740,13 @@ while ($running) {
                 Write-Host "Tentando iniciar o serviço..." -ForegroundColor Cyan
                 
                 if (-not (Test-Path $COMPOSE_FILE)) {
-                    Write-Host "Erro: Arquivo docker-compose.yml não encontrado em: $COMPOSE_FILE" -ForegroundColor Red
+                    Write-Host "Erro: Arquivo docker-compose.prd.host.yml não encontrado em: $COMPOSE_FILE" -ForegroundColor Red
                 } elseif (-not (Check-EnvConfigured -ShowMessage $true)) {
                     # Mensagem ja exibida pela funcao Check-EnvConfigured
                 } else {
                     $expected = Get-ExpectedServiceNames -ComposePath $COMPOSE_FILE
                     if ($expected -and $expected.Count -gt 0) {
-                        Write-Host "Servicos encontrados no docker-compose.yml:" -ForegroundColor Cyan
+                        Write-Host "Servicos encontrados no docker-compose.prd.host.yml:" -ForegroundColor Cyan
                         foreach ($s in $expected) { Write-Host " - $s" -ForegroundColor Gray }
                         Write-Host "`nIniciando serviços..." -ForegroundColor Cyan
                         Ensure-HostPaths
@@ -1780,7 +1757,7 @@ while ($running) {
                             Write-Host "Erro ao iniciar os serviços." -ForegroundColor Red
                         }
                     } else {
-                        Write-Host "Aviso: Nenhum serviço detectado no arquivo docker-compose.yml" -ForegroundColor Yellow
+                        Write-Host "Aviso: Nenhum serviço detectado no arquivo docker-compose.prd.host.yml" -ForegroundColor Yellow
                         Write-Host "Tentando iniciar mesmo assim..." -ForegroundColor Cyan
                         Ensure-HostPaths
                         docker compose up -d

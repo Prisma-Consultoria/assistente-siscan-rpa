@@ -38,6 +38,8 @@ logs/
 .env
 .env.*
 !.env.sample
+!.env.host.sample
+!.env.server.sample
 !.env.help.json
 secrets.*
 *.key

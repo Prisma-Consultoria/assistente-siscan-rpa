@@ -1,50 +1,101 @@
-# Checklists Operacionais - Assistente SISCAN RPA
+# Checklists Operacionais — Assistente SISCAN RPA
 <a name="checklists"></a>
 
-Versão: 1.0
-Data: 2025-11-30
+Versão: 3.0
+Data: 2026-03-18
 
-## Checklist Antes do Deploy (staging / homologação primeiro)
+---
 
-- Backup: snapshot ou cópia dos volumes críticos.
-- Credenciais: token GHCR válido com `read:packages` e credenciais SISCAN corretas.
-- Acesso: usuário que executa o deploy é membro de `docker-users` e tem privilégios necessários.
-- Docker: `docker version` e `docker info` sem erros.
-- Docker Compose: `docker compose config` válido.
-- Rede: `nslookup ghcr.io` e `Test-NetConnection ghcr.io -Port 443` OK.
-- Espaço em disco: espaço livre >= requisito do ambiente.
-- Variáveis: `.env` preenchido (não commitá-lo em VCS).
-- Permissões: `icacls` nas pastas do projeto garantindo leitura/escrita.
-- Janela de manutenção: notificar stakeholders e agendar downtime se necessário.
+## Verificações comuns — ambos os modos
 
-## Checklist Após Deploy
+Use este checklist independentemente do modo de deploy (HOST ou Servidor).
 
-- Containers: `docker compose ps` → todos os serviços `Up`/`healthy`.
-- Logs: `docker compose logs` sem erros novos críticos.
-- Healthcheck: endpoint `/health` retorna `200`.
-- Volumes: `docker volume ls` mostra volumes esperados.
-- Usuário/teste: executar um teste funcional (fluxo principal do RPA) em staging/prod.
-- Monitoramento: alertas/observability configurados (se aplicável).
+- [ ] Docker Engine instalado e rodando: `docker info` sem erros.
+- [ ] Docker Compose v2: `docker compose version` retorna `v2.x.x`.
+- [ ] `git` disponível: `git --version`.
+- [ ] Repositório clonado: `git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git`.
+- [ ] `.env` criado a partir do sample correspondente ao modo: `.env.host.sample` (HOST) ou `.env.server.sample` (Servidor).
+- [ ] Variáveis obrigatórias preenchidas:
+  - [ ] `DATABASE_PASSWORD` (não usar o padrão `siscan_rpa`)
+  - [ ] `SECRET_KEY` (pode estar vazio — o assistente gera; mas em servidor definir manualmente)
+  - [ ] `HOST_LOG_DIR`
+  - [ ] `HOST_SISCAN_REPORTS_INPUT_DIR`
+  - [ ] `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR`
+  - [ ] `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR`
+  - [ ] `HOST_CONFIG_DIR`
+- [ ] Pastas `HOST_*` criadas no sistema de arquivos.
+- [ ] Conectividade com GHCR confirmada (`ghcr.io` porta 443 acessível).
 
-## Checklist Antes de Atualizar/Upgrade
+---
 
-- Revisar o registro de alterações (changelog) e notas de release.
-- Testar nova imagem em staging com tag específica.
-- Backup de volumes e dados críticos.
-- Planejar rollback: manter tag anterior disponível.
-- Janela de atualização comunicada aos envolvidos.
+## Modo HOST — Windows / Linux (PC local)
 
-## Checklist de Emergência / Rollback
+### Antes do primeiro deploy
 
-- Ter disponível imagem/tag anterior: `ghcr.io/<org>/assistente-siscan-rpa:<previous_tag>`.
-- Comandos rápidos para rollback:
-```powershell
-docker pull ghcr.io/<org>/assistente-siscan-rpa:<previous_tag>
-docker compose down
-docker compose up -d
-```
-- Coletar logs e artefatos (ver `docs/TROUBLESHOOTING.md` - solução de problemas)
-- Informar time de DevOps e liberar canal de comunicação (telefone/pager)
+- [ ] Docker Desktop instalado e iniciado (ícone estável na bandeja).
+- [ ] **Windows:** `Set-ExecutionPolicy RemoteSigned -Scope LocalMachine` executado (ou `execute.ps1` disponível como alternativa).
+- [ ] Token GitHub (PAT) com `read:packages` gerado e disponível para a primeira execução.
+- [ ] `DATABASE_HOST=db` no `.env` (banco local em container — não alterar).
+- [ ] Pastas `HOST_*` com caminhos Windows (barras invertidas) ou Linux (barras normais).
+
+### Após instalação (Opção 2 do menu)
+
+- [ ] Containers em execução: `docker compose -f docker-compose.prd.host.yml ps` → `app`, `db` e `rpa-scheduler` com status `Up` / `healthy`.
+- [ ] Logs sem erros críticos: `docker compose -f docker-compose.prd.host.yml logs --tail=50`.
+- [ ] Sistema acessível: `http://localhost:<HOST_APP_EXTERNAL_PORT>`.
+- [ ] Health endpoint: `http://localhost:<HOST_APP_EXTERNAL_PORT>/health` retorna `"schema_status":"current"`.
+- [ ] Credenciais SISCAN cadastradas em: `http://localhost:<HOST_APP_EXTERNAL_PORT>/admin/siscan-credentials`.
+- [ ] Primeira coleta manual executada com sucesso (Opção 4 do menu).
+
+### Antes de atualizar (Opção 2 — nova versão)
+
+- [ ] Comunicar usuários sobre possível indisponibilidade breve.
+- [ ] Anotar versão atual: `docker images ghcr.io/prisma-consultoria/siscan-rpa-rpa`.
+- [ ] Token GitHub válido (ou `credenciais.txt` será refeito se expirado).
+- [ ] Espaço em disco disponível. **Windows:** `Get-PSDrive C`. **Linux:** `df -h`.
+
+### Emergência / Rollback (modo HOST)
+
+- [ ] Identificar imagem anterior: `docker images ghcr.io/prisma-consultoria/siscan-rpa-rpa`.
+- [ ] Parar stack: `docker compose -f docker-compose.prd.host.yml down`.
+- [ ] Se imagem anterior estiver localmente, recriar stack: `docker compose -f docker-compose.prd.host.yml up -d`.
+- [ ] Se imagem não estiver localmente, solicitar ao time técnico a tag de rollback.
+- [ ] Coletar artefatos antes de abrir chamado (ver [TROUBLESHOOTING.md — Coleta de artefatos](TROUBLESHOOTING.md)).
+- [ ] Comunicar time DevOps Prisma com logs e descrição do problema.
+
+---
+
+## Modo Servidor — Ubuntu Server (Opção 1.A)
+
+### Antes do primeiro deploy
+
+- [ ] Ubuntu Server 22.04+: `lsb_release -a`.
+- [ ] Docker Engine ≥ 24 (não Docker Desktop): `docker version`.
+- [ ] `curl` e `sudo` disponíveis.
+- [ ] PostgreSQL 16+ externo acessível: `psql -h <DATABASE_HOST> -U siscan_rpa -c "SELECT 1"`.
+- [ ] Token de registro do runner obtido: GitHub → repositório `siscan-rpa` → Settings → Actions → Runners.
+- [ ] `DATABASE_HOST` preenchido com IP/hostname do PostgreSQL externo (**não** usar `db`).
+- [ ] Caminhos `HOST_*` em formato Linux absoluto (ex.: `/opt/siscan-rpa/logs`).
+- [ ] `siscan-server-setup.sh` executado: `bash ./siscan-server-setup.sh`.
+
+### Após configuração do servidor
+
+- [ ] Containers em execução: `docker compose -f docker-compose.prd.external-db.yml ps` → `app` e `rpa-scheduler` com status `Up` / `healthy`.
+- [ ] Logs sem erros de conexão com banco: `docker compose -f docker-compose.prd.external-db.yml logs migrate`.
+- [ ] Sistema acessível: `http://<IP-DO-SERVIDOR>:<HOST_APP_EXTERNAL_PORT>`.
+- [ ] Health endpoint retorna `"schema_status":"current"`.
+- [ ] Runner registrado e online: GitHub → repositório `siscan-rpa` → Settings → Actions → Runners.
+- [ ] Logout e login no servidor realizados para que permissões Docker tenham efeito (fase 7 do script).
+- [ ] Credenciais SISCAN cadastradas em `/admin/siscan-credentials`.
+
+### Emergência / Rollback (modo servidor)
+
+- [ ] Identificar a tag do deploy anterior nos logs do GitHub Actions.
+- [ ] Parar stack: `docker compose -f docker-compose.prd.external-db.yml down`.
+- [ ] Fazer pull da tag anterior: `docker pull ghcr.io/prisma-consultoria/siscan-rpa-rpa:<tag-anterior>`.
+- [ ] Ajustar tag no compose ou variável e recriar: `docker compose -f docker-compose.prd.external-db.yml up -d`.
+- [ ] Coletar artefatos antes de abrir chamado (ver [TROUBLESHOOTING.md — Coleta de artefatos](TROUBLESHOOTING.md)).
+- [ ] Comunicar time DevOps Prisma.
 
 ---
 
