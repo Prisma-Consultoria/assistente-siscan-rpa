@@ -653,4 +653,11 @@ printf "     ${CYAN}docker compose -f %s/%s logs -f${NC}\n\n" "${COMPOSE_DIR}" "
 
 printf "  ${GRAY}Referência completa: docs/DEPLOY_AUTOMATICO.md — Opção 1.A${NC}\n\n"
 
+printf "${CYAN}══════════════════════════════════════════════════${NC}\n"
+printf "  ${WHITE}Você está em:${NC} $(pwd)\n"
+printf "  ${WHITE}Diretório da stack:${NC} ${COMPOSE_DIR}\n"
+printf "${CYAN}══════════════════════════════════════════════════${NC}\n\n"
+printf "  Para ir ao diretório da stack:\n"
+printf "  ${CYAN}cd %s${NC}\n\n" "${COMPOSE_DIR}"
+
 fi # fim do guard BASH_SOURCE
