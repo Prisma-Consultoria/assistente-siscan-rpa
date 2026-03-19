@@ -225,7 +225,28 @@ HOST_LOG_DIR=C:/siscan-rpa/logs
 
 ## Problemas específicos — Modo Servidor
 
-### Problema 1 — Falha de conexão com o banco de dados externo
+### Problema 1 — Pool de endereços Docker esgotado ao criar rede
+
+Sintoma: deploy falha com:
+```
+failed to create network siscan-rpa_default: Error response from daemon: all predefined address pools have been fully subnetted
+```
+
+O Docker esgotou os blocos de IP disponíveis no pool padrão de redes bridge (172.16.0.0/12). Ocorre quando há muitas redes antigas não utilizadas acumuladas no servidor.
+
+#### Solução
+
+```bash
+# Remover todas as redes Docker sem containers associados
+docker network prune
+```
+
+Confirme com `y`. Em seguida, acione o deploy manualmente:
+**GitHub → repositório `siscan-rpa` → Actions → CD — Deploy Produção → Run workflow**
+
+---
+
+### Problema 2 — Falha de conexão com o banco de dados externo
 
 Sintoma: container `migrate` falha no boot; logs mostram `could not connect to server` ou `connection refused`.
 
