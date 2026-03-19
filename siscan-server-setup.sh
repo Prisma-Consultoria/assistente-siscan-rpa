@@ -249,7 +249,38 @@ command -v sudo &>/dev/null || fail "sudo não encontrado. Este script precisa d
 ok "sudo disponível"
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 2 — Estrutura de diretórios da stack"
+step "FASE 2 — Usuário dedicado para o runner"
+# ════════════════════════════════════════════════════════════════════════════
+
+if [ "$(id -u)" -eq 0 ]; then
+    printf "  ${GRAY}O GitHub Actions runner recusa execução como root.${NC}\n"
+    printf "  ${GRAY}Criando usuário dedicado 'siscan' e re-executando o script como ele.${NC}\n\n"
+
+    if id siscan &>/dev/null; then
+        ok "Usuário 'siscan' já existe"
+    else
+        useradd -m -s /bin/bash siscan || fail "Não foi possível criar o usuário 'siscan'"
+        ok "Usuário 'siscan' criado"
+        printf "\n  ${CYAN}Defina a senha do usuário 'siscan':${NC}\n"
+        passwd siscan || fail "Não foi possível definir a senha do usuário 'siscan'"
+    fi
+
+    if id -nG siscan | grep -qw docker; then
+        ok "Usuário 'siscan' já está no grupo 'docker'"
+    else
+        usermod -aG docker siscan || fail "Não foi possível adicionar 'siscan' ao grupo 'docker'"
+        ok "Usuário 'siscan' adicionado ao grupo 'docker'"
+    fi
+
+    info "Re-executando o script como usuário 'siscan'..."
+    SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    exec sudo -u siscan COMPOSE_DIR="${COMPOSE_DIR}" RUNNER_DIR="${RUNNER_DIR}" RUNNER_LABEL="${RUNNER_LABEL}" bash "${SCRIPT_PATH}"
+else
+    ok "Usuário não-root: ${CURRENT_USER}"
+fi
+
+# ════════════════════════════════════════════════════════════════════════════
+step "FASE 3 — Estrutura de diretórios da stack"
 # ════════════════════════════════════════════════════════════════════════════
 
 if [ -d "${COMPOSE_DIR}" ]; then
@@ -271,7 +302,7 @@ else
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 3 — Arquivos da stack"
+step "FASE 4 — Arquivos da stack"
 # ════════════════════════════════════════════════════════════════════════════
 
 # docker-compose.prd.external-db.yml
@@ -313,7 +344,7 @@ else
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 4 — Configuração do .env"
+step "FASE 5 — Configuração do .env"
 # ════════════════════════════════════════════════════════════════════════════
 
 # Criar .env a partir do sample se não existir
@@ -457,13 +488,13 @@ for var in "${HOST_PATH_VARS[@]}"; do
 done
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 5 — Criação dos diretórios HOST_*"
+step "FASE 6 — Criação dos diretórios HOST_*"
 # ════════════════════════════════════════════════════════════════════════════
 
 ensure_host_paths "${ENV_FILE}"
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 6 — GitHub Actions Runner"
+step "FASE 7 — GitHub Actions Runner"
 # ════════════════════════════════════════════════════════════════════════════
 
 RUNNER_ALREADY_INSTALLED=false
@@ -553,19 +584,20 @@ else
     ok "Runner registrado: $(hostname)-siscan-rpa [${RUNNER_LABEL}]"
 
     # Instalar e iniciar como serviço systemd
+    # sudo não preserva o diretório de trabalho — passar via bash -c para garantir
     info "Instalando runner como serviço systemd (usuário: ${CURRENT_USER})..."
-    if ! (cd "${RUNNER_DIR}" && sudo ./svc.sh install "${CURRENT_USER}"); then
+    if ! sudo bash -c "cd '${RUNNER_DIR}' && ./svc.sh install '${CURRENT_USER}'"; then
         fail "Falha ao instalar o serviço systemd do runner."
     fi
 
-    if ! (cd "${RUNNER_DIR}" && sudo ./svc.sh start); then
+    if ! sudo bash -c "cd '${RUNNER_DIR}' && ./svc.sh start"; then
         fail "Falha ao iniciar o serviço do runner."
     fi
     ok "Serviço do runner instalado e iniciado"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 7 — Permissões Docker"
+step "FASE 8 — Permissões Docker"
 # ════════════════════════════════════════════════════════════════════════════
 
 if id -nG "${CURRENT_USER}" 2>/dev/null | grep -qw docker; then
@@ -581,7 +613,7 @@ else
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 8 — Resumo e próximos passos"
+step "FASE 9 — Resumo e próximos passos"
 # ════════════════════════════════════════════════════════════════════════════
 
 printf "  ${GREEN}Setup concluído!${NC}\n\n"

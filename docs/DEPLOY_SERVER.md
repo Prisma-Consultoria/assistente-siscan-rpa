@@ -61,11 +61,24 @@ flowchart TD
 
 **Sobre tráfego de rede e segurança:**
 
-O servidor do parceiro **nunca recebe código-fonte** — apenas a imagem pré-compilada e certificada, produzida e assinada pelo pipeline da Prisma. O único tráfego de **entrada** é o job de deploy enviado pelo GitHub via HTTPS (porta 443); todo o restante é tráfego de **saída** — o runner consulta o GitHub para receber jobs e o Docker baixa a imagem do GHCR. Não é necessário abrir nenhuma porta de entrada no firewall do servidor.
+>  ⚠️  O servidor do parceiro **nunca recebe código-fonte** — apenas a imagem pré-compilada e certificada, produzida e assinada pelo pipeline da Prisma. O único tráfego de **entrada** é o job de deploy enviado pelo GitHub via HTTPS (porta 443); todo o restante é tráfego de **saída** — o runner consulta o GitHub para receber jobs e o Docker baixa a imagem do GHCR. Não é necessário abrir nenhuma porta de entrada no firewall do servidor.
 
 ---
 
 ## Pré-requisitos
+
+### Usuário dedicado
+
+O GitHub Actions runner **não pode ser instalado como root**. Crie e use um usuário dedicado:
+
+```bash
+sudo useradd -m -s /bin/bash siscan
+sudo passwd siscan
+sudo usermod -aG docker siscan
+sudo su - siscan
+```
+
+Todos os passos da instalação devem ser executados como esse usuário.
 
 ### Servidor de aplicação
 
@@ -79,7 +92,7 @@ O servidor do parceiro **nunca recebe código-fonte** — apenas a imagem pré-c
 | Docker Engine | ≥ 28.x (não Docker Desktop) | `docker version` — deve mostrar `Server: Docker Engine` |
 | Docker Compose | ≥ 2.37 | `docker compose version` |
 | git | qualquer versão recente | `git --version` |
-| Conectividade de saída HTTPS | `github.com` e `ghcr.io` porta 443 | `curl -s -o /dev/null -w "%{http_code}" https://ghcr.io` deve retornar `200` ou `301` |
+| Conectividade de saída HTTPS | `github.com` e `ghcr.io` porta 443 | `curl -Iv https://github.com` — handshake TLS deve completar. Falha de handshake indica firewall/proxy bloqueando — ver [Problema 3 no TROUBLESHOOTING.md](TROUBLESHOOTING.md#problema-3--falha-tls-ao-conectar-ao-github-handshake-interrompido) |
 
 ### Servidor de banco de dados (externo)
 
@@ -96,7 +109,18 @@ psql -h <DATABASE_HOST> -U siscan_rpa -c "SELECT version();"
 
 ### Token de registro do runner
 
-Obter antes de executar o script: GitHub → repositório `siscan-rpa` → Settings → Actions → Runners → **New self-hosted runner** → copiar o token de registro.
+O token é gerado em:
+**[GitHub → Prisma-Consultoria/siscan-rpa → Settings → Actions → Runners → New self-hosted runner](https://github.com/Prisma-Consultoria/siscan-rpa/settings/actions/runners/new)**
+
+Na tela que abrir, selecione **Linux**. O token aparece embutido na linha de configuração:
+
+```
+./config.sh --url https://github.com/Prisma-Consultoria/siscan-rpa --token <TOKEN>
+```
+
+Copie apenas o valor do `--token`. O script pedirá esse valor interativamente na Fase 6.
+
+>  ⚠️  O token expira em poucos minutos. Gere-o imediatamente antes de executar o script.
 
 ---
 
@@ -110,11 +134,47 @@ cd assistente-siscan-rpa
 bash ./siscan-server-setup.sh
 ```
 
-O script percorre 8 fases em sequência — detalhadas na seção [Fases do script](#fases-do-script) abaixo.
+> **Diretório da stack diferente de `/opt`?** Se o servidor usar outro caminho (ex.: `/app`), passe a variável antes do script:
+> ```bash
+> COMPOSE_DIR=/app/siscan-rpa bash ./siscan-server-setup.sh
+> ```
+
+O script percorre 8 fases em sequência. As perguntas interativas e os valores esperados estão na tabela abaixo — detalhes de cada fase na seção [Fases do script](#fases-do-script).
+
+### Respostas esperadas no menu interativo
+
+| Fase | Pergunta | Valor esperado |
+|---|---|---|
+| 4 | `DATABASE_HOST` | IP ou hostname do PostgreSQL externo (ex.: `192.168.1.10`) |
+| 4 | `DATABASE_PASSWORD` | Senha do banco PostgreSQL |
+| 4 | `HOST_LOG_DIR` | `/app/siscan-rpa/logs` (ou `/opt/siscan-rpa/logs`) |
+| 4 | `HOST_SISCAN_REPORTS_INPUT_DIR` | `/app/siscan-rpa/media/downloads` |
+| 4 | `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR` | `/app/siscan-rpa/media/reports/mamografia/consolidated` |
+| 4 | `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR` | `/app/siscan-rpa/media/reports/mamografia/consolidated/laudos` |
+| 4 | `HOST_CONFIG_DIR` | `/app/siscan-rpa/config` |
+| 6 | `URL do repositório` | `https://github.com/Prisma-Consultoria/siscan-rpa` |
+| 6 | `Token de registro` | token copiado da tela do GitHub (ver pré-requisitos) |
+
+> `SECRET_KEY` é gerada automaticamente — não pergunta.
 
 ---
 
 ## Fases do script
+
+### Pré-requisito: executar como usuário não-root
+
+O GitHub Actions runner **recusa instalação como root** por segurança — ele executa código vindo do GitHub Actions e, se rodasse como root, qualquer workflow poderia comprometer o servidor inteiro. Com um usuário dedicado, o acesso fica isolado.
+
+Antes de executar o script, crie o usuário e mude para ele:
+
+```bash
+sudo useradd -m -s /bin/bash siscan
+sudo passwd siscan
+sudo usermod -aG docker siscan
+sudo su - siscan
+```
+
+Todos os passos abaixo devem ser executados como esse usuário. O script falha na Fase 1 com mensagem clara caso seja iniciado como root.
 
 ### Fase 1 — Verificação de pré-requisitos
 
@@ -159,7 +219,7 @@ Cria o `.env` a partir do `.env.server.sample`. Em seguida, solicita **interativ
 | `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR` | Idem |
 | `HOST_CONFIG_DIR` | Idem |
 
-Caminhos com formato Windows (letra de drive, barras invertidas, UNC) são detectados e o script exibe sugestão de caminho Linux equivalente. A seção [Referência de variáveis](#referência-de-variáveis--env) abaixo documenta todos os valores e seus defaults.
+>  ⚠️  Caminhos com formato Windows (letra de drive, barras invertidas, UNC) são detectados e o script exibe sugestão de caminho Linux equivalente. A seção [Referência de variáveis](#referência-de-variáveis--env) abaixo documenta todos os valores e seus defaults.
 
 ---
 
@@ -176,13 +236,11 @@ Se o runner ainda não estiver instalado (`~/actions-runner/config.sh` ausente):
 1. Detecta a arquitetura do servidor (`x86_64` → `x64`, `aarch64` → `arm64`).
 2. Consulta a versão mais recente do runner via API do GitHub.
 3. Baixa e extrai o tarball oficial.
-4. Solicita interativamente a **URL do repositório** e o **token de registro** (obtido nos pré-requisitos).
+4. Solicita interativamente a **URL do repositório** e o **token de registro** (ver [pré-requisitos](#token-de-registro-do-runner)).
 5. Registra o runner com label `producao-cliente` e nome `<hostname>-siscan-rpa`.
 6. Instala e inicia o runner como **serviço systemd** (via `svc.sh install` + `svc.sh start`).
 
 Se o runner já estiver instalado, verifica se o serviço está ativo e exibe os comandos para iniciar se necessário.
-
-> O token de registro expira em poucos minutos. Tenha-o em mãos imediatamente antes de executar o script.
 
 ---
 
@@ -190,7 +248,7 @@ Se o runner já estiver instalado, verifica se o serviço está ativo e exibe os
 
 Verifica se o usuário atual pertence ao grupo `docker`. Se não pertencer, executa `sudo usermod -aG docker $USER`.
 
-> **Atenção:** a mudança de grupo só tem efeito após logout/login na sessão de terminal. O serviço do runner, por ser gerenciado pelo systemd, já inicia com o grupo correto sem necessidade de reiniciar a sessão.
+>  ⚠️  **Atenção:** a mudança de grupo só tem efeito após logout/login na sessão de terminal. O serviço do runner, por ser gerenciado pelo systemd, já inicia com o grupo correto sem necessidade de reiniciar a sessão.
 
 ---
 
@@ -218,7 +276,7 @@ O `siscan-server-setup.sh` cria o `.env` na fase 4 a partir do `.env.server.samp
 
 Variáveis que raramente precisam de ajuste (pool de conexões, timeouts, workers, scripts externos e variáveis fixas no compose) estão agrupadas em [Configurações avançadas](#configurações-avançadas).
 
-> **Credenciais SISCAN** são configuradas pela interface web após o primeiro start: `http://<IP-DO-SERVIDOR>:<HOST_APP_EXTERNAL_PORT>/admin/siscan-credentials`
+>  ⚠️  **Credenciais SISCAN** são configuradas pela interface web após o primeiro start: `http://<IP-DO-SERVIDOR>:<HOST_APP_EXTERNAL_PORT>/admin/siscan-credentials`
 
 ### Aplicação HTTP
 

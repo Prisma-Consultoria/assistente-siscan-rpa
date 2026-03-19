@@ -225,7 +225,28 @@ HOST_LOG_DIR=C:/siscan-rpa/logs
 
 ## Problemas específicos — Modo Servidor
 
-### Problema 1 — Falha de conexão com o banco de dados externo
+### Problema 1 — Pool de endereços Docker esgotado ao criar rede
+
+Sintoma: deploy falha com:
+```
+failed to create network siscan-rpa_default: Error response from daemon: all predefined address pools have been fully subnetted
+```
+
+O Docker esgotou os blocos de IP disponíveis no pool padrão de redes bridge (172.16.0.0/12). Ocorre quando há muitas redes antigas não utilizadas acumuladas no servidor.
+
+#### Solução
+
+```bash
+# Remover todas as redes Docker sem containers associados
+docker network prune
+```
+
+Confirme com `y`. Em seguida, acione o deploy manualmente:
+**GitHub → repositório `siscan-rpa` → Actions → CD — Deploy Produção → Run workflow**
+
+---
+
+### Problema 2 — Falha de conexão com o banco de dados externo
 
 Sintoma: container `migrate` falha no boot; logs mostram `could not connect to server` ou `connection refused`.
 
@@ -253,7 +274,66 @@ Sintoma: deploys via GitHub Actions ficam aguardando runner; GitHub mostra runne
 
 ---
 
-### Problema 3 — Permissões Linux nos diretórios `HOST_*`
+### Problema 3 — Falha TLS ao conectar ao GitHub (handshake interrompido)
+
+Sintoma: `curl -Iv https://github.com` conecta na porta 443 mas o handshake TLS falha:
+
+```
+* Connected to github.com (x.x.x.x) port 443
+* TLSv1.3 (OUT), TLS handshake, Client hello (1):
+* OpenSSL SSL_connect: SSL_ERROR_SYSCALL in connection to github.com:443
+curl: (35) OpenSSL SSL_connect: SSL_ERROR_SYSCALL in connection to github.com:443
+```
+
+A conexão TCP é estabelecida com sucesso, mas o servidor (ou um intermediário) encerra o handshake TLS abruptamente antes de responder.
+
+#### Interpretação técnica
+
+| Diagnóstico | Resultado |
+|---|---|
+| DNS resolve `github.com` | ✔ |
+| TCP conecta na porta 443 | ✔ |
+| Cliente envia `ClientHello` TLS | ✔ |
+| Servidor responde ao handshake | ❌ |
+
+#### Causas mais prováveis (em ordem de probabilidade)
+
+| # | Causa | Indicador |
+|---|---|---|
+| 1 | Firewall ou WAF da rede bloqueando/interceptando TLS para `github.com` | Ocorre apenas de dentro da rede do parceiro |
+| 2 | Proxy corporativo obrigatório não configurado na VM | VM tenta conexão direta, que é bloqueada |
+| 3 | Inspeção SSL por proxy sem certificado confiável instalado | Proxy injeta certificado próprio não reconhecido pelo `ca-certificates` do sistema |
+| 4 | Bloqueio seletivo por IP de `github.com` | Outros domínios HTTPS funcionam normalmente |
+
+#### Diagnóstico
+
+```bash
+# Testar se outros domínios HTTPS funcionam
+curl -Iv https://google.com
+
+# Verificar se há proxy configurado no sistema
+env | grep -i proxy
+
+# Testar com proxy explícito (se houver)
+curl -Iv --proxy http://<PROXY_HOST>:<PORTA> https://github.com
+
+# Verificar política de firewall de saída
+sudo iptables -L OUTPUT -n | grep -E "443|DROP|REJECT"
+```
+
+#### Solução
+
+A resolução depende da infraestrutura do parceiro:
+
+- **Proxy corporativo**: configurar `https_proxy` e `http_proxy` na sessão e/ou no serviço do runner
+- **Firewall bloqueando `github.com`**: solicitar liberação das saídas HTTPS para `github.com` e `ghcr.io` (porta 443)
+- **Inspeção SSL**: instalar o certificado da CA corporativa no sistema (`update-ca-certificates`)
+
+> ⚠️ O runner e o `docker pull` do GHCR precisam de acesso HTTPS de saída para `github.com` e `ghcr.io`. Sem isso, o setup e os deploys automáticos não funcionam.
+
+---
+
+### Problema 4 — Permissões Linux nos diretórios `HOST_*`
 
 Sintoma: `PermissionError` nos logs; container não consegue escrever nos diretórios bind-montados.
 
