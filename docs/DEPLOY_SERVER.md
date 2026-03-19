@@ -73,6 +73,7 @@ O GitHub Actions runner **não pode ser instalado como root**. Crie e use um usu
 
 ```bash
 sudo useradd -m -s /bin/bash siscan
+sudo passwd siscan
 sudo usermod -aG docker siscan
 sudo su - siscan
 ```
@@ -168,6 +169,7 @@ Antes de executar o script, crie o usuário e mude para ele:
 
 ```bash
 sudo useradd -m -s /bin/bash siscan
+sudo passwd siscan
 sudo usermod -aG docker siscan
 sudo su - siscan
 ```
