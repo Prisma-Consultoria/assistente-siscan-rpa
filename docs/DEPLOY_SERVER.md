@@ -67,19 +67,6 @@ flowchart TD
 
 ## Pré-requisitos
 
-### Usuário dedicado
-
-O GitHub Actions runner **não pode ser instalado como root**. Crie e use um usuário dedicado:
-
-```bash
-sudo useradd -m -s /bin/bash siscan
-sudo passwd siscan
-sudo usermod -aG docker siscan
-sudo su - siscan
-```
-
-Todos os passos da instalação devem ser executados como esse usuário.
-
 ### Servidor de aplicação
 
 | Requisito | Mínimo | Verificação |
@@ -161,20 +148,14 @@ O script percorre 8 fases em sequência. As perguntas interativas e os valores e
 
 ## Fases do script
 
-### Pré-requisito: executar como usuário não-root
+### Sobre o usuário de execução
 
 O GitHub Actions runner **recusa instalação como root** por segurança — ele executa código vindo do GitHub Actions e, se rodasse como root, qualquer workflow poderia comprometer o servidor inteiro. Com um usuário dedicado, o acesso fica isolado.
 
-Antes de executar o script, crie o usuário e mude para ele:
+O script trata isso automaticamente na Fase 2:
 
-```bash
-sudo useradd -m -s /bin/bash siscan
-sudo passwd siscan
-sudo usermod -aG docker siscan
-sudo su - siscan
-```
-
-Todos os passos abaixo devem ser executados como esse usuário. O script falha na Fase 1 com mensagem clara caso seja iniciado como root.
+- **Executado como root** — o script cria o usuário `siscan`, define a senha interativamente, adiciona ao grupo `docker` e se re-executa como esse usuário. Nenhuma ação manual é necessária.
+- **Executado como usuário não-root** — o script confirma o usuário atual e prossegue normalmente.
 
 ### Fase 1 — Verificação de pré-requisitos
 
@@ -191,7 +172,9 @@ O script **não prossegue** se algum desses itens estiver ausente.
 
 ### Diagnóstico contínuo via workflow
 
-Após o setup, cada execução do workflow de CD inclui um **job de diagnóstico** que roda automaticamente no servidor antes do deploy. Ele verifica os mesmos pré-requisitos acima e gera um relatório completo disponível para download em:
+> **Somente após a Fase 6 (runner instalado e registrado).** Em um servidor novo, o diagnóstico não executa até o runner estar ativo. A primeira coleta ocorre na primeira execução do workflow de CD após o setup completo — seja por um merge para `main` ou via `Run workflow` manual.
+
+Após o setup, cada execução do workflow de CD inclui um **job de diagnóstico** que roda automaticamente no servidor antes do deploy. Ele gera um relatório completo disponível para download em:
 
 **GitHub → siscan-rpa → Actions → run → Artifacts → `diagnostico-servidor-<N>`**
 
