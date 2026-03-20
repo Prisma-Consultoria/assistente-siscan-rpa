@@ -62,6 +62,8 @@ cd assistente-siscan-rpa
 bash ./siscan-assistente.sh
 ```
 
+> ℹ️  Na primeira execução (Linux), o script define automaticamente a variável `DIR_SISCAN_ASSISTENTE` apontando para o diretório onde o repositório foi clonado. Ela é persistida no `.env` do compose e em `/etc/environment`, sobrevivendo a reinicializações.
+
 Para resetar as credenciais (ex.: token expirou):
 
 ```powershell

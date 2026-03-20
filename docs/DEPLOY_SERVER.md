@@ -126,7 +126,7 @@ bash ./siscan-server-setup.sh
 > COMPOSE_DIR=/app/siscan-rpa bash ./siscan-server-setup.sh
 > ```
 
-O script percorre 8 fases em sequência. As perguntas interativas e os valores esperados estão na tabela abaixo — detalhes de cada fase na seção [Fases do script](#fases-do-script).
+O script percorre 9 fases em sequência. As perguntas interativas e os valores esperados estão na tabela abaixo — detalhes de cada fase na seção [Fases do script](#fases-do-script).
 
 ### Respostas esperadas no menu interativo
 
@@ -182,6 +182,7 @@ O relatório cobre:
 
 | Verificação | O que é checado |
 |---|---|
+| `DIR_SISCAN_ASSISTENTE` | Verifica se a variável está definida no ambiente do runner (lida do `~/actions-runner/.env`) e se o diretório existe |
 | Usuário e permissões | `whoami`, `id`, permissões do `COMPOSE_DIR`, `.env` e compose file |
 | Sistema operacional | `lsb_release`, CPUs, memória, disco |
 | Docker | Versão do Engine e Compose, `daemon.json`, redes existentes e sub-redes |
@@ -259,9 +260,32 @@ Verifica se o usuário atual pertence ao grupo `docker`. Se não pertencer, exec
 
 ---
 
-### Fase 8 — Resumo e próximos passos
+### Fase 8 — Persistir `DIR_SISCAN_ASSISTENTE`
 
-Exibe um resumo do que foi configurado (diretórios, compose, `.env`, runner, label) e os próximos passos:
+O script resolve automaticamente o diretório raiz do assistente (onde o repositório foi clonado) e persiste a variável `DIR_SISCAN_ASSISTENTE` em **três locais**:
+
+| Local | Para quem serve | Sobrevive a reboot? |
+|---|---|---|
+| `${COMPOSE_DIR}/.env` | `docker compose` — interpola a variável nos compose files | Sim |
+| `${RUNNER_DIR}/.env` | Jobs do GitHub Actions (diagnóstico e deploy) | Sim |
+| `/etc/environment` | Sessões interativas de qualquer usuário (root, siscan, etc.) | Sim |
+
+Cada parceiro pode clonar o repositório em qualquer caminho (ex.: `/app/assistente-siscan-rpa`, `/opt/siscan-rpa`, `/home/siscan/assistente`). O script detecta o caminho automaticamente e o propaga para os três destinos sem intervenção manual.
+
+>  ⚠️  **Por que o `.env` do runner?** O GitHub Actions runner roda como serviço systemd e **não carrega** `~/.bashrc` nem `/etc/environment`. O único mecanismo para injetar variáveis de ambiente nos jobs é o arquivo `.env` dentro do diretório do runner (`~/actions-runner/.env`). Sem essa entrada, os jobs de diagnóstico e deploy não conseguem localizar o diretório da stack.
+
+Se o runner já estiver instalado mas a variável não estiver configurada (ex.: servidor configurado antes desta atualização), execute manualmente:
+
+```bash
+echo 'DIR_SISCAN_ASSISTENTE=/caminho/do/assistente' >> ~/actions-runner/.env
+sudo ~/actions-runner/svc.sh stop && sudo ~/actions-runner/svc.sh start
+```
+
+---
+
+### Fase 9 — Resumo e próximos passos
+
+Exibe um resumo do que foi configurado (diretórios, compose, `.env`, runner, label, `DIR_SISCAN_ASSISTENTE`) e os próximos passos:
 
 1. Revisar o `.env` em `/opt/siscan-rpa/.env`.
 2. Confirmar que o runner aparece como **Idle** em GitHub → Settings → Actions → Runners.
@@ -284,6 +308,14 @@ O `siscan-server-setup.sh` cria o `.env` na fase 4 a partir do `.env.server.samp
 Variáveis que raramente precisam de ajuste (pool de conexões, timeouts, workers, scripts externos e variáveis fixas no compose) estão agrupadas em [Configurações avançadas](#configurações-avançadas).
 
 >  ⚠️  **Credenciais SISCAN** são configuradas pela interface web após o primeiro start: `http://<IP-DO-SERVIDOR>:<HOST_APP_EXTERNAL_PORT>/admin/siscan-credentials`
+
+### Variável de ambiente do assistente
+
+| Variável | Definida por | Onde é persistida | Obrigatória? | O que faz / Impacto |
+|---|---|---|---|---|
+| `DIR_SISCAN_ASSISTENTE` | `siscan-server-setup.sh` (Fase 8) | `.env` do compose, `.env` do runner, `/etc/environment` | **Sim** | Caminho raiz do repositório `assistente-siscan-rpa` no servidor. Usada pelo workflow de CD (diagnóstico e deploy) para localizar o compose file e o `.env`. Sem ela, o deploy falha. |
+
+>  ℹ️  O valor é resolvido automaticamente pelo `siscan-server-setup.sh` a partir do diretório onde o script foi executado — não precisa ser preenchido manualmente.
 
 ### Aplicação HTTP
 
