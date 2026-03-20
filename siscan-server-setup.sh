@@ -10,7 +10,6 @@
 #   bash ./siscan-server-setup.sh
 #
 # Variáveis de ambiente opcionais:
-#   COMPOSE_DIR    Diretório da stack no servidor (padrão: /opt/siscan-rpa)
 #   RUNNER_DIR     Diretório de instalação do runner (padrão: ~/actions-runner)
 #   RUNNER_LABEL   Label registrada no runner (padrão: producao-cliente)
 #
@@ -18,7 +17,7 @@
 #   - Linux (Ubuntu 22.04+ recomendado)
 #   - Docker Engine >= 24 e Docker Compose >= 2 (plugin)
 #   - curl
-#   - sudo disponível (para criar /opt/siscan-rpa e instalar o runner como serviço)
+#   - sudo disponível (para instalar o runner como serviço)
 #
 # Referência: docs/DEPLOY_AUTOMATICO.md — Opção 1.A Self-hosted Runner
 # -------------------------------------------
@@ -41,14 +40,15 @@ NC='\033[0m'
 # ────────────────────────────────────────────────────────────────────────────
 # Configuração (sobrescrevível via variáveis de ambiente)
 # ────────────────────────────────────────────────────────────────────────────
-COMPOSE_DIR="${COMPOSE_DIR:-/opt/siscan-rpa}"
 RUNNER_DIR="${RUNNER_DIR:-${HOME}/actions-runner}"
 RUNNER_LABEL="${RUNNER_LABEL:-producao-cliente}"
 CURRENT_USER="$(whoami)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# DIR_SISCAN_ASSISTENTE — raiz do Assistente SIScan RPA
-# Exportada para sessão atual e persistida em três locais:
+# DIR_SISCAN_ASSISTENTE — diretório raiz do assistente (onde o repo foi clonado).
+# O .env, o compose file e o config/ ficam todos aqui — é o diretório que o
+# workflow de CD usa para localizar tudo.
+# Persistida em três locais:
 #   1) .env do docker compose  — para docker compose interpolar
 #   2) .env do actions-runner   — para jobs do GitHub Actions enxergarem
 #   3) /etc/environment         — para sessões interativas de qualquer usuário
@@ -70,7 +70,7 @@ _persist_dir_siscan_assistente() {
     }
 
     # 1) .env do docker compose (sem aspas — formato KEY=value)
-    local compose_env="${COMPOSE_DIR}/.env"
+    local compose_env="${SCRIPT_DIR}/.env"
     if [ -f "${compose_env}" ]; then
         _upsert_env_line "${compose_env}" "${marker}${value}"
     fi
@@ -96,7 +96,7 @@ _persist_dir_siscan_assistente() {
 # estar instalado, para que o .env do runner já exista.
 
 COMPOSE_FILE="docker-compose.prd.external-db.yml"
-ENV_FILE="${COMPOSE_DIR}/.env"
+ENV_FILE="${SCRIPT_DIR}/.env"
 
 # ────────────────────────────────────────────────────────────────────────────
 # Helpers de output
@@ -237,7 +237,7 @@ printf "${WHITE}║  Opção 1.A — Self-hosted Runner + Docker Compose   ║${
 printf "${WHITE}╚════════════════════════════════════════════════════╝${NC}\n"
 printf "\n"
 printf "  ${GRAY}Referência: docs/DEPLOY_AUTOMATICO.md — Opção 1.A${NC}\n"
-printf "  ${GRAY}Diretório da stack : %s${NC}\n" "${COMPOSE_DIR}"
+printf "  ${GRAY}Diretório da stack : %s${NC}\n" "${SCRIPT_DIR}"
 printf "  ${GRAY}Diretório do runner: %s${NC}\n" "${RUNNER_DIR}"
 printf "  ${GRAY}Usuário atual      : %s${NC}\n" "${CURRENT_USER}"
 printf "  ${GRAY}Label do runner    : %s${NC}\n" "${RUNNER_LABEL}"
@@ -293,7 +293,7 @@ command -v curl &>/dev/null || fail "curl não encontrado. Instale com: sudo apt
 ok "curl $(curl --version 2>/dev/null | head -1 | awk '{print $2}')"
 
 # sudo
-command -v sudo &>/dev/null || fail "sudo não encontrado. Este script precisa de sudo para criar ${COMPOSE_DIR} e instalar o runner como serviço systemd."
+command -v sudo &>/dev/null || fail "sudo não encontrado. Este script precisa de sudo para instalar o runner como serviço systemd."
 ok "sudo disponível"
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -327,56 +327,40 @@ if [ "$(id -u)" -eq 0 ]; then
 
     info "Re-executando o script como usuário 'siscan'..."
     SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-    exec sudo -u siscan COMPOSE_DIR="${COMPOSE_DIR}" RUNNER_DIR="${RUNNER_DIR}" RUNNER_LABEL="${RUNNER_LABEL}" bash "${SCRIPT_PATH}"
+    exec sudo -u siscan RUNNER_DIR="${RUNNER_DIR}" RUNNER_LABEL="${RUNNER_LABEL}" bash "${SCRIPT_PATH}"
 else
     ok "Usuário não-root: ${CURRENT_USER}"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 3 — Estrutura de diretórios da stack"
+step "FASE 3 — Verificar arquivos da stack"
 # ════════════════════════════════════════════════════════════════════════════
 
-if [ -d "${COMPOSE_DIR}" ]; then
-    ok "${COMPOSE_DIR} já existe"
-else
-    info "Criando ${COMPOSE_DIR}..."
-    sudo mkdir -p "${COMPOSE_DIR}" || fail "Não foi possível criar ${COMPOSE_DIR}. Verifique permissões sudo."
-    ok "${COMPOSE_DIR} criado"
-fi
-
-COMPOSE_DIR_OWNER=$(stat -c '%U' "${COMPOSE_DIR}" 2>/dev/null || echo "")
-if [ "${COMPOSE_DIR_OWNER}" != "${CURRENT_USER}" ]; then
-    info "Ajustando dono de ${COMPOSE_DIR} para ${CURRENT_USER}..."
-    sudo chown "${CURRENT_USER}:${CURRENT_USER}" "${COMPOSE_DIR}" \
-        || warn "Não foi possível alterar o dono de ${COMPOSE_DIR}"
+# Verificar permissões do diretório do assistente
+SCRIPT_DIR_OWNER=$(stat -c '%U' "${SCRIPT_DIR}" 2>/dev/null || echo "")
+if [ "${SCRIPT_DIR_OWNER}" != "${CURRENT_USER}" ]; then
+    info "Ajustando dono de ${SCRIPT_DIR} para ${CURRENT_USER}..."
+    sudo chown -R "${CURRENT_USER}:${CURRENT_USER}" "${SCRIPT_DIR}" \
+        || warn "Não foi possível alterar o dono de ${SCRIPT_DIR}"
     ok "Permissões ajustadas"
 else
-    ok "Permissões de ${COMPOSE_DIR} corretas (dono: ${CURRENT_USER})"
+    ok "Permissões de ${SCRIPT_DIR} corretas (dono: ${CURRENT_USER})"
 fi
 
-# ════════════════════════════════════════════════════════════════════════════
-step "FASE 4 — Arquivos da stack"
-# ════════════════════════════════════════════════════════════════════════════
-
 # docker-compose.prd.external-db.yml
-COMPOSE_FILE_PATH="${COMPOSE_DIR}/${COMPOSE_FILE}"
+COMPOSE_FILE_PATH="${SCRIPT_DIR}/${COMPOSE_FILE}"
 if [ -f "${COMPOSE_FILE_PATH}" ]; then
     ok "${COMPOSE_FILE} presente"
 else
-    # Tentar copiar do diretório do script (se distribuídos juntos)
-    if [ -f "${SCRIPT_DIR}/${COMPOSE_FILE}" ]; then
-        cp "${SCRIPT_DIR}/${COMPOSE_FILE}" "${COMPOSE_FILE_PATH}"
-        ok "${COMPOSE_FILE} copiado de ${SCRIPT_DIR}"
-    else
-        printf "\n${RED}  ARQUIVO OBRIGATÓRIO AUSENTE: %s${NC}\n\n" "${COMPOSE_FILE}"
-        printf "  Coloque o arquivo fornecido pela equipe Prisma Educação em:\n"
-        printf "  ${CYAN}%s${NC}\n\n" "${COMPOSE_FILE_PATH}"
-        fail "Execute o script novamente após colocar ${COMPOSE_FILE} em ${COMPOSE_DIR}"
-    fi
+    printf "\n${RED}  ARQUIVO OBRIGATÓRIO AUSENTE: %s${NC}\n\n" "${COMPOSE_FILE}"
+    printf "  O arquivo deveria estar no repositório clonado.\n"
+    printf "  Verifique se o clone foi feito corretamente:\n"
+    printf "  ${CYAN}git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git${NC}\n\n"
+    fail "${COMPOSE_FILE} não encontrado em ${SCRIPT_DIR}"
 fi
 
 # config/
-CONFIG_DIR="${COMPOSE_DIR}/config"
+CONFIG_DIR="${SCRIPT_DIR}/config"
 if [ -d "${CONFIG_DIR}" ]; then
     ok "config/ presente"
     MAPPING_FILE="${CONFIG_DIR}/excel_columns_mapping.json"
@@ -386,18 +370,12 @@ if [ -d "${CONFIG_DIR}" ]; then
         ok "excel_columns_mapping.json presente"
     fi
 else
-    # Tentar copiar do diretório do script
-    if [ -d "${SCRIPT_DIR}/config" ]; then
-        cp -r "${SCRIPT_DIR}/config" "${CONFIG_DIR}"
-        ok "config/ copiado de ${SCRIPT_DIR}"
-    else
-        mkdir -p "${CONFIG_DIR}"
-        warn "config/ criado vazio — coloque excel_columns_mapping.json antes de iniciar a stack"
-    fi
+    mkdir -p "${CONFIG_DIR}"
+    warn "config/ criado vazio — coloque excel_columns_mapping.json antes de iniciar a stack"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 5 — Configuração do .env"
+step "FASE 4 — Configuração do .env"
 # ════════════════════════════════════════════════════════════════════════════
 
 # Criar .env a partir do sample se não existir
@@ -405,9 +383,7 @@ if [ ! -f "${ENV_FILE}" ]; then
     # Procurar sample em ordem de preferência
     ENV_SAMPLE=""
     for candidate in \
-        "${COMPOSE_DIR}/.env.server.sample" \
         "${SCRIPT_DIR}/.env.server.sample" \
-        "${COMPOSE_DIR}/.env.host.sample" \
         "${SCRIPT_DIR}/.env.host.sample"; do
         if [ -f "${candidate}" ]; then
             ENV_SAMPLE="${candidate}"
@@ -541,13 +517,13 @@ for var in "${HOST_PATH_VARS[@]}"; do
 done
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 6 — Criação dos diretórios HOST_*"
+step "FASE 5 — Criação dos diretórios HOST_*"
 # ════════════════════════════════════════════════════════════════════════════
 
 ensure_host_paths "${ENV_FILE}"
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 7 — GitHub Actions Runner"
+step "FASE 6 — GitHub Actions Runner"
 # ════════════════════════════════════════════════════════════════════════════
 
 RUNNER_ALREADY_INSTALLED=false
@@ -650,7 +626,7 @@ else
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 8 — Permissões Docker"
+step "FASE 7 — Permissões Docker"
 # ════════════════════════════════════════════════════════════════════════════
 
 if id -nG "${CURRENT_USER}" 2>/dev/null | grep -qw docker; then
@@ -666,12 +642,12 @@ else
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 8.5 — Persistir DIR_SISCAN_ASSISTENTE"
+step "FASE 8 — Persistir DIR_SISCAN_ASSISTENTE"
 # ════════════════════════════════════════════════════════════════════════════
 
 info "DIR_SISCAN_ASSISTENTE=${DIR_SISCAN_ASSISTENTE}"
 _persist_dir_siscan_assistente
-ok ".env do compose: ${COMPOSE_DIR}/.env"
+ok ".env do compose: ${SCRIPT_DIR}/.env"
 if [ -d "${RUNNER_DIR}" ]; then
     ok ".env do runner:  ${RUNNER_DIR}/.env"
 else
@@ -686,8 +662,8 @@ step "FASE 9 — Resumo e próximos passos"
 printf "  ${GREEN}Setup concluído!${NC}\n\n"
 
 printf "  ${WHITE}O que foi configurado:${NC}\n"
-ok "Stack:      ${COMPOSE_DIR}"
-ok "Compose:    ${COMPOSE_DIR}/${COMPOSE_FILE}"
+ok "Stack:      ${SCRIPT_DIR}"
+ok "Compose:    ${SCRIPT_DIR}/${COMPOSE_FILE}"
 ok "Env:        ${ENV_FILE}"
 ok "Runner:     ${RUNNER_DIR}"
 ok "Label:      ${RUNNER_LABEL}"
@@ -712,15 +688,15 @@ printf "  5. Para acompanhar os logs do runner:\n"
 printf "     ${CYAN}journalctl -u actions.runner.*.service -f${NC}\n\n"
 
 printf "  6. Para acompanhar os logs da stack após o primeiro deploy:\n"
-printf "     ${CYAN}docker compose -f %s/%s logs -f${NC}\n\n" "${COMPOSE_DIR}" "${COMPOSE_FILE}"
+printf "     ${CYAN}docker compose -f %s/%s logs -f${NC}\n\n" "${SCRIPT_DIR}" "${COMPOSE_FILE}"
 
 printf "  ${GRAY}Referência completa: docs/DEPLOY_AUTOMATICO.md — Opção 1.A${NC}\n\n"
 
 printf "${CYAN}══════════════════════════════════════════════════${NC}\n"
 printf "  ${WHITE}Você está em:${NC} $(pwd)\n"
-printf "  ${WHITE}Diretório da stack:${NC} ${COMPOSE_DIR}\n"
+printf "  ${WHITE}Diretório da stack:${NC} ${SCRIPT_DIR}\n"
 printf "${CYAN}══════════════════════════════════════════════════${NC}\n\n"
 printf "  Para ir ao diretório da stack:\n"
-printf "  ${CYAN}cd %s${NC}\n\n" "${COMPOSE_DIR}"
+printf "  ${CYAN}cd %s${NC}\n\n" "${SCRIPT_DIR}"
 
 fi # fim do guard BASH_SOURCE

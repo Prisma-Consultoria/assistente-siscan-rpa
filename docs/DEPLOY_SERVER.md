@@ -121,10 +121,7 @@ cd assistente-siscan-rpa
 bash ./siscan-server-setup.sh
 ```
 
-> **Diretório da stack diferente de `/opt`?** Se o servidor usar outro caminho (ex.: `/app`), passe a variável antes do script:
-> ```bash
-> COMPOSE_DIR=/app/siscan-rpa bash ./siscan-server-setup.sh
-> ```
+> **O diretório da stack é o próprio diretório onde o repositório foi clonado.** Clone no local desejado (ex.: `/app/assistente-siscan-rpa`, `/opt/siscan-rpa`) — o `.env`, o compose file e os configs ficarão todos lá.
 
 O script percorre 9 fases em sequência. As perguntas interativas e os valores esperados estão na tabela abaixo — detalhes de cada fase na seção [Fases do script](#fases-do-script).
 
@@ -164,7 +161,7 @@ Verifica se os seguintes componentes estão disponíveis e funcionando:
 - **Docker Engine**: checa `docker info` (daemon rodando, usuário com acesso ao socket). Se falhar, o script diagnostica a causa — serviço parado, usuário fora do grupo `docker` ou socket ausente — e exibe o comando correto para resolver.
 - **Docker Compose v2** (plugin): checa `docker compose version`.
 - **curl**: necessário para baixar o runner.
-- **sudo**: necessário para criar o `COMPOSE_DIR` e instalar o runner como serviço systemd.
+- **sudo**: necessário para instalar o runner como serviço systemd.
 
 O script **não prossegue** se algum desses itens estiver ausente.
 
@@ -183,7 +180,7 @@ O relatório cobre:
 | Verificação | O que é checado |
 |---|---|
 | `DIR_SISCAN_ASSISTENTE` | Verifica se a variável está definida no ambiente do runner (lida do `~/actions-runner/.env`) e se o diretório existe |
-| Usuário e permissões | `whoami`, `id`, permissões do `COMPOSE_DIR`, `.env` e compose file |
+| Usuário e permissões | `whoami`, `id`, permissões do diretório do assistente, `.env` e compose file |
 | Sistema operacional | `lsb_release`, CPUs, memória, disco |
 | Docker | Versão do Engine e Compose, `daemon.json`, redes existentes e sub-redes |
 | Criação de rede | Testa `docker network create` manualmente para confirmar se o daemon consegue criar redes |
@@ -197,18 +194,13 @@ O relatório fica disponível por **7 dias** após cada execução. Use-o para d
 
 ---
 
-### Fase 2 — Estrutura de diretórios da stack
+### Fase 3 — Verificar arquivos da stack
 
-Cria o diretório principal da stack (`/opt/siscan-rpa` por padrão, sobrescrevível com `COMPOSE_DIR`) via `sudo mkdir -p` se ainda não existir. Em seguida, transfere a propriedade do diretório para o usuário atual (`chown`).
+Verifica que os arquivos necessários estão presentes no diretório do clone:
 
----
-
-### Fase 3 — Arquivos da stack
-
-Copia para `/opt/siscan-rpa/`:
-
-- `docker-compose.prd.external-db.yml` — arquivo de orquestração dos containers `app` e `rpa-scheduler`. Se não estiver no diretório do script, o processo é interrompido com instruções.
-- `config/` — diretório de configurações da aplicação. Se o diretório existir no script, é copiado; caso contrário, é criado vazio com aviso para incluir o `excel_columns_mapping.json` antes de subir a stack.
+- **Permissões** — ajusta o dono do diretório para o usuário atual se necessário.
+- **`docker-compose.prd.external-db.yml`** — deve existir no repositório clonado. Se ausente, o script falha com instruções para verificar o clone.
+- **`config/`** — verifica se o diretório existe e se contém `excel_columns_mapping.json`. Se ausente, cria vazio com aviso.
 
 ---
 
@@ -266,7 +258,7 @@ O script resolve automaticamente o diretório raiz do assistente (onde o reposit
 
 | Local | Para quem serve | Sobrevive a reboot? |
 |---|---|---|
-| `${COMPOSE_DIR}/.env` | `docker compose` — interpola a variável nos compose files | Sim |
+| `.env` (no diretório do assistente) | `docker compose` — interpola a variável nos compose files | Sim |
 | `${RUNNER_DIR}/.env` | Jobs do GitHub Actions (diagnóstico e deploy) | Sim |
 | `/etc/environment` | Sessões interativas de qualquer usuário (root, siscan, etc.) | Sim |
 
@@ -287,12 +279,12 @@ sudo ~/actions-runner/svc.sh stop && sudo ~/actions-runner/svc.sh start
 
 Exibe um resumo do que foi configurado (diretórios, compose, `.env`, runner, label, `DIR_SISCAN_ASSISTENTE`) e os próximos passos:
 
-1. Revisar o `.env` em `/opt/siscan-rpa/.env`.
+1. Revisar o `.env` no diretório do assistente (ex.: `/app/assistente-siscan-rpa/.env`).
 2. Confirmar que o runner aparece como **Idle** em GitHub → Settings → Actions → Runners.
 3. Verificar o serviço: `sudo ~/actions-runner/svc.sh status`.
 4. O próximo merge para `main` acionará o deploy automaticamente; para acionar manualmente: Actions → CD — Deploy Produção → Run workflow.
 5. Acompanhar logs do runner: `journalctl -u actions.runner.*.service -f`.
-6. Após o primeiro deploy, acompanhar logs da stack: `docker compose -f /opt/siscan-rpa/docker-compose.prd.external-db.yml logs -f`.
+6. Após o primeiro deploy, acompanhar logs da stack: `cd <DIR_SISCAN_ASSISTENTE> && docker compose -f docker-compose.prd.external-db.yml logs -f`.
 
 ---
 
