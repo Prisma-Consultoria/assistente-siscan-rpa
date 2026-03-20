@@ -215,7 +215,9 @@ ensure_host_paths() {
         local p
         p="$(_read_env_value "${env_file}" "${v}")"
         [ -z "${p}" ] && { warn "${v} não definido — pulando criação do diretório"; continue; }
-        if mkdir -p "${p}" 2>/dev/null; then
+        if mkdir -p "${p}" 2>/dev/null || sudo mkdir -p "${p}" 2>/dev/null; then
+            # Garantir que o usuário atual seja dono (pode ter sido criado via sudo)
+            sudo chown -R "${CURRENT_USER}:${CURRENT_USER}" "${p}" 2>/dev/null || true
             ok "Diretório: ${p}"
         else
             warn "Não foi possível criar: ${p}"
