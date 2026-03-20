@@ -47,6 +47,54 @@ RUNNER_LABEL="${RUNNER_LABEL:-producao-cliente}"
 CURRENT_USER="$(whoami)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# DIR_SISCAN_ASSISTENTE — raiz do Assistente SIScan RPA
+# Exportada para sessão atual e persistida em três locais:
+#   1) .env do docker compose  — para docker compose interpolar
+#   2) .env do actions-runner   — para jobs do GitHub Actions enxergarem
+#   3) /etc/environment         — para sessões interativas de qualquer usuário
+export DIR_SISCAN_ASSISTENTE="${SCRIPT_DIR}"
+
+_persist_dir_siscan_assistente() {
+    local value="${SCRIPT_DIR}"
+    local marker="DIR_SISCAN_ASSISTENTE="
+
+    # Função auxiliar: grava marker=value num arquivo, atualizando se já existe
+    _upsert_env_line() {
+        local file="${1}" line="${2}"
+        if grep -q "^${marker}" "${file}" 2>/dev/null; then
+            sed -i "s|^${marker}.*|${line}|" "${file}"
+        else
+            printf '\n# Diretório raiz do Assistente SIScan RPA\n%s\n' \
+                "${line}" >> "${file}"
+        fi
+    }
+
+    # 1) .env do docker compose (sem aspas — formato KEY=value)
+    local compose_env="${COMPOSE_DIR}/.env"
+    if [ -f "${compose_env}" ]; then
+        _upsert_env_line "${compose_env}" "${marker}${value}"
+    fi
+
+    # 2) .env do GitHub Actions runner (sem aspas — formato KEY=value)
+    local runner_env="${RUNNER_DIR}/.env"
+    if [ -d "${RUNNER_DIR}" ]; then
+        touch "${runner_env}" 2>/dev/null || true
+        _upsert_env_line "${runner_env}" "${marker}${value}"
+    fi
+
+    # 3) /etc/environment (com aspas — formato KEY="value")
+    local etc_env="/etc/environment"
+    if [ -w "${etc_env}" ] 2>/dev/null || command -v sudo &>/dev/null; then
+        if grep -q "^${marker}" "${etc_env}" 2>/dev/null; then
+            sudo sed -i "s|^${marker}.*|${marker}\"${value}\"|" "${etc_env}" 2>/dev/null || true
+        else
+            echo "${marker}\"${value}\"" | sudo tee -a "${etc_env}" >/dev/null 2>/dev/null || true
+        fi
+    fi
+}
+# Nota: _persist_dir_siscan_assistente é chamada na FASE 8.5, após o runner
+# estar instalado, para que o .env do runner já exista.
+
 COMPOSE_FILE="docker-compose.prd.external-db.yml"
 ENV_FILE="${COMPOSE_DIR}/.env"
 
@@ -618,17 +666,32 @@ else
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
+step "FASE 8.5 — Persistir DIR_SISCAN_ASSISTENTE"
+# ════════════════════════════════════════════════════════════════════════════
+
+info "DIR_SISCAN_ASSISTENTE=${DIR_SISCAN_ASSISTENTE}"
+_persist_dir_siscan_assistente
+ok ".env do compose: ${COMPOSE_DIR}/.env"
+if [ -d "${RUNNER_DIR}" ]; then
+    ok ".env do runner:  ${RUNNER_DIR}/.env"
+else
+    warn "Runner não encontrado em ${RUNNER_DIR} — configure manualmente: echo 'DIR_SISCAN_ASSISTENTE=${DIR_SISCAN_ASSISTENTE}' >> <RUNNER_DIR>/.env"
+fi
+ok "/etc/environment"
+
+# ════════════════════════════════════════════════════════════════════════════
 step "FASE 9 — Resumo e próximos passos"
 # ════════════════════════════════════════════════════════════════════════════
 
 printf "  ${GREEN}Setup concluído!${NC}\n\n"
 
 printf "  ${WHITE}O que foi configurado:${NC}\n"
-ok "Stack:   ${COMPOSE_DIR}"
-ok "Compose: ${COMPOSE_DIR}/${COMPOSE_FILE}"
-ok "Env:     ${ENV_FILE}"
-ok "Runner:  ${RUNNER_DIR}"
-ok "Label:   ${RUNNER_LABEL}"
+ok "Stack:      ${COMPOSE_DIR}"
+ok "Compose:    ${COMPOSE_DIR}/${COMPOSE_FILE}"
+ok "Env:        ${ENV_FILE}"
+ok "Runner:     ${RUNNER_DIR}"
+ok "Label:      ${RUNNER_LABEL}"
+ok "Assistente: DIR_SISCAN_ASSISTENTE=${DIR_SISCAN_ASSISTENTE}"
 
 printf "\n  ${WHITE}Próximos passos:${NC}\n\n"
 
