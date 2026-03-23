@@ -113,34 +113,61 @@ Copie apenas o valor do `--token`. O script pedirá esse valor interativamente n
 
 ## Instalação (`siscan-server-setup.sh`)
 
-O script executa **uma única vez** de forma interativa. Execute:
+O script executa **uma única vez** de forma interativa. O flag `--product` seleciona qual aplicação será instalada na VM. Em uma infraestrutura com 3 VMs, execute o script uma vez em cada VM com o produto correspondente.
 
 ```bash
 git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git
 cd assistente-siscan-rpa
-bash ./siscan-server-setup.sh
+
+# VM do RPA:
+bash ./siscan-server-setup.sh --product rpa
+
+# VM do Dashboard:
+bash ./siscan-server-setup.sh --product dashboard
+
+# Sem --product: o script pergunta interativamente.
 ```
 
-> **Diretório da stack diferente de `/opt`?** Se o servidor usar outro caminho (ex.: `/app`), passe a variável antes do script:
-> ```bash
-> COMPOSE_DIR=/app/siscan-rpa bash ./siscan-server-setup.sh
-> ```
+A tabela a seguir descreve o que cada produto configura automaticamente.
 
-O script percorre 8 fases em sequência. As perguntas interativas e os valores esperados estão na tabela abaixo — detalhes de cada fase na seção [Fases do script](#fases-do-script).
+| Aspecto | `--product rpa` | `--product dashboard` |
+|---|---|---|
+| Compose file | `docker-compose.prd.external-db.yml` | `docker-compose.prd.dashboard.yml` |
+| .env sample | `.env.server.sample` | `.env.server-dashboard.sample` |
+| Runner label | `producao-rpa` | `producao-dashboard` |
+| Runner name | `<hostname>-siscan-rpa` | `<hostname>-siscan-dashboard` |
+| Diretório padrão | `/opt/siscan-rpa` | `/opt/siscan-dashboard` |
+| Repo URL padrão | `Prisma-Consultoria/siscan-rpa` | `Prisma-Consultoria/siscan-dashboard` |
+| Chave de sessão | `SECRET_KEY` | `SESSION_SECRET` |
+| Variável extra | — | `RPA_DATABASE_URL` (conexão ao banco do RPA) |
+| Diretórios HOST_* | 5 (logs, downloads, consolidated, PDFs, config) | 1 (logs) |
 
-### Respostas esperadas no menu interativo
+O script percorre 9 fases em sequência. As perguntas interativas variam conforme o produto selecionado — detalhes de cada fase na seção [Fases do script](#fases-do-script).
+
+### Respostas esperadas — produto RPA
 
 | Fase | Pergunta | Valor esperado |
 |---|---|---|
 | 4 | `DATABASE_HOST` | IP ou hostname do PostgreSQL externo (ex.: `192.168.1.10`) |
 | 4 | `DATABASE_PASSWORD` | Senha do banco PostgreSQL |
-| 4 | `HOST_LOG_DIR` | `/app/siscan-rpa/logs` (ou `/opt/siscan-rpa/logs`) |
-| 4 | `HOST_SISCAN_REPORTS_INPUT_DIR` | `/app/siscan-rpa/media/downloads` |
-| 4 | `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR` | `/app/siscan-rpa/media/reports/mamografia/consolidated` |
-| 4 | `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR` | `/app/siscan-rpa/media/reports/mamografia/consolidated/laudos` |
-| 4 | `HOST_CONFIG_DIR` | `/app/siscan-rpa/config` |
-| 6 | `URL do repositório` | `https://github.com/Prisma-Consultoria/siscan-rpa` |
+| 4 | `HOST_LOG_DIR` | `/opt/siscan-rpa/logs` |
+| 4 | `HOST_SISCAN_REPORTS_INPUT_DIR` | `/opt/siscan-rpa/media/downloads` |
+| 4 | `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR` | `/opt/siscan-rpa/media/reports/mamografia/consolidated` |
+| 4 | `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR` | `/opt/siscan-rpa/media/reports/mamografia/consolidated/laudos` |
+| 4 | `HOST_CONFIG_DIR` | `/opt/siscan-rpa/config` |
+| 6 | `URL do repositório` | `https://github.com/Prisma-Consultoria/siscan-rpa` (default, Enter para aceitar) |
 | 6 | `Token de registro` | token copiado da tela do GitHub (ver pré-requisitos) |
+
+### Respostas esperadas — produto Dashboard
+
+| Fase | Pergunta | Valor esperado |
+|---|---|---|
+| 4 | `DATABASE_HOST` | IP ou hostname do PostgreSQL (ex.: `192.168.1.10`) |
+| 4 | `DATABASE_PASSWORD` | Senha do banco do dashboard |
+| 4 | `RPA_DATABASE_URL` | `postgresql://siscan_rpa:senha@192.168.1.10:5432/siscan_rpa` |
+| 4 | `HOST_LOG_DIR` | `/opt/siscan-dashboard/logs` |
+| 6 | `URL do repositório` | `https://github.com/Prisma-Consultoria/siscan-dashboard` (default, Enter para aceitar) |
+| 6 | `Token de registro` | token copiado da tela do GitHub |
 
 > `SECRET_KEY` é gerada automaticamente — não pergunta.
 
