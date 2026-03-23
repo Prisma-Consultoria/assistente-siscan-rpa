@@ -1,8 +1,8 @@
-# Guia de Troubleshooting — Assistente SISCAN RPA
+# Guia de Troubleshooting — Assistente SISCAN
 <a name="troubleshooting"></a>
 
-Versão: 3.0
-Data: 2026-03-18
+Versão: 4.0
+Data: 2026-03-23
 
 Os problemas estão organizados em três grupos:
 - **Problemas comuns** — ocorrem em qualquer modo (HOST ou Servidor).
@@ -406,4 +406,49 @@ cd ~/actions-runner && ./svc.sh status > /tmp/runner-status.txt 2>&1
 
 # Chaves do .env (sem valores)
 grep -v '^#' /opt/siscan-rpa/.env | cut -d= -f1 > /tmp/env-keys.txt
+```
+
+---
+
+## Problemas específicos do Dashboard
+
+Esta seção cobre problemas que ocorrem apenas com o produto `dashboard` (modo servidor ou HOST).
+
+### Sync retorna "0 registros" mas o banco do RPA tem dados
+
+O `sync_control` registrou um timestamp posterior aos dados do RPA. Isso acontece quando um backup é restaurado após o primeiro sync. A solução é forçar um sync full via menu (Opção 5) ou via comando:
+
+```bash
+docker compose -f docker-compose.prd.dashboard.yml exec app python -m src.commands.sync_exames --full
+```
+
+### `RPA_DATABASE_URL` inválido ou inacessível
+
+O serviço `sync` falha ao conectar no banco do RPA. Verifique a variável `RPA_DATABASE_URL` no `.env`:
+
+```bash
+# Formato esperado:
+RPA_DATABASE_URL=postgresql://usuario:senha@host:porta/siscan_rpa
+
+# Testar conectividade (de dentro do container):
+docker compose -f docker-compose.prd.dashboard.yml exec app python -c "
+from sqlalchemy import create_engine, text
+import os
+e = create_engine(os.environ['RPA_DATABASE_URL'])
+with e.connect() as c: print(c.execute(text('SELECT count(*) FROM exam_records')).scalar())
+"
+```
+
+### Dashboard mostra "schema_status: outdated"
+
+As migrations do dashboard não foram aplicadas. O serviço `migrate` pode ter falhado. Verifique os logs:
+
+```bash
+docker compose -f docker-compose.prd.dashboard.yml logs migrate
+```
+
+Se necessário, force a migration manualmente:
+
+```bash
+docker compose -f docker-compose.prd.dashboard.yml run --rm app alembic upgrade head
 ```
