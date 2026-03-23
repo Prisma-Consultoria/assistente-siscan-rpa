@@ -1,18 +1,11 @@
 # -----------------------------------------------------------------------------
-# Compose de produção — banco PostgreSQL em servidor separado.
-#
-# Use este arquivo quando o PostgreSQL rodar em outra máquina (container ou
-# serviço gerenciado). O serviço `db` não existe aqui; a aplicação conecta
-# diretamente ao endereço definido em DATABASE_HOST no .env.
+# Compose de produção — siscan-rpa (VM dedicada, banco externo).
 #
 # Uso:
-#   docker compose -f docker-compose.prd.external-db.yml pull
-#   docker compose -f docker-compose.prd.external-db.yml up -d --wait
+#   docker compose -f docker-compose.prd.rpa.yml pull
+#   docker compose -f docker-compose.prd.rpa.yml up -d --wait
 #
-# Diferenças em relação ao docker-compose.prd.host.yml:
-#   - Sem serviço `db` (e sem o volume `siscan-postgres-data`)
-#   - `migrate` conecta direto ao banco externo (sem depends_on de db local)
-#   - DATABASE_HOST não tem fallback para `db`; deve ser definido no .env
+# Sem serviço `db` — conecta ao PostgreSQL externo via DATABASE_HOST.
 # -----------------------------------------------------------------------------
 
 name: siscan-rpa

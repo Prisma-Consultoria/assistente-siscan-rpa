@@ -126,7 +126,7 @@ A tabela a seguir descreve o que cada produto configura automaticamente.
 
 | Aspecto | `--product rpa` | `--product dashboard` |
 |---|---|---|
-| Compose file | `docker-compose.prd.external-db.yml` | `docker-compose.prd.dashboard.yml` |
+| Compose file | `docker-compose.prd.rpa.yml` | `docker-compose.prd.dashboard.yml` |
 | .env sample | `.env.server.sample` | `.env.server-dashboard.sample` |
 | Runner label | `producao-rpa` | `producao-dashboard` |
 | Runner name | `<hostname>-siscan-rpa` | `<hostname>-siscan-dashboard` |
@@ -204,7 +204,7 @@ Copia o compose file e o diretório `config/` para o diretório da stack. O comp
 
 | Produto | Compose file |
 |---|---|
-| `rpa` | `docker-compose.prd.external-db.yml` |
+| `rpa` | `docker-compose.prd.rpa.yml` |
 | `dashboard` | `docker-compose.prd.dashboard.yml` |
 
 ---
@@ -263,7 +263,7 @@ Exibe o que foi configurado (produto, diretório, compose, runner) e os próximo
 
 ## Referência de variáveis — `.env`
 
-As variáveis do `.env` são específicas de cada produto. As seções a seguir documentam as variáveis do produto **RPA** (`docker-compose.prd.external-db.yml`). Para as variáveis do produto **Dashboard** (`docker-compose.prd.dashboard.yml`), consulte o `.env.server-dashboard.sample` que acompanha o assistente.
+As variáveis do `.env` são específicas de cada produto. As seções a seguir documentam as variáveis do produto **RPA** (`docker-compose.prd.rpa.yml`). Para as variáveis do produto **Dashboard** (`docker-compose.prd.dashboard.yml`), consulte o `.env.server-dashboard.sample` que acompanha o assistente.
 
 ### Aplicação HTTP (RPA)
 
@@ -318,10 +318,10 @@ Os comandos a seguir cobrem as operações mais comuns. Substitua o compose file
 
 ```bash
 # Status dos containers
-docker compose -f docker-compose.prd.external-db.yml ps
+docker compose -f docker-compose.prd.rpa.yml ps
 
 # Logs em tempo real
-docker compose -f docker-compose.prd.external-db.yml logs -f
+docker compose -f docker-compose.prd.rpa.yml logs -f
 
 # Testar health endpoint
 curl -s http://localhost:5001/health | python3 -m json.tool

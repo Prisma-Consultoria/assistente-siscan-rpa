@@ -71,7 +71,7 @@ SISCAN_PRODUCT="$(_detect_product)"
 case "${SISCAN_PRODUCT}" in
     rpa)
         IMAGE_PATH="${IMAGE_PATH_RPA}"
-        COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.prd.external-db.yml"
+        COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.prd.rpa.yml"
         PRODUCT_DISPLAY="SISCAN RPA"
         ;;
     dashboard)

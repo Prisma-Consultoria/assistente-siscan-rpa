@@ -80,8 +80,8 @@ Use este checklist independentemente do modo de deploy (HOST ou Servidor).
 
 ### Após configuração do servidor
 
-- [ ] Containers em execução: `docker compose -f docker-compose.prd.external-db.yml ps` → `app` e `rpa-scheduler` com status `Up` / `healthy`.
-- [ ] Logs sem erros de conexão com banco: `docker compose -f docker-compose.prd.external-db.yml logs migrate`.
+- [ ] Containers em execução: `docker compose -f docker-compose.prd.rpa.yml ps` → `app` e `rpa-scheduler` com status `Up` / `healthy`.
+- [ ] Logs sem erros de conexão com banco: `docker compose -f docker-compose.prd.rpa.yml logs migrate`.
 - [ ] Sistema acessível: `http://<IP-DO-SERVIDOR>:<HOST_APP_EXTERNAL_PORT>`.
 - [ ] Health endpoint retorna `"schema_status":"current"`.
 - [ ] Runner registrado e online: GitHub → repositório `siscan-rpa` → Settings → Actions → Runners.
@@ -91,9 +91,9 @@ Use este checklist independentemente do modo de deploy (HOST ou Servidor).
 ### Emergência / Rollback (modo servidor)
 
 - [ ] Identificar a tag do deploy anterior nos logs do GitHub Actions.
-- [ ] Parar stack: `docker compose -f docker-compose.prd.external-db.yml down`.
+- [ ] Parar stack: `docker compose -f docker-compose.prd.rpa.yml down`.
 - [ ] Fazer pull da tag anterior: `docker pull ghcr.io/prisma-consultoria/siscan-rpa-rpa:<tag-anterior>`.
-- [ ] Ajustar tag no compose ou variável e recriar: `docker compose -f docker-compose.prd.external-db.yml up -d`.
+- [ ] Ajustar tag no compose ou variável e recriar: `docker compose -f docker-compose.prd.rpa.yml up -d`.
 - [ ] Coletar artefatos antes de abrir chamado (ver [TROUBLESHOOTING.md — Coleta de artefatos](TROUBLESHOOTING.md)).
 - [ ] Comunicar time DevOps Prisma.
 

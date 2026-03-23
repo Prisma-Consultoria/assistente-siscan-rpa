@@ -76,7 +76,7 @@ if (Test-Path $envFilePath) {
 switch ($SISCAN_PRODUCT) {
     "rpa" {
         $IMAGE_PATH = $IMAGE_PATH_RPA
-        $COMPOSE_FILE = Join-Path $PSScriptRoot "docker-compose.prd.external-db.yml"
+        $COMPOSE_FILE = Join-Path $PSScriptRoot "docker-compose.prd.rpa.yml"
         $PRODUCT_DISPLAY = "SISCAN RPA"
     }
     "dashboard" {

@@ -162,7 +162,7 @@ Os composes de produção fixam os valores abaixo como strings literais. Qualque
 
 Configura um servidor Linux para receber deploys automáticos do SISCAN RPA via GitHub Actions com self-hosted runner.
 
-Usa `docker-compose.prd.external-db.yml` — sem serviço `db` local; conecta ao PostgreSQL externo definido em `DATABASE_HOST`.
+Usa `docker-compose.prd.rpa.yml` — sem serviço `db` local; conecta ao PostgreSQL externo definido em `DATABASE_HOST`.
 
 O script executa **uma única vez** por servidor e percorre 8 fases lineares:
 
@@ -170,7 +170,7 @@ O script executa **uma única vez** por servidor e percorre 8 fases lineares:
 |---|---|---|
 | 1 | Verificação de pré-requisitos | Confirma que Docker, Compose, `curl` e `sudo` estão instalados e nas versões mínimas exigidas. O script para imediatamente se algo estiver faltando, antes de alterar qualquer coisa no servidor. |
 | 2 | Criação da estrutura de diretórios | Cria o diretório principal da stack no servidor (`/opt/siscan-rpa` por padrão). É aqui que ficam o arquivo `docker-compose` e o `.env` de produção. |
-| 3 | Cópia dos arquivos da stack | Copia `docker-compose.prd.external-db.yml` do repositório para o diretório criado na fase anterior. Este é o arquivo que o GitHub Actions usará em cada deploy automático. |
+| 3 | Cópia dos arquivos da stack | Copia `docker-compose.prd.rpa.yml` do repositório para o diretório criado na fase anterior. Este é o arquivo que o GitHub Actions usará em cada deploy automático. |
 | 4 | Configuração do `.env` | Se o arquivo `.env` ainda não existe no servidor, cria um a partir do `.env.host.sample`. O script pausa e orienta quais variáveis precisam ser preenchidas antes de continuar. |
 | 5 | Criação dos diretórios de dados | Lê as variáveis `HOST_*` do `.env` e cria no servidor as pastas para logs, PDFs do SISCAN, relatórios consolidados e configurações. Sem essas pastas o Docker não sobe. |
 | 6 | Download e registro do runner | Baixa o agente do GitHub Actions e o registra no repositório `siscan-rpa` com o token fornecido. É este agente que receberá e executará os deploys automáticos futuros. |
@@ -206,7 +206,7 @@ Referência: [docs/DEPLOY_AUTOMATICO.md](https://github.com/Prisma-Consultoria/s
 
 ### Referência de variáveis — `.env` (modo servidor)
 
-No modo servidor, o `siscan-server-setup.sh` cria o `.env` a partir do `.env.server.sample` na fase 4. A tabela abaixo documenta todas as variáveis relevantes para `docker-compose.prd.external-db.yml`.
+No modo servidor, o `siscan-server-setup.sh` cria o `.env` a partir do `.env.server.sample` na fase 4. A tabela abaixo documenta todas as variáveis relevantes para `docker-compose.prd.rpa.yml`.
 
 - **`.env.server.sample`** — valor sugerido no arquivo de exemplo (caminhos em formato Windows — substitua por caminhos Linux no servidor).
 - **Default no compose** — fallback declarado com `${VAR:-default}`. Quando diz **`sem fallback`**, a variável não tem valor padrão: o `docker compose up` falha se estiver ausente ou vazia no `.env`.
@@ -312,13 +312,13 @@ docker compose -f docker-compose.prd.host.yml down
 docker compose -f docker-compose.prd.host.yml ps
 ```
 
-### Modo servidor (`docker-compose.prd.external-db.yml`)
+### Modo servidor (`docker-compose.prd.rpa.yml`)
 
 ```bash
-docker compose -f docker-compose.prd.external-db.yml up -d
-docker compose -f docker-compose.prd.external-db.yml logs -f
-docker compose -f docker-compose.prd.external-db.yml down
-docker compose -f docker-compose.prd.external-db.yml ps
+docker compose -f docker-compose.prd.rpa.yml up -d
+docker compose -f docker-compose.prd.rpa.yml logs -f
+docker compose -f docker-compose.prd.rpa.yml down
+docker compose -f docker-compose.prd.rpa.yml ps
 ```
 
 ---
@@ -332,7 +332,7 @@ docker compose -f docker-compose.prd.external-db.yml ps
 | `execute.ps1` | Wrapper de compatibilidade — Windows PowerShell 5.1 |
 | `siscan-server-setup.sh` | Bootstrap do servidor — Opção 1.A self-hosted runner |
 | `docker-compose.prd.host.yml` | Compose modo HOST — com serviço `db` PostgreSQL local |
-| `docker-compose.prd.external-db.yml` | Compose modo SERVIDOR — sem `db`, conecta ao PostgreSQL externo |
+| `docker-compose.prd.rpa.yml` | Compose modo SERVIDOR — sem `db`, conecta ao PostgreSQL externo |
 | `.env.host.sample` | Exemplo de variáveis de ambiente — modo HOST (PC local) |
 | `.env.server.sample` | Exemplo de variáveis de ambiente — modo Servidor (Ubuntu + PostgreSQL externo) |
 | `.env.help.json` | Documentação de cada variável (lida pelo assistente) |

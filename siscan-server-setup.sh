@@ -219,7 +219,7 @@ esac
 # ── Configuração derivada do produto ──────────────────────────────────────
 case "${SISCAN_PRODUCT}" in
     rpa)
-        COMPOSE_FILE="docker-compose.prd.external-db.yml"
+        COMPOSE_FILE="docker-compose.prd.rpa.yml"
         ENV_SAMPLE_NAME=".env.server.sample"
         RUNNER_LABEL="producao-rpa"
         RUNNER_NAME="$(hostname)-siscan-rpa"
@@ -379,7 +379,7 @@ fi
 step "FASE 4 — Arquivos da stack"
 # ════════════════════════════════════════════════════════════════════════════
 
-# docker-compose.prd.external-db.yml
+# docker-compose.prd.rpa.yml
 COMPOSE_FILE_PATH="${COMPOSE_DIR}/${COMPOSE_FILE}"
 if [ -f "${COMPOSE_FILE_PATH}" ]; then
     ok "${COMPOSE_FILE} presente"
