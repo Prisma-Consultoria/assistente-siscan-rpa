@@ -50,8 +50,41 @@ NC='\033[0m'   # No Color / Reset
 # Variáveis globais
 # ---------------------------------------------------------------------------
 CRED_FILE="credenciais.txt"
-IMAGE_PATH="ghcr.io/prisma-consultoria/siscan-rpa-rpa:main"
-COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.prd.host.yml"
+IMAGE_PATH_RPA="ghcr.io/prisma-consultoria/siscan-rpa-rpa:main"
+IMAGE_PATH_DASHBOARD="ghcr.io/prisma-consultoria/siscan-dashboard:main"
+
+# Detectar produto a partir do .env (definido pelo siscan-server-setup.sh)
+_detect_product() {
+    local env_file="${SCRIPT_DIR}/.env"
+    local product="full"
+    if [ -f "${env_file}" ]; then
+        local val
+        val=$(grep -E "^[[:space:]]*SISCAN_PRODUCT[[:space:]]*=" "${env_file}" 2>/dev/null \
+            | tail -1 | sed "s/^[^=]*=//;s/^['\"]//;s/['\"]$//" | xargs 2>/dev/null || true)
+        [ -n "${val}" ] && product="${val}"
+    fi
+    echo "${product}"
+}
+SISCAN_PRODUCT="$(_detect_product)"
+
+# Configuração derivada do produto
+case "${SISCAN_PRODUCT}" in
+    rpa)
+        IMAGE_PATH="${IMAGE_PATH_RPA}"
+        COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.prd.external-db.yml"
+        PRODUCT_DISPLAY="SISCAN RPA"
+        ;;
+    dashboard)
+        IMAGE_PATH="${IMAGE_PATH_DASHBOARD}"
+        COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.prd.dashboard.yml"
+        PRODUCT_DISPLAY="SISCAN Dashboard"
+        ;;
+    full|*)
+        IMAGE_PATH="${IMAGE_PATH_RPA}"
+        COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.prd.host.yml"
+        PRODUCT_DISPLAY="SISCAN RPA + Dashboard"
+        ;;
+esac
 
 # Credenciais em memória (não persistidas por padrão)
 CRED_USER=""
@@ -674,10 +707,10 @@ ensure_host_paths() {
 # Faz pull da imagem, verifica .env e recria o compose.
 # ---------------------------------------------------------------------------
 update_and_restart() {
-    printf "\n${YELLOW}Atualizando o SISCAN RPA e reiniciando (pode demorar)...${NC}\n"
+    printf "\n${YELLOW}Atualizando %s e reiniciando (pode demorar)...${NC}\n" "${PRODUCT_DISPLAY}"
 
     if [ ! -f "${COMPOSE_FILE}" ]; then
-        printf "${RED}Arquivo de configuração 'docker-compose.prd.host.yml' não encontrado em: %s${NC}\n" "${COMPOSE_FILE}"
+        printf "${RED}Arquivo de configuração não encontrado: %s${NC}\n" "${COMPOSE_FILE}"
         return 1
     fi
 
@@ -688,6 +721,13 @@ update_and_restart() {
     local pull_exit_code=0
     if ! docker_pull_with_progress "${IMAGE_PATH}"; then
         pull_exit_code=1
+    fi
+
+    # No modo full, também faz pull da imagem do dashboard
+    if [ "${SISCAN_PRODUCT}" = "full" ] && [ ${pull_exit_code} -eq 0 ]; then
+        printf "\n${CYAN}Baixando imagem do Dashboard...${NC}\n"
+        printf "${GRAY}Imagem: %s${NC}\n\n" "${IMAGE_PATH_DASHBOARD}"
+        docker_pull_with_progress "${IMAGE_PATH_DASHBOARD}" || true
     fi
 
     if [ ${pull_exit_code} -ne 0 ]; then
@@ -1530,21 +1570,27 @@ show_menu() {
     clear
 
     printf "${CYAN}========================================${NC}\n"
-    printf "${WHITE}   Assistente SISCAN RPA - Fácil e seguro${NC}\n"
+    printf "${WHITE}   Assistente %s${NC}\n" "${PRODUCT_DISPLAY}"
     printf "${CYAN}========================================${NC}\n\n"
-    printf "${WHITE} 1) Reiniciar o SISCAN RPA${NC}\n"
-    printf "${GRAY}    - Fecha e inicia o serviço (útil para problemas simples)${NC}\n"
-    printf "${WHITE} 2) Atualizar / Instalar o SISCAN RPA${NC}\n"
-    printf "${GRAY}    - Baixa a versão mais recente do serviço SISCAN RPA${NC}\n"
+    printf "${WHITE} 1) Reiniciar${NC}\n"
+    printf "${GRAY}    - Fecha e inicia os serviços (útil para problemas simples)${NC}\n"
+    printf "${WHITE} 2) Atualizar / Instalar${NC}\n"
+    printf "${GRAY}    - Baixa a versão mais recente das imagens${NC}\n"
     printf "${WHITE} 3) Editar configurações básicas${NC}\n"
     printf "${GRAY}    - Ajuste caminhos e opções essenciais (.env)${NC}\n"
-    printf "${WHITE} 4) Executar tarefas RPA manualmente${NC}\n"
-    printf "${GRAY}    - Força execução do script de download/processamento (dia anterior)${NC}\n"
-    printf "${WHITE} 5) Histórico do Sistema${NC}\n"
+    if [ "${SISCAN_PRODUCT}" = "rpa" ] || [ "${SISCAN_PRODUCT}" = "full" ]; then
+        printf "${WHITE} 4) Executar tarefas RPA manualmente${NC}\n"
+        printf "${GRAY}    - Força execução do script de download/processamento (dia anterior)${NC}\n"
+    fi
+    if [ "${SISCAN_PRODUCT}" = "dashboard" ] || [ "${SISCAN_PRODUCT}" = "full" ]; then
+        printf "${WHITE} 5) Sync Dashboard manualmente${NC}\n"
+        printf "${GRAY}    - Sincroniza dados do RPA para o dashboard (full refresh)${NC}\n"
+    fi
+    printf "${WHITE} 6) Histórico do Sistema${NC}\n"
     printf "${GRAY}    - Visualiza desligamentos, crashes e reinicializações${NC}\n"
-    printf "${WHITE} 6) Atualizar o Assistente${NC}\n"
+    printf "${WHITE} 7) Atualizar o Assistente${NC}\n"
     printf "${GRAY}    - Baixa a versão mais recente do assistente com rollback automático${NC}\n"
-    printf "${WHITE} 7) Sair${NC}\n"
+    printf "${WHITE} 8) Sair${NC}\n"
     printf "\n${CYAN}----------------------------------------${NC}\n"
 }
 
@@ -1561,36 +1607,32 @@ running=true
 while ${running}; do
     show_menu
     printf ""
-    read -rp "Escolha uma opção (1-7): " op
+    read -rp "Escolha uma opção (1-8): " op
 
     case "${op}" in
         1)
             if check_service; then
                 restart_service
             else
-                printf "${YELLOW}Nenhum serviço do SISCAN RPA em execução encontrado.${NC}\n"
-                printf "${CYAN}Tentando iniciar o serviço...${NC}\n"
+                printf "${YELLOW}Nenhum serviço em execução encontrado.${NC}\n"
+                printf "${CYAN}Tentando iniciar...${NC}\n"
 
                 if [ ! -f "${COMPOSE_FILE}" ]; then
-                    printf "${RED}Erro: Arquivo docker-compose.prd.host.yml não encontrado em: %s${NC}\n" "${COMPOSE_FILE}"
+                    printf "${RED}Erro: Compose file não encontrado: %s${NC}\n" "${COMPOSE_FILE}"
                 elif ! check_env_configured "true"; then
                     : # Mensagem já exibida por check_env_configured
                 else
-                    # Lista serviços esperados
                     local_services="$(get_expected_service_names "${COMPOSE_FILE}")"
                     if [ -n "${local_services}" ]; then
-                        printf "${CYAN}Serviços encontrados no docker-compose.prd.host.yml:${NC}\n"
+                        printf "${CYAN}Serviços do compose:${NC}\n"
                         while IFS= read -r svc; do
                             printf "${GRAY} - %s${NC}\n" "${svc}"
                         done <<< "${local_services}"
                         printf "\n${CYAN}Iniciando serviços...${NC}\n"
-                    else
-                        printf "${YELLOW}Aviso: Nenhum serviço detectado no arquivo docker-compose.prd.host.yml${NC}\n"
-                        printf "${CYAN}Tentando iniciar mesmo assim...${NC}\n"
                     fi
 
                     ensure_host_paths
-                    (cd "${SCRIPT_DIR}" && docker compose up -d)
+                    (cd "${SCRIPT_DIR}" && docker compose -f "${COMPOSE_FILE}" up -d)
                     if [ $? -eq 0 ]; then
                         printf "${GREEN}Serviços iniciados com sucesso!${NC}\n"
                     else
@@ -1618,26 +1660,40 @@ while ${running}; do
             ;;
 
         4)
-            run_nightly_script
+            if [ "${SISCAN_PRODUCT}" = "rpa" ] || [ "${SISCAN_PRODUCT}" = "full" ]; then
+                run_nightly_script
+            else
+                printf "${YELLOW}Opção disponível apenas para o produto RPA.${NC}\n"
+            fi
             pause
             ;;
 
         5)
-            show_system_history
+            if [ "${SISCAN_PRODUCT}" = "dashboard" ] || [ "${SISCAN_PRODUCT}" = "full" ]; then
+                printf "\n${CYAN}Executando sync full do dashboard...${NC}\n"
+                (cd "${SCRIPT_DIR}" && docker compose -f "${COMPOSE_FILE}" exec dashboard-app python -m src.commands.sync_exames --full 2>&1) || \
+                (cd "${SCRIPT_DIR}" && docker compose -f "${COMPOSE_FILE}" exec app python -m src.commands.sync_exames --full 2>&1) || \
+                    printf "${RED}Erro ao executar sync. Verifique se os containers estão rodando.${NC}\n"
+            else
+                printf "${YELLOW}Opção disponível apenas para o produto Dashboard.${NC}\n"
+            fi
             pause
             ;;
 
         6)
+            show_system_history
+            pause
+            ;;
+
+        7)
             if update_assistant_script; then
-                # Saiu do loop — usuário foi instruído a reiniciar
                 running=false
             else
-                # Falha ou cancelamento — volta ao menu
                 pause
             fi
             ;;
 
-        7)
+        8)
             printf "\n${WHITE}Saindo...${NC}\n"
             running=false
             ;;
