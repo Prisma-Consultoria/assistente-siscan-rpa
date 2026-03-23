@@ -208,7 +208,7 @@ Referência: [docs/DEPLOY_AUTOMATICO.md](https://github.com/Prisma-Consultoria/s
 
 No modo servidor, o `siscan-server-setup.sh` cria o `.env` a partir do `.env.server.sample` na fase 4. A tabela abaixo documenta todas as variáveis relevantes para `docker-compose.prd.external-db.yml`.
 
-- **`.env.server.sample`** — valor sugerido no arquivo de exemplo (caminhos em formato Windows — substitua por caminhos Linux no servidor).
+- **`.env.server.sample`** — valor sugerido no arquivo de exemplo (caminhos Linux, valores calibrados para servidor dedicado).
 - **Default no compose** — fallback declarado com `${VAR:-default}`. Quando diz **`sem fallback`**, a variável não tem valor padrão: o `docker compose up` falha se estiver ausente ou vazia no `.env`.
 - **Obrigatória?** — indica se a variável precisa ser explicitamente definida no `.env`.
 - **O que faz / Impacto** — comportamento e consequências arquiteturais.
@@ -257,17 +257,15 @@ Cada processo mantém pool próprio. Total de conexões no banco externo com os 
 
 Diretórios do servidor montados nos containers. **Sem eles o `docker compose up` falha.** O `siscan-server-setup.sh` cria esses diretórios na fase 5 a partir dos valores definidos no `.env`.
 
-> O `.env.server.sample` usa caminhos Windows como exemplo. No servidor Linux, defina caminhos absolutos: ex. `/opt/siscan-rpa/logs`.
-
-| Variável | `.env.server.sample` (exemplo Windows) | Default no compose | Obrigatória? | O que faz |
+| Variável | `.env.server.sample` | Default no compose | Obrigatória? | O que faz |
 |---|---|---|---|---|
-| `HOST_LOG_DIR` | `C:\siscan-rpa\logs` | sem fallback | **Sim** | Logs da aplicação e do scheduler → `/app/logs` no container. Inclua na rotina de backup. |
-| `HOST_SISCAN_REPORTS_INPUT_DIR` | `C:\siscan-rpa\media\downloads` | sem fallback | **Sim** | PDFs baixados do SISCAN → `/app/media/downloads`. Entrada do pipeline `processar_laudos`. |
-| `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR` | `C:\siscan-rpa\media\reports\mamografia\consolidated` | sem fallback | **Sim** | Artefatos consolidados (`.xlsx`, `.parquet`). |
-| `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR` | `C:\...\consolidated\laudos` | sem fallback | **Sim** | PDFs individuais por laudo, em subpastas por status (`liberado/`, `comresultado/`, etc.). |
-| `HOST_CONFIG_DIR` | `C:\siscan-rpa\config` | sem fallback | **Sim** | Configurações externas → `/app/config`. Deve conter `excel_columns_mapping.json`. |
-| `HOST_SCRIPTS_CLIENTS` | `C:\siscan-rpa\scripts\clients` | `:-./scripts/clients` | Não | Scripts do operador → `/app/scripts/clients` (somente leitura). Scripts internos (`cron_loop.sh`) ficam embutidos na imagem. |
-| `HOST_BACKUPS_DIR` | `C:\siscan-rpa\backups` | `:-./backups` | Não | Destino dos backups PostgreSQL gerados por `backup_manager.sh`. |
+| `HOST_LOG_DIR` | `/opt/siscan-rpa/logs` | sem fallback | **Sim** | Logs da aplicação e do scheduler → `/app/logs` no container. Inclua na rotina de backup. |
+| `HOST_SISCAN_REPORTS_INPUT_DIR` | `/opt/siscan-rpa/media/downloads` | sem fallback | **Sim** | PDFs baixados do SISCAN → `/app/media/downloads`. Entrada do pipeline `processar_laudos`. |
+| `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR` | `/opt/siscan-rpa/media/reports/mamografia/consolidated` | sem fallback | **Sim** | Artefatos consolidados (`.xlsx`, `.parquet`). |
+| `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR` | `/opt/siscan-rpa/media/.../consolidated/laudos` | sem fallback | **Sim** | PDFs individuais por laudo, em subpastas por status (`liberado/`, `comresultado/`, etc.). |
+| `HOST_CONFIG_DIR` | `/opt/siscan-rpa/config` | sem fallback | **Sim** | Configurações externas → `/app/config`. Deve conter `excel_columns_mapping.json`. |
+| `HOST_SCRIPTS_CLIENTS` | `/opt/siscan-rpa/scripts/clients` | `:-./scripts/clients` | Não | Scripts do operador → `/app/scripts/clients` (somente leitura). Scripts internos (`cron_loop.sh`) ficam embutidos na imagem. |
+| `HOST_BACKUPS_DIR` | `/opt/siscan-rpa/backups` | `:-./backups` | Não | Destino dos backups PostgreSQL gerados por `backup_manager.sh`. |
 
 #### Opcional
 
