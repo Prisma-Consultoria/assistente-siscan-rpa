@@ -4,21 +4,22 @@
 # -------------------------------------------
 # Arquivo: siscan-server-setup.sh
 # Propósito: Preparar servidor Linux para receber deploys automáticos do
-#            SISCAN RPA via GitHub Actions self-hosted runner (Opção 1.A).
+#            SISCAN (RPA e/ou Dashboard) via GitHub Actions self-hosted runner.
 #
 # Uso:
-#   bash ./siscan-server-setup.sh
+#   bash ./siscan-server-setup.sh --product rpa        # VM do RPA
+#   bash ./siscan-server-setup.sh --product dashboard   # VM do Dashboard
+#   bash ./siscan-server-setup.sh --product full        # Host (tudo junto)
+#   bash ./siscan-server-setup.sh                       # pergunta interativamente
 #
 # Variáveis de ambiente opcionais:
-#   COMPOSE_DIR    Diretório da stack no servidor (padrão: /opt/siscan-rpa)
 #   RUNNER_DIR     Diretório de instalação do runner (padrão: ~/actions-runner)
-#   RUNNER_LABEL   Label registrada no runner (padrão: producao-cliente)
 #
 # Pré-requisitos:
 #   - Linux (Ubuntu 22.04+ recomendado)
 #   - Docker Engine >= 24 e Docker Compose >= 2 (plugin)
 #   - curl
-#   - sudo disponível (para criar /opt/siscan-rpa e instalar o runner como serviço)
+#   - sudo disponível (para instalar o runner como serviço)
 #
 # Referência: docs/DEPLOY_AUTOMATICO.md — Opção 1.A Self-hosted Runner
 # -------------------------------------------
@@ -39,16 +40,23 @@ WHITE='\033[1;37m'
 NC='\033[0m'
 
 # ────────────────────────────────────────────────────────────────────────────
-# Configuração (sobrescrevível via variáveis de ambiente)
+# Parse de argumentos
 # ────────────────────────────────────────────────────────────────────────────
-COMPOSE_DIR="${COMPOSE_DIR:-/opt/siscan-rpa}"
+SISCAN_PRODUCT=""
+while [[ $# -gt 0 ]]; do
+    case "${1}" in
+        --product) SISCAN_PRODUCT="${2:-}"; shift 2 ;;
+        --product=*) SISCAN_PRODUCT="${1#*=}"; shift ;;
+        *) shift ;;
+    esac
+done
+
+# ────────────────────────────────────────────────────────────────────────────
+# Configuração
+# ────────────────────────────────────────────────────────────────────────────
 RUNNER_DIR="${RUNNER_DIR:-${HOME}/actions-runner}"
-RUNNER_LABEL="${RUNNER_LABEL:-producao-cliente}"
 CURRENT_USER="$(whoami)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-COMPOSE_FILE="docker-compose.prd.external-db.yml"
-ENV_FILE="${COMPOSE_DIR}/.env"
 
 # ────────────────────────────────────────────────────────────────────────────
 # Helpers de output
@@ -183,12 +191,73 @@ ensure_host_paths() {
 # ════════════════════════════════════════════════════════════════════════════
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 
+# ── Seleção de produto ────────────────────────────────────────────────────
+if [ -z "${SISCAN_PRODUCT}" ]; then
+    printf "\n${WHITE}╔════════════════════════════════════════════════════╗${NC}\n"
+    printf "${WHITE}║  SISCAN — Setup do Servidor                        ║${NC}\n"
+    printf "${WHITE}╚════════════════════════════════════════════════════╝${NC}\n\n"
+    printf "  Selecione o produto a instalar nesta máquina:\n\n"
+    printf "  ${CYAN}1${NC}) ${WHITE}rpa${NC}        — SISCAN RPA (coleta e extração de laudos)\n"
+    printf "  ${CYAN}2${NC}) ${WHITE}dashboard${NC}  — SISCAN Dashboard (painel analítico)\n"
+    printf "  ${CYAN}3${NC}) ${WHITE}full${NC}       — Ambos (HOST / PC local com banco em container)\n\n"
+    printf "  Opção: "
+    read -r product_choice
+    case "${product_choice}" in
+        1|rpa)       SISCAN_PRODUCT="rpa" ;;
+        2|dashboard) SISCAN_PRODUCT="dashboard" ;;
+        3|full)      SISCAN_PRODUCT="full" ;;
+        *) fail "Opção inválida. Use: --product rpa | dashboard | full" ;;
+    esac
+fi
+
+# Validar produto
+case "${SISCAN_PRODUCT}" in
+    rpa|dashboard|full) ;;
+    *) fail "Produto inválido: '${SISCAN_PRODUCT}'. Valores aceitos: rpa, dashboard, full" ;;
+esac
+
+# ── Configuração derivada do produto ──────────────────────────────────────
+case "${SISCAN_PRODUCT}" in
+    rpa)
+        COMPOSE_FILE="docker-compose.prd.external-db.yml"
+        ENV_SAMPLE_NAME=".env.server.sample"
+        RUNNER_LABEL="producao-rpa"
+        RUNNER_NAME="$(hostname)-siscan-rpa"
+        COMPOSE_DIR_DEFAULT="/opt/siscan-rpa"
+        PRODUCT_DISPLAY="SISCAN RPA"
+        REPO_URL_DEFAULT="https://github.com/Prisma-Consultoria/siscan-rpa"
+        ;;
+    dashboard)
+        COMPOSE_FILE="docker-compose.prd.dashboard.yml"
+        ENV_SAMPLE_NAME=".env.server-dashboard.sample"
+        RUNNER_LABEL="producao-dashboard"
+        RUNNER_NAME="$(hostname)-siscan-dashboard"
+        COMPOSE_DIR_DEFAULT="/opt/siscan-dashboard"
+        PRODUCT_DISPLAY="SISCAN Dashboard"
+        REPO_URL_DEFAULT="https://github.com/Prisma-Consultoria/siscan-dashboard"
+        ;;
+    full)
+        COMPOSE_FILE="docker-compose.prd.host.yml"
+        ENV_SAMPLE_NAME=".env.host.sample"
+        RUNNER_LABEL="producao-cliente"
+        RUNNER_NAME="$(hostname)-siscan-full"
+        COMPOSE_DIR_DEFAULT="/opt/siscan-rpa"
+        PRODUCT_DISPLAY="SISCAN RPA + Dashboard"
+        REPO_URL_DEFAULT="https://github.com/Prisma-Consultoria/siscan-rpa"
+        ;;
+esac
+
+COMPOSE_DIR="${COMPOSE_DIR:-${COMPOSE_DIR_DEFAULT}}"
+ENV_FILE="${COMPOSE_DIR}/.env"
+
+# ── Banner ────────────────────────────────────────────────────────────────
 printf "\n${WHITE}╔════════════════════════════════════════════════════╗${NC}\n"
-printf "${WHITE}║  SISCAN RPA — Setup do Servidor                    ║${NC}\n"
+printf "${WHITE}║  %s — Setup do Servidor$(printf '%*s' $((28 - ${#PRODUCT_DISPLAY})) '')║${NC}\n" "${PRODUCT_DISPLAY}"
 printf "${WHITE}║  Opção 1.A — Self-hosted Runner + Docker Compose   ║${NC}\n"
 printf "${WHITE}╚════════════════════════════════════════════════════╝${NC}\n"
 printf "\n"
-printf "  ${GRAY}Referência: docs/DEPLOY_AUTOMATICO.md — Opção 1.A${NC}\n"
+printf "  ${GRAY}Produto            : %s${NC}\n" "${SISCAN_PRODUCT}"
+printf "  ${GRAY}Compose            : %s${NC}\n" "${COMPOSE_FILE}"
 printf "  ${GRAY}Diretório da stack : %s${NC}\n" "${COMPOSE_DIR}"
 printf "  ${GRAY}Diretório do runner: %s${NC}\n" "${RUNNER_DIR}"
 printf "  ${GRAY}Usuário atual      : %s${NC}\n" "${CURRENT_USER}"
@@ -279,7 +348,7 @@ if [ "$(id -u)" -eq 0 ]; then
 
     info "Re-executando o script como usuário 'siscan'..."
     SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-    exec sudo -u siscan COMPOSE_DIR="${COMPOSE_DIR}" RUNNER_DIR="${RUNNER_DIR}" RUNNER_LABEL="${RUNNER_LABEL}" bash "${SCRIPT_PATH}"
+    exec sudo -u siscan SISCAN_PRODUCT="${SISCAN_PRODUCT}" COMPOSE_DIR="${COMPOSE_DIR}" RUNNER_DIR="${RUNNER_DIR}" bash "${SCRIPT_PATH}" --product "${SISCAN_PRODUCT}"
 else
     ok "Usuário não-root: ${CURRENT_USER}"
 fi
@@ -352,15 +421,12 @@ fi
 step "FASE 5 — Configuração do .env"
 # ════════════════════════════════════════════════════════════════════════════
 
-# Criar .env a partir do sample se não existir
+# Criar .env a partir do sample correspondente ao produto
 if [ ! -f "${ENV_FILE}" ]; then
-    # Procurar sample em ordem de preferência
     ENV_SAMPLE=""
     for candidate in \
-        "${COMPOSE_DIR}/.env.server.sample" \
-        "${SCRIPT_DIR}/.env.server.sample" \
-        "${COMPOSE_DIR}/.env.host.sample" \
-        "${SCRIPT_DIR}/.env.host.sample"; do
+        "${COMPOSE_DIR}/${ENV_SAMPLE_NAME}" \
+        "${SCRIPT_DIR}/${ENV_SAMPLE_NAME}"; do
         if [ -f "${candidate}" ]; then
             ENV_SAMPLE="${candidate}"
             break
@@ -372,22 +438,36 @@ if [ ! -f "${ENV_FILE}" ]; then
         info ".env criado a partir de ${ENV_SAMPLE}"
     else
         touch "${ENV_FILE}"
-        info ".env criado em branco (nenhum sample encontrado)"
+        info ".env criado em branco (${ENV_SAMPLE_NAME} não encontrado)"
     fi
 else
     ok ".env já existe"
 fi
 
-# ── SECRET_KEY ──────────────────────────────────────────────────────────────
+# Persistir o produto selecionado no .env
+_set_env_value "${ENV_FILE}" "SISCAN_PRODUCT" "${SISCAN_PRODUCT}"
+
+# ── Chave de sessão ────────────────────────────────────────────────────────
 printf "\n${WHITE}  Variáveis obrigatórias${NC}\n\n"
 
-SECRET_KEY_VAL="$(_read_env_value "${ENV_FILE}" "SECRET_KEY")"
-if [ -z "${SECRET_KEY_VAL}" ]; then
-    SECRET_KEY_VAL="$(_generate_secret)"
-    _set_env_value "${ENV_FILE}" "SECRET_KEY" "${SECRET_KEY_VAL}"
-    ok "SECRET_KEY gerada automaticamente"
+if [ "${SISCAN_PRODUCT}" = "dashboard" ]; then
+    SESSION_SECRET_VAL="$(_read_env_value "${ENV_FILE}" "SESSION_SECRET")"
+    if [ -z "${SESSION_SECRET_VAL}" ]; then
+        SESSION_SECRET_VAL="$(_generate_secret)"
+        _set_env_value "${ENV_FILE}" "SESSION_SECRET" "${SESSION_SECRET_VAL}"
+        ok "SESSION_SECRET gerada automaticamente"
+    else
+        ok "SESSION_SECRET já configurada"
+    fi
 else
-    ok "SECRET_KEY já configurada"
+    SECRET_KEY_VAL="$(_read_env_value "${ENV_FILE}" "SECRET_KEY")"
+    if [ -z "${SECRET_KEY_VAL}" ]; then
+        SECRET_KEY_VAL="$(_generate_secret)"
+        _set_env_value "${ENV_FILE}" "SECRET_KEY" "${SECRET_KEY_VAL}"
+        ok "SECRET_KEY gerada automaticamente"
+    else
+        ok "SECRET_KEY já configurada"
+    fi
 fi
 
 # ── DATABASE_HOST ────────────────────────────────────────────────────────────
@@ -436,26 +516,63 @@ else
     fi
 fi
 
+# ── RPA_DATABASE_URL (só para dashboard) ──────────────────────────────────
+if [ "${SISCAN_PRODUCT}" = "dashboard" ]; then
+    RPA_DB_URL_VAL="$(_read_env_value "${ENV_FILE}" "RPA_DATABASE_URL")"
+    if [ -z "${RPA_DB_URL_VAL}" ]; then
+        printf "\n  ${CYAN}RPA_DATABASE_URL${NC} — Conexão ao banco do siscan-rpa\n"
+        printf "  ${GRAY}Formato: postgresql://usuario:senha@host:porta/banco${NC}\n"
+        printf "  ${GRAY}Exemplo: postgresql://siscan_rpa:senha@192.168.1.10:5432/siscan_rpa${NC}\n"
+        printf "  Valor: "
+        read -r RPA_DB_URL_NEW
+        if [ -n "${RPA_DB_URL_NEW}" ]; then
+            _set_env_value "${ENV_FILE}" "RPA_DATABASE_URL" "${RPA_DB_URL_NEW}"
+            ok "RPA_DATABASE_URL configurado"
+        else
+            warn "RPA_DATABASE_URL não definido — o sync não funcionará até ser configurado"
+        fi
+    else
+        ok "RPA_DATABASE_URL já configurado"
+    fi
+fi
+
 # ── HOST_* paths ─────────────────────────────────────────────────────────────
 printf "\n${WHITE}  Variáveis HOST_* — caminhos de dados no servidor${NC}\n"
 printf "  ${GRAY}(diretórios que serão montados como bind mounts nos containers)${NC}\n\n"
 
-# Descrições dos paths para orientar o usuário
+# Descrições e lista de paths variam por produto
 declare -A HOST_VAR_HELP=(
     [HOST_LOG_DIR]="Logs da aplicação e do scheduler"
     [HOST_SISCAN_REPORTS_INPUT_DIR]="PDFs-fonte baixados do SISCAN"
     [HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR]="Artefatos consolidados (Excel, Parquet)"
     [HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR]="PDFs individuais por laudo"
     [HOST_CONFIG_DIR]="Arquivos de configuração (ex: excel_columns_mapping.json)"
+    [HOST_DASHBOARD_LOG_DIR]="Logs do dashboard"
 )
 
-HOST_PATH_VARS=(
-    HOST_LOG_DIR
-    HOST_SISCAN_REPORTS_INPUT_DIR
-    HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR
-    HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR
-    HOST_CONFIG_DIR
-)
+case "${SISCAN_PRODUCT}" in
+    rpa)
+        HOST_PATH_VARS=(
+            HOST_LOG_DIR
+            HOST_SISCAN_REPORTS_INPUT_DIR
+            HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR
+            HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR
+            HOST_CONFIG_DIR
+        ) ;;
+    dashboard)
+        HOST_PATH_VARS=(
+            HOST_LOG_DIR
+        ) ;;
+    full)
+        HOST_PATH_VARS=(
+            HOST_LOG_DIR
+            HOST_SISCAN_REPORTS_INPUT_DIR
+            HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR
+            HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR
+            HOST_CONFIG_DIR
+            HOST_DASHBOARD_LOG_DIR
+        ) ;;
+esac
 
 for var in "${HOST_PATH_VARS[@]}"; do
     current="$(_read_env_value "${ENV_FILE}" "${var}")"
@@ -566,9 +683,10 @@ else
     printf "  ${CYAN}Settings → Actions → Runners → New self-hosted runner${NC}\n\n"
 
     printf "  URL do repositório\n"
-    printf "  ${GRAY}(ex: https://github.com/Prisma-Consultoria/siscan-rpa)${NC}\n"
-    printf "  URL: "
+    printf "  ${GRAY}(padrão: %s)${NC}\n" "${REPO_URL_DEFAULT}"
+    printf "  URL (Enter para usar o padrão): "
     read -r REPO_URL
+    REPO_URL="${REPO_URL:-${REPO_URL_DEFAULT}}"
     [ -z "${REPO_URL}" ] && fail "URL do repositório é obrigatória"
 
     printf "\n  Token de registro: "
@@ -581,12 +699,12 @@ else
             --url "${REPO_URL}" \
             --token "${REG_TOKEN}" \
             --labels "${RUNNER_LABEL}" \
-            --name "$(hostname)-siscan-rpa" \
+            --name "${RUNNER_NAME}" \
             --unattended \
             --replace); then
         fail "Falha ao registrar o runner. Verifique a URL e o token (tokens expiram após alguns minutos)."
     fi
-    ok "Runner registrado: $(hostname)-siscan-rpa [${RUNNER_LABEL}]"
+    ok "Runner registrado: ${RUNNER_NAME} [${RUNNER_LABEL}]"
 
     # Instalar e iniciar como serviço systemd
     # sudo não preserva o diretório de trabalho — passar via bash -c para garantir
@@ -624,6 +742,7 @@ step "FASE 9 — Resumo e próximos passos"
 printf "  ${GREEN}Setup concluído!${NC}\n\n"
 
 printf "  ${WHITE}O que foi configurado:${NC}\n"
+ok "Produto: ${PRODUCT_DISPLAY} (${SISCAN_PRODUCT})"
 ok "Stack:   ${COMPOSE_DIR}"
 ok "Compose: ${COMPOSE_DIR}/${COMPOSE_FILE}"
 ok "Env:     ${ENV_FILE}"
