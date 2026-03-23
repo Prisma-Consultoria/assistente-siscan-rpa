@@ -1,29 +1,49 @@
 # Guia de Deploy — Modo HOST (PC local)
 <a name="deploy-host"></a>
 
-Versão: 1.0
-Data: 2026-03-18
+Versão: 2.0
+Data: 2026-03-23
 
-Deploy em PC local (Windows ou Linux) com Docker Desktop. O banco de dados PostgreSQL roda em container local junto com a aplicação.
+Deploy em PC local (Windows ou Linux) com Docker Desktop. O banco de dados PostgreSQL roda em container local junto com as aplicações. No modo HOST, o assistente opera como produto `full` — gerenciando tanto o siscan-rpa quanto o siscan-dashboard em uma única stack.
+
+---
+
+## O que sobe no modo HOST
+
+No modo HOST, o compose `docker-compose.prd.host.yml` cria 7 containers a partir de um único banco PostgreSQL com dois databases. A tabela a seguir descreve cada serviço e sua função.
+
+| Container | Imagem | Porta | Função |
+|---|---|---|---|
+| `db` | `postgres:17` | — | PostgreSQL com `siscan_rpa` + `siscan_dashboard` (init script cria o segundo banco) |
+| `migrate` | `siscan-rpa-rpa:main` | — | Alembic migrations do RPA (efêmero) |
+| `app` | `siscan-rpa-rpa:main` | 5001 | Painel web do RPA |
+| `rpa-scheduler` | `siscan-rpa-rpa:main` | — | Coleta automática do SISCAN |
+| `dashboard-migrate` | `siscan-dashboard:main` | — | Alembic migrations do dashboard (efêmero) |
+| `dashboard-app` | `siscan-dashboard:main` | 5000 | Painel analítico |
+| `dashboard-sync` | `siscan-dashboard:main` | — | Sync incremental RPA → dashboard (a cada 30 min) |
 
 ---
 
 ## Pré-requisitos
 
+Antes de prosseguir, verifique os itens da tabela a seguir. Todos os passos são executados no PC que receberá a instalação.
+
 | Passo | O que Fazer | Como Fazer |
 |---|---|---|
-| 1 | Confirmar Docker Engine ≥ 24 instalado | `docker version` e `docker info` — ambos sem erros |
-| 2 | Confirmar Docker Compose v2 | `docker compose version` — deve retornar `v2.x.x` |
-| 3 | Ter `git` instalado | `git --version` |
-| 4 | Verificar conectividade com o GHCR | `curl -s -o /dev/null -w "%{http_code}" https://ghcr.io` deve retornar `200` ou `301`. No Windows: `Test-NetConnection ghcr.io -Port 443` |
-| 5 | Instalar Docker Desktop | Baixar em docker.com/desktop. Após instalação: abrir e aguardar o ícone estabilizar na bandeja |
+| 1 | Instalar Docker Desktop | Baixar em docker.com/desktop. Após instalação: abrir e aguardar o ícone estabilizar na bandeja |
+| 2 | Confirmar Docker Engine ≥ 24 | `docker version` e `docker info` — ambos sem erros |
+| 3 | Confirmar Docker Compose v2 | `docker compose version` — deve retornar `v2.x.x` |
+| 4 | Ter `git` instalado | `git --version` |
+| 5 | Verificar conectividade com o GHCR | `curl -s -o /dev/null -w "%{http_code}" https://ghcr.io` deve retornar `200` ou `301` |
 | 6 | **Windows** — verificar PowerShell | `$PSVersionTable.PSVersion` — PowerShell 7+ recomendado; 5.1 suportado via `execute.ps1` |
-| 7 | **Windows** — habilitar execução de scripts | PowerShell (Admin): `Set-ExecutionPolicy RemoteSigned -Scope LocalMachine`. Se houver GPO restritiva, use `execute.ps1` |
-| 8 | Gerar token GitHub (PAT) com `read:packages` | GitHub → Settings → Developer settings → Personal access tokens → marcar `read:packages` → copiar imediatamente |
+| 7 | **Windows** — habilitar execução de scripts | PowerShell (Admin): `Set-ExecutionPolicy RemoteSigned -Scope LocalMachine` |
+| 8 | Gerar token GitHub (PAT) com `read:packages` | GitHub → Settings → Developer settings → Personal access tokens → marcar `read:packages` → copiar |
 
 ---
 
 ## Instalação
+
+A instalação consiste em clonar o repositório do assistente, configurar o `.env` e executar o assistente para baixar as imagens Docker.
 
 ### Clonar o repositório
 
@@ -38,11 +58,11 @@ cd assistente-siscan-rpa
 cp .env.host.sample .env
 ```
 
-Preencha os caminhos das pastas e altere a senha do banco antes de iniciar o assistente pela primeira vez. A seção [Referência de variáveis](#referência-de-variáveis--env) abaixo documenta todas as variáveis.
+Preencha os caminhos das pastas, a senha do banco e a senha do admin do dashboard antes de iniciar o assistente pela primeira vez. A seção [Referência de variáveis](#referência-de-variáveis--env) abaixo documenta todas as variáveis.
 
 ### Executar o assistente
 
-Na primeira execução, o assistente solicita o **usuário GitHub** e o **token PAT** para autenticar no GHCR. Essas credenciais são salvas em `credenciais.txt` (na mesma pasta dos scripts) e reutilizadas nas execuções seguintes — não entram no `.env`.
+Na primeira execução, o assistente solicita o **usuário GitHub** e o **token PAT** para autenticar no GHCR. Essas credenciais são salvas em `credenciais.txt` e reutilizadas nas execuções seguintes.
 
 **Windows — PowerShell 7+:**
 ```powershell
@@ -62,218 +82,142 @@ cd assistente-siscan-rpa
 bash ./siscan-assistente.sh
 ```
 
-Para resetar as credenciais (ex.: token expirou):
+> Na primeira execução (Linux), o script define `DIR_SISCAN_ASSISTENTE` apontando para o diretório onde o repositório foi clonado. Ela é persistida no `.env` do compose e em `/etc/environment`.
 
-```powershell
-# Windows
-Remove-Item .\credenciais.txt -Force
-```
-```bash
-# Linux
-rm -f ./credenciais.txt
-```
-
-Escolha a **Opção 2 — Atualizar / Instalar** no menu para realizar a primeira instalação.
+Escolha a **Opção 2 — Atualizar / Instalar** no menu para realizar a primeira instalação. O assistente faz o pull de **duas imagens**: `siscan-rpa-rpa:main` e `siscan-dashboard:main`.
 
 ---
 
-## Menu do Assistente — cada opção
+## Menu do Assistente
 
-O menu interativo apresenta 7 opções. O assistente valida o ambiente antes de executar cada ação.
+O menu se adapta ao produto detectado via `SISCAN_PRODUCT` no `.env`. No modo HOST (`SISCAN_PRODUCT=full`), todas as opções estão disponíveis. A tabela a seguir descreve cada opção.
 
-### Opção 1 — Reiniciar o SISCAN RPA
-
-Encerra todos os containers da stack e os sobe novamente (`docker compose down` + `docker compose up -d`). Resolve travamentos e falhas transitórias sem perda de dados.
-
-| Mensagem de erro | Causa | Solução |
-|---|---|---|
-| `port is already allocated` | Porta do host em uso | `netstat -ano | findstr :5001` (Windows) ou `ss -ltnp | grep 5001` (Linux); encerrar o processo ou alterar `HOST_APP_EXTERNAL_PORT` |
-| `container is unhealthy` | Healthcheck falhou | `docker compose -f docker-compose.prd.host.yml logs app --tail=50` |
-
-### Opção 2 — Atualizar / Instalar o SISCAN RPA
-
-Autentica no GHCR, faz `docker pull ghcr.io/prisma-consultoria/siscan-rpa-rpa:main` e recria os containers. Use na primeira instalação e quando o time técnico indicar nova versão.
-
-| Mensagem de erro | Causa | Solução |
-|---|---|---|
-| `unauthorized` / `pull access denied` | Token PAT expirado ou sem `read:packages` | Apagar `credenciais.txt`; na próxima execução o assistente pedirá novas credenciais |
-| `Cannot connect to ghcr.io` | Sem acesso à internet ou porta 443 bloqueada | Verificar rede; solicitar liberação ao TI. Ver [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — Problema A |
-
-### Opção 3 — Editar configurações básicas
-
-Editor interativo para variáveis do `.env`. Exibe descrição e exemplo de cada campo (lidos do `.env.help.json`). Variáveis `secret` têm o valor atual mascarado. Após salvar, oferece reiniciar os containers.
-
-### Opção 4 — Executar tarefas RPA manualmente
-
-Força execução imediata do ciclo de coleta no container `rpa-scheduler`, sem esperar o intervalo agendado (`CRON_INTERVAL_SECONDS`).
-
-### Opção 5 — Histórico do Sistema
-
-Exibe registros de reinicializações, travamentos e desligamentos inesperados do host. Útil para identificar quedas de energia ou instabilidades.
-
-### Opção 6 — Atualizar o Assistente
-
-Baixa a versão mais recente dos scripts via `git pull`. Se a atualização falhar, restaura a versão anterior automaticamente (rollback).
-
-### Opção 7 — Sair
-
-Encerra o assistente. Os containers continuam rodando em segundo plano.
+| Opção | O que faz |
+|---|---|
+| **1 — Reiniciar** | Encerra e reinicia todos os containers (RPA + dashboard). Resolve travamentos sem perda de dados. |
+| **2 — Atualizar / Instalar** | Autentica no GHCR, faz pull de ambas as imagens e recria os containers. |
+| **3 — Editar configurações** | Editor interativo para variáveis do `.env`. |
+| **4 — Executar RPA manualmente** | Força execução imediata do ciclo de coleta, sem esperar o intervalo agendado. |
+| **5 — Sync Dashboard manualmente** | Força sincronização full dos dados do RPA para o dashboard. |
+| **6 — Histórico do Sistema** | Exibe registros de reinicializações e desligamentos do host. |
+| **7 — Atualizar o Assistente** | Baixa a versão mais recente dos scripts com rollback automático. |
+| **8 — Sair** | Encerra o assistente. Os containers continuam rodando. |
 
 ---
 
 ## Referência de variáveis — `.env`
 
-> ⚠️ **As variáveis essenciais do `.env` são gerenciadas pelo assistente (`siscan-assistente.sh` / `siscan-assistente.ps1`).** Para a maioria das operações do dia a dia — instalação, atualização, reinicialização e execução manual de coletas — o assistente cuida de tudo sem que o operador precise editar o arquivo diretamente.
->
-> **Alterar variáveis manualmente no `.env` é recomendado apenas para técnicos de TI familiarizados com o sistema.** Uma alteração incorreta pode:
-> - Impedir que os containers subam (ex.: caminho de pasta inválido ou variável obrigatória vazia);
-> - Derrubar a comunicação entre a aplicação e o banco de dados (ex.: `DATABASE_HOST`, `DATABASE_PASSWORD` incorretos);
-> - Interromper completamente a coleta de dados (ex.: `CRON_ENABLED=false` esquecido);
-> - Causar esgotamento de disco (ex.: habilitar `TAKE_SCREENSHOT`, `PW_RECORD_VIDEO` ou `PW_TRACING`);
-> - Tornar o painel web inacessível (ex.: `SECRET_KEY` alterada invalida todas as sessões ativas, `HOST_APP_EXTERNAL_PORT` conflitante bloqueia a porta).
->
-> Em caso de dúvida, acione o suporte técnico da Prisma antes de editar.
+> **As variáveis essenciais são gerenciadas pelo assistente.** Para a maioria das operações — instalação, atualização, reinicialização — o assistente cuida de tudo. Alterar variáveis manualmente é recomendado apenas para técnicos de TI.
 
-O `.env.host.sample` cobre o modo HOST (`docker-compose.prd.host.yml`). As tabelas de configuração do dia a dia têm as colunas:
+O `.env.host.sample` cobre o modo HOST (`docker-compose.prd.host.yml`). As tabelas a seguir usam as colunas:
 
 - **`.env.host.sample`** — valor que vem no arquivo de exemplo.
-- **Default no compose** — valor usado se a variável **não** estiver no `.env`. Quando diz **`sem fallback`**, não há valor padrão e o `docker compose up` falha se a variável estiver ausente ou vazia.
-- **Obrigatória?** — indica se precisa ser preenchida antes de subir o sistema.
-- **O que é e quando alterar** — explicação em linguagem simples.
+- **Default no compose** — fallback se a variável não estiver no `.env`. Quando diz **`sem fallback`**, o sistema não sobe sem ela.
+- **Obrigatória?** — se precisa ser preenchida antes de subir.
+- **O que é** — explicação em linguagem simples.
 
-Variáveis que raramente precisam de ajuste (pool de conexões, timeouts, workers, scripts externos e variáveis fixas no compose) estão agrupadas em [Configurações avançadas](#configurações-avançadas).
+### Aplicação HTTP (RPA)
 
-> **Credenciais SISCAN** (usuário e senha do portal) são configuradas pela interface web após o primeiro start: `http://localhost:<HOST_APP_EXTERNAL_PORT>/admin/siscan-credentials`
-
-### Aplicação HTTP
-
-| Variável | `.env.host.sample` | Default no compose | Obrigatória? | O que é e quando alterar |
-|---|---|---|---|---|
-| `HOST_APP_EXTERNAL_PORT` | `5001` | `:-5001` | Não | Número da porta para acessar o sistema no navegador. Altere somente se a porta 5001 já estiver em uso no computador. |
-| `APP_LOG_LEVEL` | `INFO` | `:-INFO` | Não | Detalhe dos registros de atividade. Deixe `INFO` no uso normal. Mude para `DEBUG` somente se o suporte técnico solicitar. |
-| `SECRET_KEY` | *(vazio — gerado pelo assistente)* | sem fallback | **Sim** | Chave de segurança do painel web. O assistente gera automaticamente na primeira execução. Não compartilhe este valor. |
-
-### Banco de dados
-
-O banco PostgreSQL é gerenciado automaticamente pelo Docker no modo HOST — não é necessário instalar nada separadamente.
-
-| Variável | `.env.host.sample` | Default no compose | Obrigatória? | O que é e quando alterar |
-|---|---|---|---|---|
-| `DATABASE_NAME` | `siscan_rpa` | `:-siscan_rpa` | Não | Nome interno do banco. Não altere, a menos que haja conflito com outro banco na mesma máquina. |
-| `DATABASE_USER` | `siscan_rpa` | `:-siscan_rpa` | Não | Usuário interno do banco. Não altere sem orientação técnica. |
-| `DATABASE_PASSWORD` | `siscan_rpa` | `:-siscan_rpa` | Não (**altere antes do primeiro start**) | Senha do banco. O valor padrão `siscan_rpa` é inseguro — **substitua por uma senha própria antes de subir o sistema pela primeira vez**. |
-| `DATABASE_PORT` | `5432` | `:-5432` | Não | Porta interna do banco. Não altere. |
-| `DATABASE_HOST` | `db` | `:-db` | Não | Endereço interno do banco. No modo HOST o banco roda na mesma stack Docker — **não altere**. |
-
-### Scheduler batch
-
-| Variável | `.env.host.sample` | Default no compose | Obrigatória? | O que é e quando alterar |
-|---|---|---|---|---|
-| `CRON_ENABLED` | `true` | `:-true` | Não | Liga (`true`) ou desliga (`false`) as coletas automáticas. Com `false` o container sobe executando apenas `sleep infinity` — útil para pausar temporariamente. |
-| `CRON_INTERVAL_SECONDS` | `1800` | `:-1800` | Não | Intervalo entre coletas automáticas em segundos. `1800` = a cada 30 minutos. |
-
-> ⚠️ **`CRON_ENABLED=false` paralisa completamente o processamento:** nenhum PDF é baixado do SISCAN e nenhum dado é extraído ou persistido no banco. O container `rpa-scheduler` fica ativo mas executa apenas `sleep infinity`. Use `false` somente para manutenção pontual e retorne para `true` imediatamente após.
-
-Para `RPA_MAX_ATTEMPTS` e `RPA_BACKOFF_SECONDS` (retentativas e backoff exponencial), consulte [Configurações avançadas](#configurações-avançadas).
-
-### Pastas no computador — bind mounts
-
-Estas são as pastas do computador onde o sistema guardará os arquivos. **Todas as obrigatórias precisam ser preenchidas** — sem elas o sistema não sobe. O assistente cria as pastas automaticamente se não existirem.
-
-No Windows use barras invertidas (`C:\pasta`); no Linux use barras normais (`/pasta`).
+A tabela a seguir descreve as variáveis da aplicação web do RPA, acessível na porta 5001.
 
 | Variável | `.env.host.sample` | Default no compose | Obrigatória? | O que é |
 |---|---|---|---|---|
-| `HOST_LOG_DIR` | `C:\siscan-rpa\logs` | sem fallback | **Sim** | Pasta onde ficam os registros de atividade do sistema. Inclua na rotina de backup. |
-| `HOST_SISCAN_REPORTS_INPUT_DIR` | `C:\siscan-rpa\media\downloads` | sem fallback | **Sim** | Pasta onde os PDFs baixados do SISCAN são salvos. É a entrada do processamento de laudos. |
-| `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR` | `C:\siscan-rpa\media\reports\mamografia\consolidated` | sem fallback | **Sim** | Pasta dos relatórios consolidados gerados (`.xlsx`, `.parquet`). |
-| `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR` | `C:\siscan-rpa\media\reports\mamografia\consolidated\laudos` | sem fallback | **Sim** | Pasta dos PDFs individuais por laudo, organizados em subpastas por status (`liberado/`, `comresultado/`, etc.). |
-| `HOST_CONFIG_DIR` | `C:\siscan-rpa\config` | sem fallback | **Sim** | Pasta de configurações externas. Deve conter o arquivo `excel_columns_mapping.json`. |
-| `HOST_BACKUPS_DIR` | `C:\siscan-rpa\backups` | `:-./backups` | Não | Pasta de destino dos backups do banco de dados. |
+| `HOST_APP_EXTERNAL_PORT` | `5001` | `:-5001` | Não | Porta do RPA no navegador. |
+| `APP_LOG_LEVEL` | `INFO` | `:-INFO` | Não | Detalhe dos logs. `DEBUG` só com orientação técnica. |
+| `SECRET_KEY` | *(vazio — gerado pelo assistente)* | sem fallback | **Sim** | Chave de segurança do painel web. Gerada automaticamente. |
 
-Estrutura de diretórios resultante no computador:
+### Dashboard
 
-**Windows** (padrão sugerido em `C:\siscan-rpa\`):
+A tabela a seguir descreve as variáveis da aplicação dashboard, acessível na porta 5000.
 
-```
-C:\siscan-rpa\
-├── logs\                                                 ← HOST_LOG_DIR
-├── config\                                               ← HOST_CONFIG_DIR
-│   └── excel_columns_mapping.json
-├── media\
-│   ├── downloads\                                        ← HOST_SISCAN_REPORTS_INPUT_DIR
-│   └── reports\
-│       └── mamografia\
-│           └── consolidated\                             ← HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR
-│               ├── laudos\                               ← HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR
-│               │   ├── liberado\
-│               │   ├── comresultado\
-│               │   └── ...
-│               └── *.xlsx / *.parquet
-├── scripts\
-│   └── clients\                                          ← HOST_SCRIPTS_CLIENTS
-└── backups\                                              ← HOST_BACKUPS_DIR
-```
+| Variável | `.env.host.sample` | Default no compose | Obrigatória? | O que é |
+|---|---|---|---|---|
+| `HOST_DASHBOARD_EXTERNAL_PORT` | `5000` | `:-5000` | Não | Porta do dashboard no navegador. |
+| `DASHBOARD_ADMIN_PASSWORD` | *(vazio)* | — | **Sim** (1ª vez) | Senha do admin do dashboard. |
+| `DASHBOARD_DATABASE_NAME` | `siscan_dashboard` | `:-siscan_dashboard` | Não | Nome do banco do dashboard. |
+| `DASHBOARD_WEB_CONCURRENCY` | `2` | `:-2` | Não | Workers Gunicorn do dashboard. |
+| `SYNC_INTERVAL_SECONDS` | `1800` | `:-1800` | Não | Intervalo do sync em segundos (30 min). |
+| `HOST_DASHBOARD_LOG_DIR` | `C:\siscan-rpa\logs\dashboard` | `:-./logs/dashboard` | Não | Pasta de logs do dashboard. |
 
-**Linux** (padrão sugerido em `/opt/siscan-rpa/`):
+### Banco de dados
 
-```
-/opt/siscan-rpa/
-├── logs/                                                 ← HOST_LOG_DIR
-├── config/                                               ← HOST_CONFIG_DIR
-│   └── excel_columns_mapping.json
-├── media/
-│   ├── downloads/                                        ← HOST_SISCAN_REPORTS_INPUT_DIR
-│   └── reports/
-│       └── mamografia/
-│           └── consolidated/                             ← HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR
-│               ├── laudos/                               ← HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR
-│               │   ├── liberado/
-│               │   ├── comresultado/
-│               │   └── ...
-│               └── *.xlsx / *.parquet
-├── scripts/
-│   └── clients/                                          ← HOST_SCRIPTS_CLIENTS
-└── backups/                                              ← HOST_BACKUPS_DIR
-```
+O banco PostgreSQL é gerenciado pelo Docker — não é necessário instalar nada separadamente. O init script `scripts/docker/init-databases.sh` cria automaticamente o banco `siscan_dashboard` além do `siscan_rpa`.
 
-> **Windows vs Linux:** a estrutura de pastas é idêntica — apenas o separador muda (`\` no Windows, `/` no Linux) e a raiz (`C:\siscan-rpa\` vs `/opt/siscan-rpa/`). No `.env`, use o formato correspondente ao sistema operacional onde o Docker Desktop está rodando. Caminhos Windows com espaços ou caracteres especiais (`&`, `%`, `#`) podem causar erros no Docker — prefira caminhos simples como `C:\siscan-rpa\`.
+| Variável | `.env.host.sample` | Default no compose | Obrigatória? | O que é |
+|---|---|---|---|---|
+| `DATABASE_NAME` | `siscan_rpa` | `:-siscan_rpa` | Não | Nome do banco do RPA. |
+| `DATABASE_USER` | `siscan_rpa` | `:-siscan_rpa` | Não | Usuário do banco. |
+| `DATABASE_PASSWORD` | `siscan_rpa` | `:-siscan_rpa` | Não (**altere antes do 1º start**) | Senha do banco. |
+| `DATABASE_PORT` | `5432` | `:-5432` | Não | Porta interna do banco. |
+| `DATABASE_HOST` | `db` | `:-db` | Não | Endereço do banco no Docker — **não altere**. |
 
-### Opcional
+### Scheduler batch (RPA)
 
-Consulte o documento de referência: [**ENV_REFERENCE.md — Opcional**](https://github.com/Prisma-Consultoria/siscan-rpa/blob/main/docs/ENV_REFERENCE.md#opcional).
+| Variável | `.env.host.sample` | Default no compose | Obrigatória? | O que é |
+|---|---|---|---|---|
+| `CRON_ENABLED` | `true` | `:-true` | Não | Liga/desliga coletas automáticas. |
+| `CRON_INTERVAL_SECONDS` | `1800` | `:-1800` | Não | Intervalo entre coletas (30 min). |
 
-### Configurações avançadas
+### Pastas no computador — bind mounts
 
-Variáveis que raramente precisam de ajuste em produção normal (concorrência de workers, pool de conexões SQLAlchemy, timeouts Playwright, scripts externos e variáveis com valor fixo no compose). Consulte o documento de referência: [**ENV_REFERENCE.md — Configurações avançadas**](https://github.com/Prisma-Consultoria/siscan-rpa/blob/main/docs/ENV_REFERENCE.md#configurações-avançadas).
+Estas são as pastas onde o sistema guarda arquivos. **Todas as obrigatórias precisam ser preenchidas** — sem elas o sistema não sobe. O assistente cria as pastas automaticamente se não existirem.
+
+| Variável | `.env.host.sample` | Obrigatória? | O que é |
+|---|---|---|---|
+| `HOST_LOG_DIR` | `C:\siscan-rpa\logs` | **Sim** | Logs do RPA e do scheduler. |
+| `HOST_SISCAN_REPORTS_INPUT_DIR` | `C:\siscan-rpa\media\downloads` | **Sim** | PDFs baixados do SISCAN. |
+| `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR` | `C:\siscan-rpa\media\reports\mamografia\consolidated` | **Sim** | Relatórios consolidados. |
+| `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR` | `C:\siscan-rpa\media\reports\...\laudos` | **Sim** | PDFs individuais por laudo. |
+| `HOST_CONFIG_DIR` | `C:\siscan-rpa\config` | **Sim** | Configurações externas (`excel_columns_mapping.json`). |
+| `HOST_BACKUPS_DIR` | `C:\siscan-rpa\backups` | Não | Backups do banco de dados. |
+| `HOST_DASHBOARD_LOG_DIR` | `C:\siscan-rpa\logs\dashboard` | Não | Logs do dashboard. |
+
+> **Windows vs Linux:** a estrutura é idêntica — apenas o separador muda (`\` vs `/`) e a raiz (`C:\siscan-rpa\` vs `/opt/siscan-rpa/`).
+
+### Opcional e Configurações avançadas
+
+Para variáveis opcionais e avançadas (pool de conexões, timeouts Playwright, workers), consulte [**ENV_REFERENCE.md**](https://github.com/Prisma-Consultoria/siscan-rpa/blob/main/docs/ENV_REFERENCE.md).
 
 ---
 
 ## Primeiro acesso
 
-1. Abrir o navegador em `http://localhost:<HOST_APP_EXTERNAL_PORT>` (padrão: `http://localhost:5001`).
-2. Navegar até `/admin/siscan-credentials` e cadastrar usuário/senha do portal SISCAN.
-3. A coleta automática iniciará no próximo ciclo agendado (padrão: 30 minutos).
+Após subir a stack pela primeira vez, acesse as aplicações conforme a tabela a seguir.
+
+| Aplicação | URL padrão | Próximo passo |
+|---|---|---|
+| RPA | `http://localhost:5001` | Navegar até `/admin/siscan-credentials` e cadastrar usuário/senha do SISCAN |
+| Dashboard | `http://localhost:5000` | Login com admin / senha definida em `DASHBOARD_ADMIN_PASSWORD` |
+
+A coleta automática do RPA inicia no próximo ciclo agendado (padrão: 30 minutos). O sync do dashboard roda automaticamente no mesmo intervalo.
 
 ---
 
 ## Comandos úteis
 
+Os comandos a seguir cobrem as operações mais comuns no modo HOST. Todos usam o compose `docker-compose.prd.host.yml`.
+
 ```powershell
 # Status dos containers
 docker compose -f docker-compose.prd.host.yml ps
 
-# Logs em tempo real
+# Logs em tempo real (todos os serviços)
 docker compose -f docker-compose.prd.host.yml logs -f
 
-# Logs das últimas 10 minutos
-docker compose -f docker-compose.prd.host.yml logs --since 10m
+# Logs do sync do dashboard
+docker compose -f docker-compose.prd.host.yml logs dashboard-sync -f
 
-# Testar health endpoint
-Invoke-WebRequest http://localhost:5001/health -UseBasicParsing | Select-Object StatusCode, Content
+# Sync manual do dashboard (full refresh)
+docker compose -f docker-compose.prd.host.yml exec dashboard-app python -m src.commands.sync_exames --full
 
-# Verificar imagem instalada
-docker images ghcr.io/prisma-consultoria/siscan-rpa-rpa
+# Health do RPA
+curl -s http://localhost:5001/health
+
+# Health do dashboard
+curl -s http://localhost:5000/health
+
+# Verificar imagens instaladas
+docker images | grep -E "siscan-rpa|siscan-dashboard"
 
 # Uso de disco pelo Docker
 docker system df
