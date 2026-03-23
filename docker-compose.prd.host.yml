@@ -1,7 +1,29 @@
 name: siscan-rpa
 
 # -----------------------------------------------------------------------------
-# Ambiente comum da aplicação dentro do container.
+# Ambiente comum do dashboard dentro do container.
+# -----------------------------------------------------------------------------
+x-dashboard-common-env: &dashboard-common-env
+  DATABASE_URL: postgresql://${DATABASE_USER:-siscan_rpa}:${DATABASE_PASSWORD:-siscan_rpa}@db:5432/${DASHBOARD_DATABASE_NAME:-siscan_dashboard}
+  RPA_DATABASE_URL: postgresql://${DATABASE_USER:-siscan_rpa}:${DATABASE_PASSWORD:-siscan_rpa}@db:5432/${DATABASE_NAME:-siscan_rpa}
+  SESSION_SECRET: ${DASHBOARD_SESSION_SECRET:-${SECRET_KEY}}
+  ADMIN_PASSWORD: ${DASHBOARD_ADMIN_PASSWORD:-}
+  NEUSA_PASSWORD: ${DASHBOARD_NEUSA_PASSWORD:-}
+  SECRETARIA_PASSWORD: ${DASHBOARD_SECRETARIA_PASSWORD:-}
+  ROCHE_PASSWORD: ${DASHBOARD_ROCHE_PASSWORD:-}
+  APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
+  WEB_CONCURRENCY: ${DASHBOARD_WEB_CONCURRENCY:-2}
+  GUNICORN_THREADS: ${DASHBOARD_GUNICORN_THREADS:-4}
+  GUNICORN_TIMEOUT: ${DASHBOARD_GUNICORN_TIMEOUT:-120}
+  SQLALCHEMY_POOL_SIZE: ${DASHBOARD_SQLALCHEMY_POOL_SIZE:-5}
+  SQLALCHEMY_MAX_OVERFLOW: ${DASHBOARD_SQLALCHEMY_MAX_OVERFLOW:-1}
+  SQLALCHEMY_POOL_TIMEOUT: ${SQLALCHEMY_POOL_TIMEOUT:-30}
+  SQLALCHEMY_POOL_RECYCLE: ${DASHBOARD_SQLALCHEMY_POOL_RECYCLE:-300}
+  PYTHONUNBUFFERED: "1"
+  TZ: ${PW_CONTEXT_TIMEZONE:-America/Fortaleza}
+
+# -----------------------------------------------------------------------------
+# Ambiente comum do RPA dentro do container.
 # Importante:
 # - variáveis HOST_* apontam para caminhos do host e são usadas apenas em binds
 # - variáveis sem HOST_* apontam para caminhos internos fixos em /app/...
@@ -73,11 +95,13 @@ x-app-common-volumes: &app-common-volumes
 services:
   db:
     # Banco de dados PostgreSQL gerenciado pelo Docker.
+    # Cria dois bancos: siscan_rpa (POSTGRES_DB) e siscan_dashboard (via init script).
     image: postgres:17
     environment:
       POSTGRES_DB: ${DATABASE_NAME:-siscan_rpa}
       POSTGRES_USER: ${DATABASE_USER:-siscan_rpa}
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-siscan_rpa}
+      DASHBOARD_DATABASE_NAME: ${DASHBOARD_DATABASE_NAME:-siscan_dashboard}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-siscan_rpa} -d ${DATABASE_NAME:-siscan_rpa}"]
       interval: 10s
@@ -87,6 +111,10 @@ services:
       - type: volume
         source: siscan-postgres-data
         target: /var/lib/postgresql/data
+      - type: bind
+        source: ${HOST_SCRIPTS_DOCKER:-./scripts/docker}
+        target: /docker-entrypoint-initdb.d
+        read_only: true
     restart: unless-stopped
 
   migrate:
@@ -137,9 +165,68 @@ services:
     command: ["/bin/sh", "-c", "python cli.py db-ensure-current && if [ \"$(echo ${CRON_ENABLED:-true} | tr '[:upper:]' '[:lower:]')\" != \"true\" ]; then echo 'rpa-scheduler disabled'; sleep infinity; fi; exec /bin/bash /app/scripts/prod/cron_loop.sh"]
     volumes: *app-common-volumes
 
+  # ───────────────────────────────────────────────────────────────────────────
+  # Dashboard — painel analítico que consome dados do RPA
+  # ───────────────────────────────────────────────────────────────────────────
+  dashboard-migrate:
+    image: ghcr.io/prisma-consultoria/siscan-dashboard:main
+    restart: "no"
+    environment: *dashboard-common-env
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  dashboard-app:
+    image: ghcr.io/prisma-consultoria/siscan-dashboard:main
+    restart: unless-stopped
+    depends_on:
+      dashboard-migrate:
+        condition: service_completed_successfully
+    environment: *dashboard-common-env
+    ports:
+      - "${HOST_DASHBOARD_EXTERNAL_PORT:-5000}:5000"
+    volumes:
+      - type: bind
+        source: ${HOST_DASHBOARD_LOG_DIR:-./logs/dashboard}
+        target: /app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    logging:
+      driver: local
+    healthcheck:
+      test: ["CMD", "bash", "-c", "curl -fsS http://127.0.0.1:5000/health | grep -q '\"schema_status\":\"current\"'"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    command:
+      - gunicorn
+      - --bind=0.0.0.0:5000
+      - --workers=${DASHBOARD_WEB_CONCURRENCY:-2}
+      - --threads=${DASHBOARD_GUNICORN_THREADS:-4}
+      - --timeout=${DASHBOARD_GUNICORN_TIMEOUT:-120}
+      - --access-logfile=/app/logs/access.log
+      - --error-logfile=/app/logs/error.log
+      - main:server
+
+  dashboard-sync:
+    image: ghcr.io/prisma-consultoria/siscan-dashboard:main
+    restart: unless-stopped
+    depends_on:
+      dashboard-migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *dashboard-common-env
+      SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-1800}
+    command:
+      - python
+      - -m
+      - src.commands.sync_exames
+      - --loop
+      - ${SYNC_INTERVAL_SECONDS:-1800}
+
 volumes:
   siscan-data-artifacts:
-    # Diretório auxiliar para artefatos do Playwright.
-    # A sessão só é efetivamente persistida quando PW_CONTEXT_STORAGE_STATE_STRICT=true.
   siscan-postgres-data:
-    # Dados PostgreSQL

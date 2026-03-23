@@ -40,6 +40,7 @@ logs/
 !.env.sample
 !.env.host.sample
 !.env.server.sample
+!.env.server-dashboard.sample
 !.env.help.json
 secrets.*
 *.key
