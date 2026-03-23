@@ -1,6 +1,6 @@
-# Assistente SISCAN RPA
+# Assistente SISCAN
 
-Scripts de instalação, configuração e operação do [SISCAN RPA](https://github.com/Prisma-Consultoria/siscan-rpa).
+Scripts de instalação, configuração e operação do [SISCAN RPA](https://github.com/Prisma-Consultoria/siscan-rpa) e do [SISCAN Dashboard](https://github.com/Prisma-Consultoria/siscan-dashboard). Suporta três modos de operação: `rpa` (VM dedicada), `dashboard` (VM dedicada) e `full` (HOST, tudo junto).
 
 ---
 
@@ -330,13 +330,16 @@ docker compose -f docker-compose.prd.rpa.yml ps
 | `siscan-assistente.sh` | Assistente interativo — Linux (bash) |
 | `siscan-assistente.ps1` | Assistente interativo — Windows (PowerShell 7+) |
 | `execute.ps1` | Wrapper de compatibilidade — Windows PowerShell 5.1 |
-| `siscan-server-setup.sh` | Bootstrap do servidor — Opção 1.A self-hosted runner |
-| `docker-compose.prd.host.yml` | Compose modo HOST — com serviço `db` PostgreSQL local |
-| `docker-compose.prd.rpa.yml` | Compose modo SERVIDOR — sem `db`, conecta ao PostgreSQL externo |
-| `.env.host.sample` | Exemplo de variáveis de ambiente — modo HOST (PC local) |
-| `.env.server.sample` | Exemplo de variáveis de ambiente — modo Servidor (Ubuntu + PostgreSQL externo) |
+| `siscan-server-setup.sh` | Bootstrap do servidor — `--product rpa\|dashboard\|full` |
+| `docker-compose.prd.host.yml` | Compose modo HOST — RPA + Dashboard + banco local (produto `full`) |
+| `docker-compose.prd.rpa.yml` | Compose modo SERVIDOR — RPA com banco externo (produto `rpa`) |
+| `docker-compose.prd.dashboard.yml` | Compose modo SERVIDOR — Dashboard com banco externo (produto `dashboard`) |
+| `.env.host.sample` | Variáveis de ambiente — modo HOST (produto `full`) |
+| `.env.server.sample` | Variáveis de ambiente — modo Servidor RPA (produto `rpa`) |
+| `.env.server-dashboard.sample` | Variáveis de ambiente — modo Servidor Dashboard (produto `dashboard`) |
+| `scripts/docker/init-databases.sh` | Init script PostgreSQL — cria banco `siscan_dashboard` no modo HOST |
 | `.env.help.json` | Documentação de cada variável (lida pelo assistente) |
-| `docs/` | Documentação adicional (deploy, troubleshooting, checklists) |
+| `docs/` | Documentação: [DEPLOY_HOST](docs/DEPLOY_HOST.md), [DEPLOY_SERVER](docs/DEPLOY_SERVER.md), [CHECKLISTS](docs/CHECKLISTS.md), [TROUBLESHOOTING](docs/TROUBLESHOOTING.md) |
 
 ---
 
