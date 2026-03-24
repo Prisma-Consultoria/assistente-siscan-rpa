@@ -10,7 +10,9 @@ Deploy em PC local (Windows ou Linux) com Docker Desktop. O banco de dados Postg
 
 ## O que sobe no modo HOST
 
-No modo HOST, o compose `docker-compose.prd.host.yml` cria 7 containers a partir de um único banco PostgreSQL com dois databases. O diagrama a seguir ilustra a arquitetura dos containers, suas dependências de inicialização e as conexões com os bancos de dados.
+O sistema SISCAN opera com dois produtos: o **siscan-rpa**, responsável pela coleta automatizada de dados do portal SISCAN via navegador, e o **siscan-dashboard**, um painel analítico que exibe indicadores de câncer de mama a partir dos dados coletados. No modo HOST, ambos rodam em um único PC com Docker Desktop.
+
+O compose `docker-compose.prd.host.yml` cria 8 containers a partir de um único banco PostgreSQL com dois databases. O diagrama a seguir ilustra a arquitetura dos containers, suas dependências de inicialização e as conexões com os bancos de dados.
 
 ```mermaid
 flowchart TD
@@ -65,12 +67,15 @@ flowchart TD
     linkStyle 15 stroke:#d97706,stroke-width:2px
 ```
 
-Pontos relevantes do diagrama:
+O diagrama mostra como os containers se organizam e se conectam:
 
-- O container `db` hospeda **dois bancos** na mesma instância PostgreSQL. O script `init-databases.sh` cria o banco `siscan_dashboard` automaticamente — o `siscan_rpa` é criado pelo entrypoint padrão do PostgreSQL.
-- O `dashboard-sync` é o único container que acessa **ambos os bancos**: lê do `siscan_rpa` e escreve no `siscan_dashboard`. Todos os demais acessam apenas seu próprio banco.
-- Os containers `migrate` e `dashboard-migrate` são efêmeros — executam as migrations e encerram. Os serviços `app`, `rpa-scheduler`, `dashboard-app` e `dashboard-sync` só sobem após a conclusão das respectivas migrations.
-- Ambas as imagens (`siscan-rpa-rpa:main` e `siscan-dashboard:main`) são baixadas do GHCR via a Opção 2 do menu do assistente.
+1. O **PostgreSQL** (container `db`) hospeda dois bancos na mesma instância: `siscan_rpa` e `siscan_dashboard`. O script `init-databases.sh` cria o banco do dashboard automaticamente na primeira inicialização — o banco do RPA é criado pelo entrypoint padrão do PostgreSQL.
+2. O grupo **SISCAN RPA** tem três containers. O `migrate` executa as migrations do banco do RPA e encerra (efêmero). O `app` (porta 5001) serve o painel administrativo do RPA via Gunicorn. O `rpa-scheduler` executa as coletas automatizadas no portal SISCAN em intervalos configuráveis.
+3. O grupo **SISCAN Dashboard** tem quatro containers. O `dashboard-migrate` executa as migrations do banco do dashboard e encerra (efêmero). O `dashboard-app` (porta 5000) serve o painel analítico via Gunicorn. O `dashboard-sync` importa dados do banco do RPA para o banco do dashboard a cada 30 minutos. O **Redis** serve como cache operacional compartilhado entre os workers do Gunicorn e armazena os payloads pré-calculados que aceleram a carga inicial do dashboard.
+4. O `dashboard-sync` é o único container que acessa **ambos os bancos**: lê do `siscan_rpa` e escreve no `siscan_dashboard`. Todos os demais acessam apenas seu próprio banco.
+5. Os containers de migration só executam uma vez — os serviços `app`, `rpa-scheduler`, `dashboard-app` e `dashboard-sync` só sobem após a conclusão das respectivas migrations.
+6. As setas em <span style="color:#336791">**azul**</span> representam conexões com o PostgreSQL. As setas em <span style="color:#d97706">**âmbar**</span> representam conexões com o Redis.
+7. Ambas as imagens (`siscan-rpa-rpa:main` e `siscan-dashboard:main`) são baixadas do GHCR via a Opção 2 do menu do assistente.
 
 A tabela a seguir detalha cada container, sua imagem, porta exposta e função.
 

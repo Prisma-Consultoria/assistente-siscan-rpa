@@ -10,7 +10,9 @@ Deploy em Ubuntu Server com PostgreSQL externo. O deploy de novas versões é au
 
 ## Arquitetura — infraestrutura com 3 VMs
 
-O diagrama a seguir ilustra a topologia de produção com 3 VMs: uma para o RPA, uma para o banco de dados e uma para o dashboard. Cada VM de aplicação tem seu próprio runner GitHub Actions que recebe deploys automáticos.
+O sistema SISCAN opera com dois produtos distintos: o **siscan-rpa**, responsável pela coleta automatizada de dados do portal SISCAN via navegador, e o **siscan-dashboard**, um painel analítico que exibe indicadores de câncer de mama a partir dos dados coletados. Em produção, esses produtos rodam em VMs separadas, conectados por um banco de dados PostgreSQL central.
+
+O diagrama a seguir ilustra a topologia de produção com 3 VMs e o fluxo de deploy automatizado.
 
 ```mermaid
 flowchart TD
@@ -66,12 +68,14 @@ flowchart TD
     linkStyle 15 stroke:#d97706,stroke-width:2px
 ```
 
-Pontos relevantes do diagrama:
+O fluxo de deploy e a infraestrutura funcionam assim:
 
-- Cada VM de aplicação recebe deploys de forma independente — o merge no siscan-rpa não afeta o dashboard e vice-versa.
-- O serviço `sync` no dashboard lê do banco `siscan_rpa` e escreve no banco `siscan_dashboard`, mantendo a tabela analítica atualizada a cada 30 minutos.
-- O banco de dados (VM 2) não tem runner nem assistente — é um PostgreSQL dedicado que atende ambas as aplicações.
-- O Redis roda na VM 3 como container local da stack do dashboard, servindo como cache operacional e armazenamento dos payloads pré-calculados.
+1. Quando um desenvolvedor faz merge na branch `main` de qualquer um dos repositórios (siscan-rpa ou siscan-dashboard), o GitHub Actions inicia automaticamente o pipeline de CI/CD. O pipeline compila a imagem Docker do produto alterado e publica no GitHub Container Registry (GHCR).
+2. Em seguida, o pipeline dispara um job de deploy direcionado ao runner self-hosted da VM correspondente. Cada VM de aplicação possui seu próprio runner registrado no GitHub — o merge no siscan-rpa aciona apenas o runner da VM 1, e o merge no siscan-dashboard aciona apenas o runner da VM 3. Os deploys são independentes.
+3. A **VM 1 (siscan-rpa)** hospeda o produto de coleta automatizada. O container `app` (porta 5001) oferece o painel administrativo do RPA, e o `rpa-scheduler` executa as coletas no portal SISCAN em intervalos configuráveis. Ambos conectam ao PostgreSQL na VM 2.
+4. A **VM 2 (Banco de dados)** é um PostgreSQL dedicado que hospeda dois bancos: `siscan_rpa` (dados da coleta) e `siscan_dashboard` (dados analíticos). Essa VM não tem runner nem assistente — é gerenciada separadamente.
+5. A **VM 3 (siscan-dashboard)** hospeda o painel analítico. O container `app` (porta 5000) serve a interface web via Gunicorn, e o `sync` importa dados do banco do RPA para o banco do dashboard a cada 30 minutos. O Redis roda como container local nessa mesma VM, servindo como cache operacional compartilhado entre os workers do Gunicorn e como armazenamento dos payloads pré-calculados que aceleram a carga inicial do dashboard.
+6. As setas em <span style="color:#336791">**azul**</span> representam conexões com o PostgreSQL (TCP 5432). As setas em <span style="color:#d97706">**âmbar**</span> representam conexões com o Redis (cache local na VM 3).
 
 ---
 
