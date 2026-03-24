@@ -386,7 +386,7 @@ O runner registrado na fase 7 receberá automaticamente os próximos deploys via
 
 ## Atualização do assistente
 
-Após a instalação inicial, o assistente não se atualiza sozinho. Os deploys automáticos via GitHub Actions atualizam as **imagens Docker** e o **compose file** do produto (o workflow baixa o compose mais recente do repositório do assistente a cada deploy). No entanto, os scripts do assistente, os `.env` samples e a documentação permanecem na versão do clone original.
+Após a instalação inicial, o assistente não se atualiza sozinho. Os deploys automáticos via GitHub Actions atualizam as **imagens Docker** e o **compose file** do produto a cada deploy — o workflow baixa o compose mais recente da branch `main` do repositório do assistente via `curl` e sobrescreve o arquivo local no `COMPOSE_DIR`. No entanto, os scripts do assistente, os `.env` samples e a documentação permanecem na versão do clone original.
 
 Para atualizar o assistente no servidor — por exemplo, quando há novas variáveis de ambiente, correções nos scripts ou novos compose files — execute os seguintes comandos na VM correspondente:
 
@@ -417,6 +417,23 @@ docker compose -f docker-compose.prd.dashboard.yml up -d --wait
 ```
 
 > No modo HOST (PC local), o assistente oferece a **Opção 7 — Atualizar o Assistente** no menu interativo, que baixa a versão mais recente do script automaticamente. No modo SERVER, a atualização é feita manualmente via `git pull` conforme descrito acima.
+
+### Compose file e `git pull` — por que não há conflito
+
+Os workflows de CD do siscan-rpa e do siscan-dashboard sobrescrevem o compose file no servidor a cada deploy, baixando a versão mais recente da branch `main` do assistente via `curl`. Como o conteúdo baixado é idêntico ao que está na `main` do repositório remoto, o `git pull` subsequente não detecta diferença e executa normalmente (fast-forward).
+
+O único cenário que causaria conflito é se o operador **modificar manualmente** o compose file no servidor. Nesse caso, o `git pull` recusaria o merge por haver alterações locais não commitadas. Para resolver, descarte as alterações locais antes do pull:
+
+```bash
+# Descartar alterações locais no compose (volta à versão do último commit)
+git checkout -- docker-compose.prd.rpa.yml
+git checkout -- docker-compose.prd.dashboard.yml
+
+# Agora o pull funciona normalmente
+git pull origin main
+```
+
+> **Recomendação:** nunca edite os compose files diretamente no servidor. Alterações nos composes devem ser feitas no repositório do assistente e propagadas via `git pull` ou automaticamente pelo workflow de CD.
 
 ---
 
