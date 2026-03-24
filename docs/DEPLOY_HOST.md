@@ -10,7 +10,62 @@ Deploy em PC local (Windows ou Linux) com Docker Desktop. O banco de dados Postg
 
 ## O que sobe no modo HOST
 
-No modo HOST, o compose `docker-compose.prd.host.yml` cria 7 containers a partir de um único banco PostgreSQL com dois databases. A tabela a seguir descreve cada serviço e sua função.
+No modo HOST, o compose `docker-compose.prd.host.yml` cria 7 containers a partir de um único banco PostgreSQL com dois databases. O diagrama a seguir ilustra a arquitetura dos containers, suas dependências de inicialização e as conexões com os bancos de dados.
+
+```mermaid
+flowchart TD
+    subgraph HOST["🖥️ PC local — docker-compose.prd.host.yml"]
+
+        subgraph DB_LAYER["PostgreSQL (container db)"]
+            DB_RPA[("siscan_rpa")]
+            DB_DASH[("siscan_dashboard")]
+        end
+
+        subgraph RPA["SISCAN RPA"]
+            R_MIG["migrate\nalembic (efêmero)"]
+            R_APP["app\nporta 5001"]
+            R_SCHED["rpa-scheduler\ncoleta SISCAN"]
+        end
+
+        subgraph DASHBOARD["SISCAN Dashboard"]
+            D_MIG["dashboard-migrate\nalembic (efêmero)"]
+            D_APP["dashboard-app\nporta 5000"]
+            D_SYNC["dashboard-sync\nsync a cada 30 min"]
+        end
+    end
+
+    DB_RPA -.-|"init-databases.sh\ncria ambos"| DB_DASH
+
+    R_MIG -->|"depends_on\nhealthy"| DB_RPA
+    R_APP -->|"depends_on\ncompleted"| R_MIG
+    R_SCHED -->|"depends_on\ncompleted"| R_MIG
+
+    D_MIG -->|"depends_on\nhealthy"| DB_DASH
+    D_APP -->|"depends_on\ncompleted"| D_MIG
+    D_SYNC -->|"depends_on\ncompleted"| D_MIG
+
+    R_APP -->|"lê/escreve"| DB_RPA
+    R_SCHED -->|"lê/escreve"| DB_RPA
+    D_APP -->|"lê"| DB_DASH
+    D_SYNC -->|"lê"| DB_RPA
+    D_SYNC -->|"escreve"| DB_DASH
+
+    style DB_RPA fill:#e8f4f8,stroke:#17a2b8
+    style DB_DASH fill:#d4edda,stroke:#27ae60
+    style R_APP fill:#e8f4f8,stroke:#17a2b8
+    style R_SCHED fill:#e8f4f8,stroke:#17a2b8
+    style D_APP fill:#d4edda,stroke:#27ae60
+    style D_SYNC fill:#fff3cd,stroke:#f39c12
+```
+
+Pontos relevantes do diagrama:
+
+- O container `db` hospeda **dois bancos** na mesma instância PostgreSQL. O script `init-databases.sh` cria o banco `siscan_dashboard` automaticamente — o `siscan_rpa` é criado pelo entrypoint padrão do PostgreSQL.
+- O `dashboard-sync` é o único container que acessa **ambos os bancos**: lê do `siscan_rpa` e escreve no `siscan_dashboard`. Todos os demais acessam apenas seu próprio banco.
+- Os containers `migrate` e `dashboard-migrate` são efêmeros — executam as migrations e encerram. Os serviços `app`, `rpa-scheduler`, `dashboard-app` e `dashboard-sync` só sobem após a conclusão das respectivas migrations.
+- Ambas as imagens (`siscan-rpa-rpa:main` e `siscan-dashboard:main`) são baixadas do GHCR via a Opção 2 do menu do assistente.
+
+A tabela a seguir detalha cada container, sua imagem, porta exposta e função.
 
 | Container | Imagem | Porta | Função |
 |---|---|---|---|
