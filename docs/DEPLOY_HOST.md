@@ -1,8 +1,8 @@
 # Guia de Deploy — Modo HOST (PC local)
 <a name="deploy-host"></a>
 
-Versão: 2.0
-Data: 2026-03-23
+Versão: 2.1
+Data: 2026-03-24
 
 Deploy em PC local (Windows ou Linux) com Docker Desktop. O banco de dados PostgreSQL roda em container local junto com as aplicações. No modo HOST, o assistente opera como produto `full` — gerenciando tanto o siscan-rpa quanto o siscan-dashboard em uma única stack.
 
@@ -10,7 +10,9 @@ Deploy em PC local (Windows ou Linux) com Docker Desktop. O banco de dados Postg
 
 ## O que sobe no modo HOST
 
-No modo HOST, o compose `docker-compose.prd.host.yml` cria 7 containers a partir de um único banco PostgreSQL com dois databases. O diagrama a seguir ilustra a arquitetura dos containers, suas dependências de inicialização e as conexões com os bancos de dados.
+O sistema SISCAN opera com dois produtos: o **siscan-rpa**, responsável pela coleta automatizada de dados do portal SISCAN via navegador, e o **siscan-dashboard**, um painel analítico que exibe indicadores de câncer de mama a partir dos dados coletados. No modo HOST, ambos rodam em um único PC com Docker Desktop.
+
+O compose `docker-compose.prd.host.yml` cria 8 containers a partir de um único banco PostgreSQL com dois databases. O diagrama a seguir ilustra a arquitetura dos containers, suas dependências de inicialização e as conexões com os bancos de dados.
 
 ```mermaid
 flowchart TD
@@ -31,6 +33,7 @@ flowchart TD
             D_MIG["dashboard-migrate\nalembic (efêmero)"]
             D_APP["dashboard-app\nporta 5000"]
             D_SYNC["dashboard-sync\nsync a cada 30 min"]
+            REDIS[("Redis\ncache")]
         end
     end
 
@@ -49,27 +52,37 @@ flowchart TD
     D_APP -->|"lê"| DB_DASH
     D_SYNC -->|"lê"| DB_RPA
     D_SYNC -->|"escreve"| DB_DASH
+    D_APP --> REDIS
+    D_SYNC --> REDIS
 
-    style DB_RPA fill:#e8f4f8,stroke:#17a2b8
-    style DB_DASH fill:#d4edda,stroke:#27ae60
-    style R_APP fill:#e8f4f8,stroke:#17a2b8
-    style R_SCHED fill:#e8f4f8,stroke:#17a2b8
-    style D_APP fill:#d4edda,stroke:#27ae60
-    style D_SYNC fill:#fff3cd,stroke:#f39c12
+    style DB_RPA fill:#336791,color:#fff
+    style DB_DASH fill:#336791,color:#fff
+    style REDIS fill:#d97706,color:#fff
+    linkStyle 7 stroke:#336791,stroke-width:2px
+    linkStyle 8 stroke:#336791,stroke-width:2px
+    linkStyle 9 stroke:#336791,stroke-width:2px
+    linkStyle 10 stroke:#336791,stroke-width:2px
+    linkStyle 11 stroke:#336791,stroke-width:2px
+    linkStyle 12 stroke:#d97706,stroke-width:2px
+    linkStyle 13 stroke:#d97706,stroke-width:2px
 ```
 
-Pontos relevantes do diagrama:
+O diagrama mostra como os containers se organizam e se conectam:
 
-- O container `db` hospeda **dois bancos** na mesma instância PostgreSQL. O script `init-databases.sh` cria o banco `siscan_dashboard` automaticamente — o `siscan_rpa` é criado pelo entrypoint padrão do PostgreSQL.
-- O `dashboard-sync` é o único container que acessa **ambos os bancos**: lê do `siscan_rpa` e escreve no `siscan_dashboard`. Todos os demais acessam apenas seu próprio banco.
-- Os containers `migrate` e `dashboard-migrate` são efêmeros — executam as migrations e encerram. Os serviços `app`, `rpa-scheduler`, `dashboard-app` e `dashboard-sync` só sobem após a conclusão das respectivas migrations.
-- Ambas as imagens (`siscan-rpa-rpa:main` e `siscan-dashboard:main`) são baixadas do GHCR via a Opção 2 do menu do assistente.
+1. O **PostgreSQL** (container `db`) hospeda dois bancos na mesma instância: `siscan_rpa` e `siscan_dashboard`. O script `init-databases.sh` cria o banco do dashboard automaticamente na primeira inicialização — o banco do RPA é criado pelo entrypoint padrão do PostgreSQL.
+2. O grupo **SISCAN RPA** tem três containers. O `migrate` executa as migrations do banco do RPA e encerra (efêmero). O `app` (porta 5001) serve o painel administrativo do RPA via Gunicorn. O `rpa-scheduler` executa as coletas automatizadas no portal SISCAN em intervalos configuráveis.
+3. O grupo **SISCAN Dashboard** tem quatro containers. O `dashboard-migrate` executa as migrations do banco do dashboard e encerra (efêmero). O `dashboard-app` (porta 5000) serve o painel analítico via Gunicorn. O `dashboard-sync` importa dados do banco do RPA para o banco do dashboard a cada 30 minutos. O **Redis** serve como cache operacional compartilhado entre os workers do Gunicorn e armazena os payloads pré-calculados que aceleram a carga inicial do dashboard.
+4. O `dashboard-sync` é o único container que acessa **ambos os bancos**: lê do `siscan_rpa` e escreve no `siscan_dashboard`. Todos os demais acessam apenas seu próprio banco.
+5. Os containers de migration só executam uma vez — os serviços `app`, `rpa-scheduler`, `dashboard-app` e `dashboard-sync` só sobem após a conclusão das respectivas migrations.
+6. As setas em <span style="color:#336791">**azul**</span> representam conexões com o PostgreSQL. As setas em <span style="color:#d97706">**âmbar**</span> representam conexões com o Redis.
+7. Ambas as imagens (`siscan-rpa-rpa:main` e `siscan-dashboard:main`) são baixadas do GHCR via a Opção 2 do menu do assistente.
 
 A tabela a seguir detalha cada container, sua imagem, porta exposta e função.
 
 | Container | Imagem | Porta | Função |
 |---|---|---|---|
 | `db` | `postgres:17` | — | PostgreSQL com `siscan_rpa` + `siscan_dashboard` (init script cria o segundo banco) |
+| `redis` | `redis:7-alpine` | — | Cache operacional e payloads pré-calculados do dashboard |
 | `migrate` | `siscan-rpa-rpa:main` | — | Alembic migrations do RPA (efêmero) |
 | `app` | `siscan-rpa-rpa:main` | 5001 | Painel web do RPA |
 | `rpa-scheduler` | `siscan-rpa-rpa:main` | — | Coleta automática do SISCAN |
@@ -98,26 +111,36 @@ Antes de prosseguir, verifique os itens da tabela a seguir. Todos os passos são
 
 ## Instalação
 
-A instalação consiste em clonar o repositório do assistente, configurar o `.env` e executar o assistente para baixar as imagens Docker.
+No modo HOST, a instalação é feita pelo assistente interativo (`siscan-assistente.sh` ou `siscan-assistente.ps1`), que guia o operador em três etapas: clonar o repositório, configurar as variáveis de ambiente e baixar as imagens Docker do siscan-rpa e do siscan-dashboard. Não é necessário instalar PostgreSQL nem Redis separadamente — ambos sobem como containers gerenciados pelo compose.
 
-### Clonar o repositório
+### Etapa 1 — Clonar o repositório
+
+Clone o repositório do assistente no PC que receberá a instalação. Esse diretório será o diretório da stack — o compose, o `.env` e os scripts operacionais ficam aqui.
 
 ```bash
 git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git
 cd assistente-siscan-rpa
 ```
 
-### Configurar o `.env`
+### Etapa 2 — Configurar o `.env`
+
+Copie o sample e preencha os valores obrigatórios antes de executar o assistente pela primeira vez.
 
 ```bash
 cp .env.host.sample .env
 ```
 
-Preencha os caminhos das pastas, a senha do banco e a senha do admin do dashboard antes de iniciar o assistente pela primeira vez. A seção [Referência de variáveis](#referência-de-variáveis--env) abaixo documenta todas as variáveis.
+Os itens que precisam ser preenchidos nesta etapa são:
 
-### Executar o assistente
+1. **`DATABASE_PASSWORD`** — altere a senha padrão `siscan_rpa` para uma senha segura. Essa senha será usada pelo PostgreSQL do container.
+2. **`DASHBOARD_ADMIN_PASSWORD`** — defina a senha do usuário administrador do dashboard.
+3. **Caminhos `HOST_*`** — preencha os caminhos onde o sistema guardará logs, PDFs, relatórios e configurações. No Windows use barras invertidas (`C:\siscan-rpa\logs`); no Linux use barras normais (`/opt/siscan-rpa/logs`).
 
-Na primeira execução, o assistente solicita o **usuário GitHub** e o **token PAT** para autenticar no GHCR. Essas credenciais são salvas em `credenciais.txt` e reutilizadas nas execuções seguintes.
+A seção [Referência de variáveis](#referência-de-variáveis--env) abaixo documenta todas as variáveis em detalhe.
+
+### Etapa 3 — Executar o assistente
+
+Na primeira execução, o assistente solicita o **usuário GitHub** e o **token PAT** (com permissão `read:packages`) para autenticar no GHCR e baixar as imagens Docker. Essas credenciais são salvas em `credenciais.txt` e reutilizadas nas execuções seguintes.
 
 **Windows — PowerShell 7+:**
 ```powershell
@@ -139,7 +162,7 @@ bash ./siscan-assistente.sh
 
 > Na primeira execução (Linux), o script define `COMPOSE_DIR` apontando para o diretório onde o repositório foi clonado. Ela é persistida em `/etc/environment` para sessões interativas.
 
-Escolha a **Opção 2 — Atualizar / Instalar** no menu para realizar a primeira instalação. O assistente faz o pull de **duas imagens**: `siscan-rpa-rpa:main` e `siscan-dashboard:main`.
+Ao abrir o menu, escolha a **Opção 2 — Atualizar / Instalar** para realizar a primeira instalação. O assistente autentica no GHCR e faz o pull de **três imagens**: `postgres:17`, `redis:7-alpine`, `siscan-rpa-rpa:main` e `siscan-dashboard:main`. Em seguida, sobe a stack completa com todos os containers descritos no diagrama acima.
 
 ---
 
@@ -158,6 +181,21 @@ O menu se adapta ao produto detectado via `SISCAN_PRODUCT` no `.env`. No modo HO
 | **7 — Atualizar o Assistente** | Baixa a versão mais recente dos scripts com rollback automático. |
 | **8 — Sair** | Encerra o assistente. Os containers continuam rodando. |
 
+### Atualização do assistente (Opção 7)
+
+Após a instalação inicial, o assistente permanece na versão do clone original. Quando a equipe publica uma nova versão — com novas variáveis de ambiente, correções nos scripts ou alterações nos compose files — é necessário atualizar.
+
+No modo HOST, use a **Opção 7** do menu. Ela baixa a versão mais recente do script diretamente do GitHub, cria um backup automático do script atual (com timestamp) e substitui pelo novo. Se o download falhar, o backup é restaurado automaticamente (rollback).
+
+A Opção 7 atualiza apenas o script do assistente (`siscan-assistente.sh` ou `siscan-assistente.ps1`). Para atualizar também os compose files, `.env` samples e demais arquivos do repositório, execute manualmente:
+
+```bash
+cd assistente-siscan-rpa
+git pull origin main
+```
+
+Se a atualização incluir novas variáveis de ambiente, adicione-as ao `.env` existente. O `.env` não é sobrescrito pelo `git pull` — ele não é versionado. Consulte o `.env.host.sample` atualizado para identificar variáveis novas, ou use a **Opção 3 — Editar configurações** para revisar e completar as variáveis interativamente.
+
 ---
 
 ## Referência de variáveis — `.env`
@@ -171,9 +209,9 @@ O `.env.host.sample` cobre o modo HOST (`docker-compose.prd.host.yml`). As tabel
 - **Obrigatória?** — se precisa ser preenchida antes de subir.
 - **O que é** — explicação em linguagem simples.
 
-### Aplicação HTTP (RPA)
+### Aplicação HTTP (siscan-rpa)
 
-A tabela a seguir descreve as variáveis da aplicação web do RPA, acessível na porta 5001.
+A tabela a seguir descreve as variáveis da aplicação web do siscan-rpa, acessível na porta 5001.
 
 | Variável | `.env.host.sample` | Default no compose | Obrigatória? | O que é |
 |---|---|---|---|---|
@@ -181,9 +219,9 @@ A tabela a seguir descreve as variáveis da aplicação web do RPA, acessível n
 | `APP_LOG_LEVEL` | `INFO` | `:-INFO` | Não | Detalhe dos logs. `DEBUG` só com orientação técnica. |
 | `SECRET_KEY` | *(vazio — gerado pelo assistente)* | sem fallback | **Sim** | Chave de segurança do painel web. Gerada automaticamente. |
 
-### Dashboard
+### siscan-dashboard
 
-A tabela a seguir descreve as variáveis da aplicação dashboard, acessível na porta 5000.
+A tabela a seguir descreve as variáveis do siscan-dashboard, acessível na porta 5000.
 
 | Variável | `.env.host.sample` | Default no compose | Obrigatória? | O que é |
 |---|---|---|---|---|
@@ -193,6 +231,8 @@ A tabela a seguir descreve as variáveis da aplicação dashboard, acessível na
 | `DASHBOARD_WEB_CONCURRENCY` | `2` | `:-2` | Não | Workers Gunicorn do dashboard. |
 | `SYNC_INTERVAL_SECONDS` | `1800` | `:-1800` | Não | Intervalo do sync em segundos (30 min). |
 | `HOST_DASHBOARD_LOG_DIR` | `C:\siscan-rpa\logs\dashboard` | `:-./logs/dashboard` | Não | Pasta de logs do dashboard. |
+| `CACHE_TIMEOUT` | `300` | `:-300` | Não | TTL do cache operacional em segundos. |
+| `CACHE_KEY_PREFIX` | `siscan-dashboard:cache` | `:-siscan-dashboard:cache` | Não | Prefixo das chaves do dashboard no Redis. |
 
 ### Banco de dados
 
@@ -206,7 +246,7 @@ O banco PostgreSQL é gerenciado pelo Docker — não é necessário instalar na
 | `DATABASE_PORT` | `5432` | `:-5432` | Não | Porta interna do banco. |
 | `DATABASE_HOST` | `db` | `:-db` | Não | Endereço do banco no Docker — **não altere**. |
 
-### Scheduler batch (RPA)
+### Scheduler batch (siscan-rpa)
 
 | Variável | `.env.host.sample` | Default no compose | Obrigatória? | O que é |
 |---|---|---|---|---|
@@ -239,10 +279,10 @@ Para variáveis opcionais e avançadas (pool de conexões, timeouts Playwright, 
 
 Após subir a stack pela primeira vez, acesse as aplicações conforme a tabela a seguir.
 
-| Aplicação | URL padrão | Próximo passo |
+| Sistema | URL padrão | Próximo passo |
 |---|---|---|
-| RPA | `http://localhost:5001` | Navegar até `/admin/siscan-credentials` e cadastrar usuário/senha do SISCAN |
-| Dashboard | `http://localhost:5000` | Login com admin / senha definida em `DASHBOARD_ADMIN_PASSWORD` |
+| siscan-rpa | `http://localhost:5001` | Navegar até `/admin/siscan-credentials` e cadastrar usuário/senha do SISCAN |
+| siscan-dashboard | `http://localhost:5000` | Login com admin / senha definida em `DASHBOARD_ADMIN_PASSWORD` |
 
 A coleta automática do RPA inicia no próximo ciclo agendado (padrão: 30 minutos). O sync do dashboard roda automaticamente no mesmo intervalo.
 
