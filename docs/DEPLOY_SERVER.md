@@ -130,7 +130,7 @@ A tabela a seguir descreve o que cada produto configura automaticamente.
 | .env sample | `.env.server-rpa.sample` | `.env.server-dashboard.sample` |
 | Runner label | `producao-rpa` | `producao-dashboard` |
 | Runner name | `<hostname>-siscan-rpa` | `<hostname>-siscan-dashboard` |
-| Diretório padrão | `/opt/siscan-rpa` | `/opt/siscan-dashboard` |
+| Diretório da stack | Diretório onde o assistente foi clonado (`COMPOSE_DIR`) | Idem |
 | Repo URL padrão | `Prisma-Consultoria/siscan-rpa` | `Prisma-Consultoria/siscan-dashboard` |
 | Chave de sessão | `SECRET_KEY` (auto-gerada) | `SESSION_SECRET` (auto-gerada) |
 | Variável extra | — | `RPA_DATABASE_URL` (conexão ao banco do RPA) |
@@ -189,12 +189,7 @@ Se executado como root, cria o usuário `siscan`, adiciona ao grupo `docker` e r
 
 ### Fase 3 — Estrutura de diretórios da stack
 
-Cria o diretório principal da stack. O caminho padrão varia por produto conforme a tabela a seguir.
-
-| Produto | Diretório padrão |
-|---|---|
-| `rpa` | `/opt/siscan-rpa` |
-| `dashboard` | `/opt/siscan-dashboard` |
+O diretório da stack é o próprio diretório onde o assistente foi clonado (`SCRIPT_DIR`). Os arquivos da stack (compose, `.env`, config) ficam nesse diretório. Não é necessário criar um diretório separado — o script ajusta as permissões do diretório atual para o usuário que executa.
 
 ---
 
@@ -245,13 +240,21 @@ O script sugere a URL padrão — basta pressionar Enter para aceitar. O token d
 
 ---
 
-### Fase 8 — Permissões Docker
+### Fase 8 — Persistir `COMPOSE_DIR` no ambiente do runner
+
+O runner roda como serviço systemd e não carrega `~/.bashrc` nem `/etc/environment`. O script grava `COMPOSE_DIR` (diretório do assistente) no `~/actions-runner/.env` — o único mecanismo para injetar variáveis nos jobs do GitHub Actions. Também persiste em `/etc/environment` para sessões interativas.
+
+Ambos os workflows de CD (siscan-rpa e siscan-dashboard) usam `${COMPOSE_DIR}` para localizar o compose file e o `.env` no servidor.
+
+---
+
+### Fase 9 — Permissões Docker
 
 Verifica se o usuário atual pertence ao grupo `docker` e adiciona se necessário. Comportamento idêntico para ambos os produtos.
 
 ---
 
-### Fase 9 — Resumo e próximos passos
+### Fase 10 — Resumo e próximos passos
 
 Exibe o que foi configurado (produto, diretório, compose, runner) e os próximos passos:
 

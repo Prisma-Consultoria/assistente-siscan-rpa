@@ -82,7 +82,7 @@ cd assistente-siscan-rpa
 bash ./siscan-assistente.sh
 ```
 
-> Na primeira execução (Linux), o script define `DIR_SISCAN_ASSISTENTE` apontando para o diretório onde o repositório foi clonado. Ela é persistida no `.env` do compose e em `/etc/environment`.
+> Na primeira execução (Linux), o script define `COMPOSE_DIR` apontando para o diretório onde o repositório foi clonado. Ela é persistida em `/etc/environment` para sessões interativas.
 
 Escolha a **Opção 2 — Atualizar / Instalar** no menu para realizar a primeira instalação. O assistente faz o pull de **duas imagens**: `siscan-rpa-rpa:main` e `siscan-dashboard:main`.
 
@@ -172,7 +172,7 @@ Estas são as pastas onde o sistema guarda arquivos. **Todas as obrigatórias pr
 | `HOST_BACKUPS_DIR` | `C:\siscan-rpa\backups` | Não | Backups do banco de dados. |
 | `HOST_DASHBOARD_LOG_DIR` | `C:\siscan-rpa\logs\dashboard` | Não | Logs do dashboard. |
 
-> **Windows vs Linux:** a estrutura é idêntica — apenas o separador muda (`\` vs `/`) e a raiz (`C:\siscan-rpa\` vs `/opt/siscan-rpa/`).
+> **Windows vs Linux:** a estrutura é idêntica — apenas o separador muda (`\` vs `/`). No Windows use `C:\siscan-rpa\`, no Linux o caminho é livre (ex.: `/opt/siscan-rpa/`).
 
 ### Opcional e Configurações avançadas
 
