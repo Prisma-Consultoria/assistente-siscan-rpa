@@ -1,8 +1,8 @@
 # Guia de Troubleshooting — Assistente SISCAN
 <a name="troubleshooting"></a>
 
-Versão: 4.0
-Data: 2026-03-23
+Versão: 4.1
+Data: 2026-03-24
 
 Os problemas estão organizados em três grupos:
 - **Problemas comuns** — ocorrem em qualquer modo (HOST ou Servidor).
@@ -410,9 +410,9 @@ grep -v '^#' /opt/siscan-rpa/.env | cut -d= -f1 > /tmp/env-keys.txt
 
 ---
 
-## Problemas específicos do Dashboard
+## Problemas específicos do siscan-dashboard
 
-Esta seção cobre problemas que ocorrem apenas com o produto `dashboard` (modo servidor ou HOST).
+Esta seção cobre problemas que ocorrem apenas com o siscan-dashboard (modo servidor ou HOST).
 
 ### Sync retorna "0 registros" mas o banco do RPA tem dados
 
@@ -438,6 +438,37 @@ e = create_engine(os.environ['RPA_DATABASE_URL'])
 with e.connect() as c: print(c.execute(text('SELECT count(*) FROM exam_records')).scalar())
 "
 ```
+
+### Redis não responde ou container não sobe
+
+Sintoma: container `redis` não aparece no `docker compose ps`, ou o dashboard apresenta lentidão na carga inicial (cache não está funcionando).
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Verificar se o container Redis existe | `docker compose -f docker-compose.prd.dashboard.yml ps redis` |
+| 2 | Verificar se o Redis responde | `docker compose -f docker-compose.prd.dashboard.yml exec redis redis-cli ping` — esperado: `PONG` |
+| 3 | Verificar variáveis no `.env` | `grep REDIS .env` — deve ter `REDIS_HOST=redis` e `REDIS_PORT=6379` |
+| 4 | Verificar se o compose inclui o serviço Redis | `grep -A3 'redis:' docker-compose.prd.dashboard.yml` — deve mostrar `image: redis:7-alpine` |
+| 5 | Atualizar compose se Redis ausente | O workflow de CD atualiza automaticamente. Para forçar: `curl -fsSL https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/docker-compose.prd.dashboard.yml -o docker-compose.prd.dashboard.yml` |
+| 6 | Recriar a stack | `docker compose -f docker-compose.prd.dashboard.yml down && docker compose -f docker-compose.prd.dashboard.yml up -d --wait` |
+
+> O Redis é um serviço local do compose — não precisa de instalação separada. Se o compose estiver atualizado e o `.env` tiver as variáveis `REDIS_HOST` e `REDIS_PORT`, o container sobe automaticamente.
+
+---
+
+### Variáveis faltantes no .env após atualização do assistente
+
+Sintoma: novos recursos não funcionam após atualizar o assistente (ex.: Redis não ativo porque `REDIS_HOST` não está no `.env`).
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Executar verificação de consistência | `bash ./siscan-server-setup.sh --product dashboard --check` |
+| 2 | O script lista variáveis faltantes | Aceitar a adição automática com valores default do sample |
+| 3 | Reiniciar a stack | `docker compose -f docker-compose.prd.dashboard.yml down && docker compose -f docker-compose.prd.dashboard.yml up -d --wait` |
+
+O `--check` compara o `.env` atual com o `.env.server-dashboard.sample` e identifica variáveis que existem no sample mas não no `.env`. Funciona também para o siscan-rpa com `--product rpa --check`.
+
+---
 
 ### Dashboard mostra "schema_status: outdated"
 

@@ -1,8 +1,8 @@
 # Checklists Operacionais — Assistente SISCAN
 <a name="checklists"></a>
 
-Versão: 4.0
-Data: 2026-03-23
+Versão: 4.1
+Data: 2026-03-24
 
 Checklists para os três modos de deploy: HOST (PC local, produto `full`), Servidor RPA (produto `rpa`) e Servidor Dashboard (produto `dashboard`).
 
@@ -40,8 +40,9 @@ Este checklist se aplica a qualquer modo de deploy, independentemente do produto
 
 ### Após instalação (Opção 2 do menu)
 
-- [ ] 7 containers em execução: `docker compose -f docker-compose.prd.host.yml ps`.
+- [ ] 8 containers em execução: `docker compose -f docker-compose.prd.host.yml ps` (inclui `redis`).
 - [ ] Serviços healthy: `app`, `dashboard-app`.
+- [ ] Redis operacional: `docker compose -f docker-compose.prd.host.yml exec redis redis-cli ping` → `PONG`.
 - [ ] RPA acessível: `http://localhost:5001/health` → `"schema_status":"current"`.
 - [ ] Dashboard acessível: `http://localhost:5000/health` → `"schema_status":"current"`.
 - [ ] Credenciais SISCAN cadastradas: `http://localhost:5001/admin/siscan-credentials`.
@@ -50,7 +51,7 @@ Este checklist se aplica a qualquer modo de deploy, independentemente do produto
 
 ---
 
-## Modo Servidor — produto `rpa` (VM do RPA)
+## Modo Servidor — siscan-rpa (VM do RPA)
 
 ### Antes do primeiro deploy
 
@@ -71,9 +72,15 @@ Este checklist se aplica a qualquer modo de deploy, independentemente do produto
 - [ ] Credenciais SISCAN cadastradas em `/admin/siscan-credentials`.
 - [ ] Primeira coleta manual executada com sucesso.
 
+### Verificação de consistência (instalação existente)
+
+```bash
+bash ./siscan-server-setup.sh --product rpa --check
+```
+
 ---
 
-## Modo Servidor — produto `dashboard` (VM do Dashboard)
+## Modo Servidor — siscan-dashboard (VM do Dashboard)
 
 ### Antes do primeiro deploy
 
@@ -90,11 +97,18 @@ Este checklist se aplica a qualquer modo de deploy, independentemente do produto
 
 ### Após configuração
 
-- [ ] Containers em execução: `docker compose -f docker-compose.prd.dashboard.yml ps` → `app` e `sync` com status `Up` / `healthy`.
+- [ ] Containers em execução: `docker compose -f docker-compose.prd.dashboard.yml ps` → `redis`, `app` e `sync` com status `Up` / `healthy`.
+- [ ] Redis operacional: `docker compose -f docker-compose.prd.dashboard.yml exec redis redis-cli ping` → `PONG`.
 - [ ] Health: `http://<IP>:5000/health` → `"schema_status":"current"`.
 - [ ] Runner online: GitHub → `siscan-dashboard` → Settings → Actions → Runners → status `Idle`.
 - [ ] Login funcional: admin / senha definida em `ADMIN_PASSWORD`.
 - [ ] Sync executado: dados do RPA visíveis no dashboard.
+
+### Verificação de consistência (instalação existente)
+
+```bash
+bash ./siscan-server-setup.sh --product dashboard --check
+```
 
 ---
 
