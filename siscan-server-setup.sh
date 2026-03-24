@@ -726,47 +726,29 @@ step "FASE 8 — Persistir variáveis no ambiente do runner"
 # O runner roda como serviço systemd e NÃO carrega ~/.bashrc nem
 # /etc/environment. O único mecanismo para injetar variáveis nos
 # jobs é o arquivo .env dentro do diretório do runner.
+# O runner roda como serviço systemd e NÃO carrega ~/.bashrc nem
+# /etc/environment. O único mecanismo para injetar variáveis nos
+# jobs é o arquivo .env dentro do diretório do runner.
 RUNNER_ENV="${RUNNER_DIR}/.env"
 if [ -d "${RUNNER_DIR}" ]; then
     touch "${RUNNER_ENV}" 2>/dev/null || true
-
-    # COMPOSE_DIR — usado pelo workflow do siscan-rpa (hardcoded como fallback)
     _set_env_value "${RUNNER_ENV}" "COMPOSE_DIR" "${COMPOSE_DIR}"
     ok "COMPOSE_DIR=${COMPOSE_DIR} → ${RUNNER_ENV}"
-
-    # DIR_SISCAN_DASHBOARD — usado pelo workflow do siscan-dashboard
-    if [ "${SISCAN_PRODUCT}" = "dashboard" ] || [ "${SISCAN_PRODUCT}" = "full" ]; then
-        _set_env_value "${RUNNER_ENV}" "DIR_SISCAN_DASHBOARD" "${COMPOSE_DIR}"
-        ok "DIR_SISCAN_DASHBOARD=${COMPOSE_DIR} → ${RUNNER_ENV}"
-    fi
-
-    # DIR_SISCAN_ASSISTENTE — compatibilidade com workflows antigos
-    _set_env_value "${RUNNER_ENV}" "DIR_SISCAN_ASSISTENTE" "${COMPOSE_DIR}"
-    ok "DIR_SISCAN_ASSISTENTE=${COMPOSE_DIR} → ${RUNNER_ENV}"
-
-    # SISCAN_PRODUCT — para que o assistente detecte o produto
-    _set_env_value "${RUNNER_ENV}" "SISCAN_PRODUCT" "${SISCAN_PRODUCT}"
-    ok "SISCAN_PRODUCT=${SISCAN_PRODUCT} → ${RUNNER_ENV}"
 else
-    warn "Runner não instalado — variáveis não persistidas no .env do runner"
-    warn "Se instalar o runner depois, adicione manualmente a ${RUNNER_ENV}:"
+    warn "Runner não instalado — variável não persistida"
+    warn "Se instalar o runner depois, adicione ao ${RUNNER_ENV}:"
     printf "  ${GRAY}COMPOSE_DIR=%s${NC}\n" "${COMPOSE_DIR}"
-    if [ "${SISCAN_PRODUCT}" = "dashboard" ] || [ "${SISCAN_PRODUCT}" = "full" ]; then
-        printf "  ${GRAY}DIR_SISCAN_DASHBOARD=%s${NC}\n" "${COMPOSE_DIR}"
-    fi
 fi
 
 # Persistir em /etc/environment (para sessões interativas)
 ETC_ENV="/etc/environment"
 if [ -w "${ETC_ENV}" ] 2>/dev/null || command -v sudo &>/dev/null; then
-    for var_name in COMPOSE_DIR DIR_SISCAN_ASSISTENTE; do
-        if grep -q "^${var_name}=" "${ETC_ENV}" 2>/dev/null; then
-            sudo sed -i "s|^${var_name}=.*|${var_name}=\"${COMPOSE_DIR}\"|" "${ETC_ENV}" 2>/dev/null || true
-        else
-            echo "${var_name}=\"${COMPOSE_DIR}\"" | sudo tee -a "${ETC_ENV}" >/dev/null 2>/dev/null || true
-        fi
-    done
-    ok "Variáveis persistidas em /etc/environment"
+    if grep -q "^COMPOSE_DIR=" "${ETC_ENV}" 2>/dev/null; then
+        sudo sed -i "s|^COMPOSE_DIR=.*|COMPOSE_DIR=\"${COMPOSE_DIR}\"|" "${ETC_ENV}" 2>/dev/null || true
+    else
+        echo "COMPOSE_DIR=\"${COMPOSE_DIR}\"" | sudo tee -a "${ETC_ENV}" >/dev/null 2>/dev/null || true
+    fi
+    ok "COMPOSE_DIR persistido em /etc/environment"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
