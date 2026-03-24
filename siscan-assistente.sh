@@ -774,7 +774,7 @@ update_and_restart() {
         # Último recurso: docker compose pull
         if [ ${pull_exit_code} -ne 0 ]; then
             printf "${YELLOW}Ainda não foi possível baixar. Tentando 'docker compose pull' como último recurso...${NC}\n"
-            if (cd "${SCRIPT_DIR}" && docker compose pull 2>&1); then
+            if (cd "${SCRIPT_DIR}" && docker compose -f "${COMPOSE_FILE}" pull 2>&1); then
                 printf "${GREEN}Atualização via compose concluída com sucesso.${NC}\n"
                 pull_exit_code=0
             else
@@ -829,18 +829,18 @@ update_and_restart() {
     ensure_host_paths
 
     # Recria os serviços
-    printf "\n${CYAN}Recriando o SISCAN RPA...${NC}\n"
-    (cd "${SCRIPT_DIR}" && docker compose down && docker compose up -d)
+    printf "\n${CYAN}Recriando %s...${NC}\n" "${PRODUCT_DISPLAY}"
+    (cd "${SCRIPT_DIR}" && docker compose -f "${COMPOSE_FILE}" down && docker compose -f "${COMPOSE_FILE}" up -d)
     local compose_rc=$?
 
     if [ ${compose_rc} -eq 0 ]; then
         printf "\n${GREEN}============================================${NC}\n"
-        printf "${GREEN}  SISCAN RPA PRONTO PARA USO!${NC}\n"
+        printf "${GREEN}  ${PRODUCT_DISPLAY} PRONTO PARA USO!${NC}\n"
         printf "${GREEN}============================================${NC}\n"
         printf "${GREEN}\nO serviço foi atualizado e iniciado com sucesso!${NC}\n"
         printf "${CYAN}Você pode acessar o sistema em: http://localhost:5001${NC}\n"
     else
-        printf "${RED}\nErro ao reiniciar o SISCAN RPA.${NC}\n"
+        printf "${RED}\nErro ao reiniciar o ${PRODUCT_DISPLAY}.${NC}\n"
     fi
 
     return ${compose_rc}
@@ -862,21 +862,21 @@ restart_service() {
 
     ensure_host_paths
 
-    printf "\n${CYAN}Reiniciando o SISCAN RPA...${NC}\n"
-    (cd "${SCRIPT_DIR}" && docker compose down && docker compose up -d)
+    printf "\n${CYAN}Reiniciando %s...${NC}\n" "${PRODUCT_DISPLAY}"
+    (cd "${SCRIPT_DIR}" && docker compose -f "${COMPOSE_FILE}" down && docker compose -f "${COMPOSE_FILE}" up -d)
     local rc=$?
 
     if [ ${rc} -eq 0 ]; then
-        printf "${GREEN}SISCAN RPA reiniciado com sucesso.${NC}\n"
+        printf "${GREEN}${PRODUCT_DISPLAY} reiniciado com sucesso.${NC}\n"
     else
-        printf "${RED}Erro ao reiniciar o SISCAN RPA.${NC}\n"
+        printf "${RED}Erro ao reiniciar o ${PRODUCT_DISPLAY}.${NC}\n"
     fi
     return ${rc}
 }
 
 # ---------------------------------------------------------------------------
 # check_service
-# Verifica se há containers do SISCAN RPA rodando.
+# Verifica se há containers do SISCAN rodando.
 # Retorna 0 se encontrar algum, 1 caso contrário.
 # ---------------------------------------------------------------------------
 check_service() {
@@ -1053,7 +1053,7 @@ run_nightly_script() {
 
     # Verifica se o serviço está rodando
     if ! check_service; then
-        printf "\n${RED}ERRO: O serviço SISCAN RPA não está em execução.${NC}\n"
+        printf "\n${RED}ERRO: O serviço ${PRODUCT_DISPLAY} não está em execução.${NC}\n"
         printf "${YELLOW}Inicie o serviço primeiro (opção 1 do menu).${NC}\n"
         return 1
     fi
@@ -1066,7 +1066,7 @@ run_nightly_script() {
     fi
 
     if [ -z "${container_name}" ]; then
-        printf "\n${RED}ERRO: Não foi possível encontrar o container do SISCAN RPA.${NC}\n"
+        printf "\n${RED}ERRO: Não foi possível encontrar o container do ${PRODUCT_DISPLAY}.${NC}\n"
         printf "${YELLOW}Verifique se o serviço está rodando com 'docker ps'.${NC}\n"
         return 1
     fi
@@ -1369,7 +1369,7 @@ manage_env() {
     printf "${CYAN}============================================${NC}\n"
 
     if check_service; then
-        printf "\n${YELLOW}O serviço SISCAN RPA está em execução.${NC}\n"
+        printf "\n${YELLOW}O serviço ${PRODUCT_DISPLAY} está em execução.${NC}\n"
         printf "${YELLOW}Para aplicar as mudanças no .env, é necessário reiniciar o serviço.${NC}\n"
         printf "${CYAN}\nDeseja reiniciar o serviço agora? (S/N) ${NC}"
         local resposta=""
@@ -1381,7 +1381,7 @@ manage_env() {
 
             if check_env_configured "false"; then
                 ensure_host_paths
-                (cd "${SCRIPT_DIR}" && docker compose down && docker compose up -d)
+                (cd "${SCRIPT_DIR}" && docker compose -f "${COMPOSE_FILE}" down && docker compose -f "${COMPOSE_FILE}" up -d)
                 local rc=$?
                 if [ ${rc} -eq 0 ]; then
                     printf "\n${GREEN}============================================${NC}\n"
@@ -1416,7 +1416,7 @@ manage_env() {
 # ---------------------------------------------------------------------------
 update_assistant_script() {
     printf "\n${CYAN}========================================${NC}\n"
-    printf "${CYAN}  Atualização do Assistente SISCAN RPA${NC}\n"
+    printf "${CYAN}  Atualização do Assistente SISCAN${NC}\n"
     printf "${CYAN}========================================${NC}\n\n"
 
     local script_path="${BASH_SOURCE[0]}"
