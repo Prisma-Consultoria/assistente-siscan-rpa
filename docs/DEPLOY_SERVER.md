@@ -190,40 +190,54 @@ A tabela a seguir lista as perguntas interativas para o produto dashboard. A pri
 
 ## Fases do script
 
-O script percorre 9 fases em sequência. Algumas fases se adaptam ao produto selecionado, conforme indicado.
+O script `siscan-server-setup.sh` executa 10 fases em sequência. Cada fase exibe um banner com o número e o nome da etapa, seguido de verificações e ações. Se alguma fase falhar, o script interrompe com uma mensagem de erro indicando o problema e a ação corretiva. Algumas fases se adaptam ao produto selecionado (`rpa` ou `dashboard`), conforme indicado.
+
+Antes de iniciar as fases, o script exibe um banner com o produto selecionado, o compose file que será usado, o diretório da stack, o diretório do runner e o usuário atual. Essas informações permitem ao operador confirmar visualmente que os parâmetros estão corretos antes de prosseguir.
 
 ### Fase 1 — Verificação de pré-requisitos
 
-Verifica Docker Engine, Docker Compose v2, curl e sudo. O script não prossegue se algum estiver ausente. Comportamento idêntico para ambos os produtos.
+O script verifica se as ferramentas necessárias estão instaladas e acessíveis: Docker Engine (>= 24.x recomendado), Docker Compose v2 (plugin), curl e sudo. Para cada ferramenta encontrada, exibe a versão detectada. Se alguma estiver ausente, o script interrompe com a instrução de instalação.
+
+No caso do Docker, se o daemon não estiver acessível, o script diagnostica a causa provável: serviço inativo (`systemctl`), usuário fora do grupo `docker`, ou socket `/var/run/docker.sock` inexistente. Essa verificação é idêntica para ambos os produtos.
 
 ---
 
 ### Fase 2 — Usuário dedicado para o runner
 
-Se executado como root, cria o usuário `siscan`, adiciona ao grupo `docker` e re-executa o script como esse usuário (propagando o `--product`). Se executado como não-root, confirma o usuário e prossegue.
+O GitHub Actions runner recusa execução como root. Se o script detectar que está rodando como root, ele cria o usuário `siscan` (solicita que o operador defina uma senha), adiciona ao grupo `docker`, transfere a propriedade do diretório do assistente para esse usuário e re-executa o script inteiro como `siscan`, propagando o `--product` selecionado. Se o script já estiver rodando como não-root, apenas confirma o usuário e prossegue.
 
 ---
 
 ### Fase 3 — Estrutura de diretórios da stack
 
-O diretório da stack é o próprio diretório onde o assistente foi clonado (`SCRIPT_DIR`). Os arquivos da stack (compose, `.env`, config) ficam nesse diretório. Não é necessário criar um diretório separado — o script ajusta as permissões do diretório atual para o usuário que executa.
+O diretório da stack é o próprio diretório onde o assistente foi clonado. Os arquivos da stack (compose file, `.env`, diretório `config/`) ficam nesse mesmo local — não é criado um diretório separado. O script verifica se o diretório existe e se o usuário atual é o dono. Se necessário, ajusta as permissões via `sudo chown`.
 
 ---
 
 ### Fase 4 — Arquivos da stack
 
-Copia o compose file e o diretório `config/` para o diretório da stack. O compose file copiado varia conforme o produto selecionado.
+O script verifica se o compose file correspondente ao produto está presente no diretório da stack. Se não estiver, tenta copiar do diretório de origem do script (caso tenham sido distribuídos juntos). Se o arquivo não for encontrado em nenhum dos dois locais, o script interrompe com a instrução para o operador colocar o arquivo manualmente.
 
 | Produto | Compose file |
 |---|---|
 | `rpa` | `docker-compose.prd.rpa.yml` |
 | `dashboard` | `docker-compose.prd.dashboard.yml` |
 
+Além do compose, o script verifica o diretório `config/` e a presença do arquivo `excel_columns_mapping.json` (necessário para o RPA). Se o `config/` não existir, tenta copiar do diretório de origem ou cria vazio com aviso.
+
 ---
 
 ### Fase 5 — Configuração do `.env`
 
-Cria o `.env` a partir do sample correspondente ao produto e solicita interativamente os valores obrigatórios. A tabela a seguir resume as diferenças.
+Esta é a fase interativa principal. O script cria o `.env` a partir do sample correspondente ao produto (`.env.server-rpa.sample` ou `.env.server-dashboard.sample`) e solicita os valores obrigatórios ao operador.
+
+O fluxo de perguntas segue esta ordem:
+
+1. **Chave de sessão** — gerada automaticamente sem intervenção do operador. Para o RPA, gera `SECRET_KEY`; para o dashboard, gera `SESSION_SECRET`. Ambas são chaves hexadecimais de 256 bits produzidas via `openssl rand -hex 32`.
+2. **`DATABASE_HOST`** — o script pergunta o IP ou hostname do PostgreSQL externo. Se o valor atual for `db` (padrão de desenvolvimento), avisa que é inválido para banco externo e solicita correção.
+3. **`DATABASE_PASSWORD`** — o script pergunta a senha do banco. Se detectar a senha padrão `siscan_rpa`, exibe aviso para alteração. A entrada é ocultada (não ecoa no terminal).
+4. **`RPA_DATABASE_URL`** (apenas para o produto dashboard) — o script solicita a connection string completa para o banco do RPA, exibindo o formato e um exemplo. Essa variável é obrigatória para que o `sync_exames` consiga ler os dados do RPA.
+5. **Diretórios `HOST_*`** — o script percorre cada variável de caminho, exibindo o valor atual e uma descrição. Se o valor atual parecer um caminho Windows (letra de drive, barras invertidas, UNC), exibe um aviso e sugere o equivalente Linux. O operador pode manter o valor atual pressionando Enter ou informar um novo caminho.
 
 | Variável | Produto RPA | Produto Dashboard |
 |---|---|---|
@@ -233,19 +247,29 @@ Cria o `.env` a partir do sample correspondente ao produto e solicita interativa
 | `RPA_DATABASE_URL` | — | Pergunta (obrigatório para o sync) |
 | Diretórios `HOST_*` | 5 caminhos | 1 caminho (`HOST_LOG_DIR`) |
 
-O produto é persistido no `.env` via `SISCAN_PRODUCT=rpa` ou `SISCAN_PRODUCT=dashboard`, permitindo que o assistente (`siscan-assistente.sh`) detecte automaticamente qual produto gerenciar.
+Ao final, o produto é persistido no `.env` via `SISCAN_PRODUCT=rpa` ou `SISCAN_PRODUCT=dashboard`, permitindo que o assistente (`siscan-assistente.sh`) detecte automaticamente qual produto gerenciar em operações futuras.
 
 ---
 
 ### Fase 6 — Criação dos diretórios `HOST_*`
 
-Lê os caminhos definidos nas variáveis `HOST_*` do `.env` e executa `mkdir -p` para cada um. O número de diretórios criados varia: 5 para RPA, 1 para dashboard.
+O script lê os caminhos definidos nas variáveis `HOST_*_DIR` do `.env` e executa `mkdir -p` para cada um, criando toda a estrutura de diretórios necessária para os bind mounts dos containers. Para cada diretório criado com sucesso, exibe uma confirmação. Se a criação falhar (por exemplo, por falta de permissão), exibe um aviso — mas não interrompe o script. O número de diretórios criados varia: 5 para RPA (logs, downloads, consolidados, PDFs, config), 1 para dashboard (logs).
 
 ---
 
 ### Fase 7 — GitHub Actions Runner
 
-Baixa, registra e instala o runner como serviço systemd. A label e o nome do runner são definidos pelo produto conforme a tabela a seguir.
+Esta fase instala e registra o GitHub Actions runner que receberá os deploys automáticos via CI/CD. Se o runner já estiver instalado (detecta `config.sh` no diretório do runner), o script apenas verifica o status do serviço systemd e prossegue.
+
+Se o runner não estiver instalado, o fluxo completo é:
+
+1. **Detecta a arquitetura** do servidor (x86_64 ou aarch64) para baixar o binário correto.
+2. **Consulta a versão mais recente** do runner via API do GitHub (`actions/runner/releases/latest`).
+3. **Baixa e extrai** o tarball no diretório `~/actions-runner`.
+4. **Solicita a URL do repositório** — sugere a URL padrão conforme o produto; o operador pode aceitar com Enter ou informar outra.
+5. **Solicita o token de registro** — o operador deve copiar o token gerado na tela de Settings → Actions → Runners → New do repositório correspondente. O token expira em poucos minutos.
+6. **Registra o runner** com a label e o nome definidos pelo produto, usando `--unattended --replace`.
+7. **Instala como serviço systemd** e inicia o serviço. O runner passa a rodar em background e sobrevive a reinicializações do servidor.
 
 | Aspecto | Produto RPA | Produto Dashboard |
 |---|---|---|
@@ -253,31 +277,33 @@ Baixa, registra e instala o runner como serviço systemd. A label e o nome do ru
 | Nome | `<hostname>-siscan-rpa` | `<hostname>-siscan-dashboard` |
 | URL padrão do repo | `Prisma-Consultoria/siscan-rpa` | `Prisma-Consultoria/siscan-dashboard` |
 
-O script sugere a URL padrão — basta pressionar Enter para aceitar. O token de registro deve ser gerado no repositório correspondente (ver [pré-requisitos](#token-de-registro-do-runner)).
-
 ---
 
 ### Fase 8 — Persistir `COMPOSE_DIR` no ambiente do runner
 
-O runner roda como serviço systemd e não carrega `~/.bashrc` nem `/etc/environment`. O script grava `COMPOSE_DIR` (diretório do assistente) no `~/actions-runner/.env` — o único mecanismo para injetar variáveis nos jobs do GitHub Actions. Também persiste em `/etc/environment` para sessões interativas.
+O runner roda como serviço systemd e não carrega `~/.bashrc` nem `/etc/environment`. Para que os workflows de CD consigam localizar o compose file e o `.env` no servidor, o script grava a variável `COMPOSE_DIR` (diretório do assistente) em dois locais:
 
-Ambos os workflows de CD (siscan-rpa e siscan-dashboard) usam `${COMPOSE_DIR}` para localizar o compose file e o `.env` no servidor.
+1. **`~/actions-runner/.env`** — é o único mecanismo para injetar variáveis de ambiente nos jobs executados pelo runner. Ambos os workflows de CD (siscan-rpa e siscan-dashboard) usam `${COMPOSE_DIR}` para navegar até o diretório correto antes de executar `docker compose`.
+2. **`/etc/environment`** — disponibiliza a variável para sessões interativas (SSH), permitindo que o operador use `cd $COMPOSE_DIR` para acessar rapidamente o diretório da stack.
 
 ---
 
 ### Fase 9 — Permissões Docker
 
-Verifica se o usuário atual pertence ao grupo `docker` e adiciona se necessário. Comportamento idêntico para ambos os produtos.
+O script verifica se o usuário atual pertence ao grupo `docker`. Se não pertencer, executa `sudo usermod -aG docker` e avisa que é necessário logout/login para que a mudança tenha efeito na sessão do terminal. O serviço do runner, por reiniciar via systemd, já terá o grupo automaticamente. Comportamento idêntico para ambos os produtos.
 
 ---
 
 ### Fase 10 — Resumo e próximos passos
 
-Exibe o que foi configurado (produto, diretório, compose, runner) e os próximos passos:
+O script exibe um resumo completo do que foi configurado: produto, diretório da stack, compose file, `.env`, diretório do runner e label. Em seguida, lista os próximos passos que o operador deve executar:
 
-1. Revisar o `.env` no diretório da stack.
-2. Confirmar que o runner aparece como **Idle** em GitHub → Settings → Actions → Runners.
-3. O próximo merge para `main` no repositório correspondente acionará o deploy automaticamente.
+1. Revisar o `.env` no diretório da stack para confirmar que todos os valores estão corretos.
+2. Confirmar que o runner aparece como **Idle** em GitHub → Settings → Actions → Runners do repositório correspondente.
+3. Verificar o status do serviço do runner via `sudo ~/actions-runner/svc.sh status`.
+4. O próximo merge para `main` no repositório correspondente acionará o deploy automaticamente. Para acionar manualmente, usar Actions → CD → Run workflow.
+5. Acompanhar os logs do runner via `journalctl -u actions.runner.*.service -f`.
+6. Acompanhar os logs da stack após o primeiro deploy via `docker compose -f <compose-file> logs -f`.
 
 ---
 
