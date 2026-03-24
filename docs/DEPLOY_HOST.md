@@ -58,13 +58,13 @@ flowchart TD
     style DB_RPA fill:#336791,color:#fff
     style DB_DASH fill:#336791,color:#fff
     style REDIS fill:#d97706,color:#fff
+    linkStyle 7 stroke:#336791,stroke-width:2px
+    linkStyle 8 stroke:#336791,stroke-width:2px
     linkStyle 9 stroke:#336791,stroke-width:2px
     linkStyle 10 stroke:#336791,stroke-width:2px
     linkStyle 11 stroke:#336791,stroke-width:2px
-    linkStyle 12 stroke:#336791,stroke-width:2px
-    linkStyle 13 stroke:#336791,stroke-width:2px
-    linkStyle 14 stroke:#d97706,stroke-width:2px
-    linkStyle 15 stroke:#d97706,stroke-width:2px
+    linkStyle 12 stroke:#d97706,stroke-width:2px
+    linkStyle 13 stroke:#d97706,stroke-width:2px
 ```
 
 O diagrama mostra como os containers se organizam e se conectam:

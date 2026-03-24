@@ -60,12 +60,12 @@ flowchart TD
 
     style PG fill:#336791,color:#fff
     style REDIS fill:#d97706,color:#fff
-    linkStyle 10 stroke:#336791,stroke-width:2px
     linkStyle 11 stroke:#336791,stroke-width:2px
     linkStyle 12 stroke:#336791,stroke-width:2px
     linkStyle 13 stroke:#336791,stroke-width:2px
-    linkStyle 14 stroke:#d97706,stroke-width:2px
+    linkStyle 14 stroke:#336791,stroke-width:2px
     linkStyle 15 stroke:#d97706,stroke-width:2px
+    linkStyle 16 stroke:#d97706,stroke-width:2px
 ```
 
 O fluxo de deploy e a infraestrutura funcionam assim:
