@@ -43,6 +43,7 @@ flowchart TD
         subgraph DASH_CONTAINERS["Containers"]
             DA["app (5000)"]
             DS["sync (loop 30min)"]
+            REDIS[("Redis\ncache")]
         end
     end
 
@@ -52,6 +53,17 @@ flowchart TD
     RS -->|"TCP 5432"| PG
     DA -->|"TCP 5432"| PG
     DS -->|"lê siscan_rpa\nescreve siscan_dashboard"| PG
+    DA --> REDIS
+    DS --> REDIS
+
+    style PG fill:#336791,color:#fff
+    style REDIS fill:#d97706,color:#fff
+    linkStyle 10 stroke:#336791,stroke-width:2px
+    linkStyle 11 stroke:#336791,stroke-width:2px
+    linkStyle 12 stroke:#336791,stroke-width:2px
+    linkStyle 13 stroke:#336791,stroke-width:2px
+    linkStyle 14 stroke:#d97706,stroke-width:2px
+    linkStyle 15 stroke:#d97706,stroke-width:2px
 ```
 
 Pontos relevantes do diagrama:
@@ -59,6 +71,7 @@ Pontos relevantes do diagrama:
 - Cada VM de aplicação recebe deploys de forma independente — o merge no siscan-rpa não afeta o dashboard e vice-versa.
 - O serviço `sync` no dashboard lê do banco `siscan_rpa` e escreve no banco `siscan_dashboard`, mantendo a tabela analítica atualizada a cada 30 minutos.
 - O banco de dados (VM 2) não tem runner nem assistente — é um PostgreSQL dedicado que atende ambas as aplicações.
+- O Redis roda na VM 3 como container local da stack do dashboard, servindo como cache operacional e armazenamento dos payloads pré-calculados.
 
 ---
 

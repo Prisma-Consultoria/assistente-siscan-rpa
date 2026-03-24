@@ -31,6 +31,7 @@ flowchart TD
             D_MIG["dashboard-migrate\nalembic (efêmero)"]
             D_APP["dashboard-app\nporta 5000"]
             D_SYNC["dashboard-sync\nsync a cada 30 min"]
+            REDIS[("Redis\ncache")]
         end
     end
 
@@ -49,13 +50,19 @@ flowchart TD
     D_APP -->|"lê"| DB_DASH
     D_SYNC -->|"lê"| DB_RPA
     D_SYNC -->|"escreve"| DB_DASH
+    D_APP --> REDIS
+    D_SYNC --> REDIS
 
-    style DB_RPA fill:#e8f4f8,stroke:#17a2b8
-    style DB_DASH fill:#d4edda,stroke:#27ae60
-    style R_APP fill:#e8f4f8,stroke:#17a2b8
-    style R_SCHED fill:#e8f4f8,stroke:#17a2b8
-    style D_APP fill:#d4edda,stroke:#27ae60
-    style D_SYNC fill:#fff3cd,stroke:#f39c12
+    style DB_RPA fill:#336791,color:#fff
+    style DB_DASH fill:#336791,color:#fff
+    style REDIS fill:#d97706,color:#fff
+    linkStyle 9 stroke:#336791,stroke-width:2px
+    linkStyle 10 stroke:#336791,stroke-width:2px
+    linkStyle 11 stroke:#336791,stroke-width:2px
+    linkStyle 12 stroke:#336791,stroke-width:2px
+    linkStyle 13 stroke:#336791,stroke-width:2px
+    linkStyle 14 stroke:#d97706,stroke-width:2px
+    linkStyle 15 stroke:#d97706,stroke-width:2px
 ```
 
 Pontos relevantes do diagrama:
