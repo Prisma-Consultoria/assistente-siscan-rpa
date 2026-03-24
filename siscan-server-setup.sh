@@ -7,10 +7,13 @@
 #            SISCAN (RPA e/ou Dashboard) via GitHub Actions self-hosted runner.
 #
 # Uso:
-#   bash ./siscan-server-setup.sh --product rpa        # VM do RPA
-#   bash ./siscan-server-setup.sh --product dashboard   # VM do Dashboard
-#   bash ./siscan-server-setup.sh --product full        # Host (tudo junto)
-#   bash ./siscan-server-setup.sh                       # pergunta interativamente
+#   bash ./siscan-server-setup.sh --product rpa          # Setup da VM do RPA
+#   bash ./siscan-server-setup.sh --product dashboard     # Setup da VM do Dashboard
+#   bash ./siscan-server-setup.sh --product full          # Setup HOST (tudo junto)
+#   bash ./siscan-server-setup.sh                         # pergunta interativamente
+#
+#   bash ./siscan-server-setup.sh --product rpa --check       # Verifica consistência do RPA
+#   bash ./siscan-server-setup.sh --product dashboard --check # Verifica consistência do Dashboard
 #
 # Variáveis de ambiente opcionais:
 #   RUNNER_DIR     Diretório de instalação do runner (padrão: ~/actions-runner)
@@ -43,10 +46,12 @@ NC='\033[0m'
 # Parse de argumentos
 # ────────────────────────────────────────────────────────────────────────────
 SISCAN_PRODUCT=""
+RUN_MODE="setup"
 while [[ $# -gt 0 ]]; do
     case "${1}" in
         --product) SISCAN_PRODUCT="${2:-}"; shift 2 ;;
         --product=*) SISCAN_PRODUCT="${1#*=}"; shift ;;
+        --check) RUN_MODE="check"; shift ;;
         *) shift ;;
     esac
 done
@@ -246,6 +251,215 @@ esac
 
 COMPOSE_DIR="${COMPOSE_DIR:-${SCRIPT_DIR}}"
 ENV_FILE="${COMPOSE_DIR}/.env"
+
+# ════════════════════════════════════════════════════════════════════════════
+# MODO CHECK — verifica consistência da instalação existente
+# ════════════════════════════════════════════════════════════════════════════
+if [ "${RUN_MODE}" = "check" ]; then
+
+printf "\n${WHITE}╔════════════════════════════════════════════════════╗${NC}\n"
+printf "${WHITE}║  %s — Verificação de Consistência$(printf '%*s' $((18 - ${#PRODUCT_DISPLAY})) '')║${NC}\n" "${PRODUCT_DISPLAY}"
+printf "${WHITE}╚════════════════════════════════════════════════════╝${NC}\n\n"
+
+CHECK_ERRORS=0
+
+# ── 1. Repositório do assistente ─────────────────────────────────────────
+step "1. Repositório do assistente"
+if [ -d "${COMPOSE_DIR}/.git" ]; then
+    ok "Repositório git detectado em ${COMPOSE_DIR}"
+
+    # Buscar atualizações do remoto sem alterar nada
+    git -C "${COMPOSE_DIR}" fetch origin main --quiet 2>/dev/null || true
+
+    LOCAL_HEAD=$(git -C "${COMPOSE_DIR}" rev-parse HEAD 2>/dev/null || echo "")
+    REMOTE_HEAD=$(git -C "${COMPOSE_DIR}" rev-parse origin/main 2>/dev/null || echo "")
+
+    if [ -z "${LOCAL_HEAD}" ] || [ -z "${REMOTE_HEAD}" ]; then
+        warn "Não foi possível comparar versões local e remota"
+    elif [ "${LOCAL_HEAD}" = "${REMOTE_HEAD}" ]; then
+        ok "Repositório atualizado (branch local = origin/main)"
+    else
+        BEHIND_COUNT=$(git -C "${COMPOSE_DIR}" rev-list --count HEAD..origin/main 2>/dev/null || echo "?")
+        warn "Repositório desatualizado — ${BEHIND_COUNT} commit(s) atrás de origin/main"
+        printf "\n  ${WHITE}Deseja atualizar o repositório agora? (git pull origin main) (S/N) ${NC}"
+        read -r do_pull
+        if [[ "${do_pull:-}" =~ ^[Ss] ]]; then
+            printf "\n"
+            if git -C "${COMPOSE_DIR}" pull origin main; then
+                ok "Repositório atualizado com sucesso"
+            else
+                warn "git pull falhou — pode haver alterações locais não commitadas"
+                printf "  ${GRAY}Resolva manualmente com: cd %s && git status${NC}\n" "${COMPOSE_DIR}"
+                CHECK_ERRORS=$((CHECK_ERRORS + 1))
+            fi
+        else
+            info "Pulando atualização. Execute manualmente: cd ${COMPOSE_DIR} && git pull origin main"
+        fi
+    fi
+else
+    info "${COMPOSE_DIR} não é um repositório git — verificação de versão ignorada"
+fi
+
+# ── 2. Compose file ──────────────────────────────────────────────────────
+step "2. Compose file"
+COMPOSE_FILE_PATH="${COMPOSE_DIR}/${COMPOSE_FILE}"
+if [ -f "${COMPOSE_FILE_PATH}" ]; then
+    ok "${COMPOSE_FILE} presente"
+else
+    warn "${COMPOSE_FILE} NÃO encontrado em ${COMPOSE_DIR}"
+    CHECK_ERRORS=$((CHECK_ERRORS + 1))
+fi
+
+# ── 3. .env sample ──────────────────────────────────────────────────────
+step "3. Sample de referência"
+ENV_SAMPLE_PATH="${COMPOSE_DIR}/${ENV_SAMPLE_NAME}"
+if [ -f "${ENV_SAMPLE_PATH}" ]; then
+    ok "${ENV_SAMPLE_NAME} presente"
+else
+    # Tentar localizar no diretório do script
+    if [ -f "${SCRIPT_DIR}/${ENV_SAMPLE_NAME}" ]; then
+        ENV_SAMPLE_PATH="${SCRIPT_DIR}/${ENV_SAMPLE_NAME}"
+        ok "${ENV_SAMPLE_NAME} encontrado em ${SCRIPT_DIR}"
+    else
+        warn "${ENV_SAMPLE_NAME} NÃO encontrado"
+        CHECK_ERRORS=$((CHECK_ERRORS + 1))
+    fi
+fi
+
+# ── 4. Consistência .env vs sample ───────────────────────────────────────
+step "4. Variáveis do .env"
+if [ ! -f "${ENV_FILE}" ]; then
+    warn ".env não encontrado em ${COMPOSE_DIR} — execute o setup primeiro"
+    CHECK_ERRORS=$((CHECK_ERRORS + 1))
+elif [ -f "${ENV_SAMPLE_PATH}" ]; then
+    # Extrair chaves do sample (ignora comentários e linhas vazias)
+    SAMPLE_KEYS=$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "${ENV_SAMPLE_PATH}" | cut -d= -f1 | sort)
+    ENV_KEYS=$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "${ENV_FILE}" | cut -d= -f1 | sort)
+
+    MISSING_KEYS=$(comm -23 <(echo "${SAMPLE_KEYS}") <(echo "${ENV_KEYS}"))
+
+    if [ -z "${MISSING_KEYS}" ]; then
+        ok "Todas as variáveis do sample estão presentes no .env"
+    else
+        MISSING_COUNT=$(echo "${MISSING_KEYS}" | wc -l)
+        warn "${MISSING_COUNT} variável(is) do sample ausente(s) no .env:"
+        printf "\n"
+
+        while IFS= read -r key; do
+            sample_val=$(grep -E "^${key}=" "${ENV_SAMPLE_PATH}" | head -1 | cut -d= -f2-)
+            printf "  ${YELLOW}•${NC} ${CYAN}%s${NC}" "${key}"
+            [ -n "${sample_val}" ] && printf " ${GRAY}(default: %s)${NC}" "${sample_val}"
+            printf "\n"
+        done <<< "${MISSING_KEYS}"
+
+        printf "\n  ${WHITE}Deseja adicionar as variáveis faltantes ao .env com os valores default do sample? (S/N) ${NC}"
+        read -r add_missing
+        if [[ "${add_missing:-}" =~ ^[Ss] ]]; then
+            printf "\n"
+            while IFS= read -r key; do
+                sample_line=$(grep -E "^${key}=" "${ENV_SAMPLE_PATH}" | head -1)
+                echo "${sample_line}" >> "${ENV_FILE}"
+                ok "Adicionado: ${sample_line}"
+            done <<< "${MISSING_KEYS}"
+        else
+            info "Variáveis não adicionadas. Edite o .env manualmente se necessário."
+            CHECK_ERRORS=$((CHECK_ERRORS + 1))
+        fi
+    fi
+
+    # Verificar variáveis com valor vazio que são obrigatórias
+    for key in DATABASE_HOST DATABASE_PASSWORD; do
+        val="$(_read_env_value "${ENV_FILE}" "${key}")"
+        if [ -z "${val}" ]; then
+            warn "${key} está vazio no .env — preencha antes de subir a stack"
+            CHECK_ERRORS=$((CHECK_ERRORS + 1))
+        else
+            ok "${key} configurado"
+        fi
+    done
+
+    if [ "${SISCAN_PRODUCT}" = "dashboard" ]; then
+        val="$(_read_env_value "${ENV_FILE}" "RPA_DATABASE_URL")"
+        if [ -z "${val}" ]; then
+            warn "RPA_DATABASE_URL está vazio no .env — o sync não funcionará"
+            CHECK_ERRORS=$((CHECK_ERRORS + 1))
+        else
+            ok "RPA_DATABASE_URL configurado"
+        fi
+    fi
+else
+    info "Não foi possível comparar — sample não encontrado"
+fi
+
+# ── 5. COMPOSE_DIR no .env do runner ─────────────────────────────────────
+step "5. Runner — COMPOSE_DIR"
+RUNNER_ENV="${RUNNER_DIR}/.env"
+if [ -f "${RUNNER_ENV}" ]; then
+    RUNNER_COMPOSE_DIR=$(grep -E "^COMPOSE_DIR=" "${RUNNER_ENV}" 2>/dev/null | cut -d= -f2-)
+    if [ -n "${RUNNER_COMPOSE_DIR}" ]; then
+        ok "COMPOSE_DIR=${RUNNER_COMPOSE_DIR} em ${RUNNER_ENV}"
+        if [ "${RUNNER_COMPOSE_DIR}" != "${COMPOSE_DIR}" ]; then
+            warn "COMPOSE_DIR do runner (${RUNNER_COMPOSE_DIR}) difere do diretório atual (${COMPOSE_DIR})"
+            CHECK_ERRORS=$((CHECK_ERRORS + 1))
+        fi
+    else
+        warn "COMPOSE_DIR não encontrado em ${RUNNER_ENV}"
+        printf "\n  ${WHITE}Deseja adicionar COMPOSE_DIR=${COMPOSE_DIR} ao ${RUNNER_ENV}? (S/N) ${NC}"
+        read -r add_compose_dir
+        if [[ "${add_compose_dir:-}" =~ ^[Ss] ]]; then
+            echo "COMPOSE_DIR=${COMPOSE_DIR}" >> "${RUNNER_ENV}"
+            ok "COMPOSE_DIR adicionado ao ${RUNNER_ENV}"
+        else
+            CHECK_ERRORS=$((CHECK_ERRORS + 1))
+        fi
+    fi
+else
+    warn "Arquivo ${RUNNER_ENV} não encontrado — runner pode não estar instalado"
+    CHECK_ERRORS=$((CHECK_ERRORS + 1))
+fi
+
+# ── 6. Status do runner ──────────────────────────────────────────────────
+step "6. Runner — status do serviço"
+if [ -f "${RUNNER_DIR}/svc.sh" ]; then
+    RUNNER_SVC_STATUS=$(sudo "${RUNNER_DIR}/svc.sh" status 2>/dev/null || true)
+    if echo "${RUNNER_SVC_STATUS}" | grep -qi "active\|running"; then
+        ok "Serviço do runner: ativo"
+    else
+        warn "Serviço do runner pode não estar ativo"
+        printf "  ${GRAY}Verifique com: sudo %s/svc.sh status${NC}\n" "${RUNNER_DIR}"
+        printf "\n  ${WHITE}Deseja reiniciar o runner? (S/N) ${NC}"
+        read -r restart_runner
+        if [[ "${restart_runner:-}" =~ ^[Ss] ]]; then
+            sudo "${RUNNER_DIR}/svc.sh" stop 2>/dev/null || true
+            sudo "${RUNNER_DIR}/svc.sh" start 2>/dev/null || true
+            RUNNER_SVC_STATUS=$(sudo "${RUNNER_DIR}/svc.sh" status 2>/dev/null || true)
+            if echo "${RUNNER_SVC_STATUS}" | grep -qi "active\|running"; then
+                ok "Runner reiniciado com sucesso"
+            else
+                warn "Runner pode não ter reiniciado corretamente"
+                CHECK_ERRORS=$((CHECK_ERRORS + 1))
+            fi
+        else
+            CHECK_ERRORS=$((CHECK_ERRORS + 1))
+        fi
+    fi
+else
+    warn "Runner não instalado em ${RUNNER_DIR}"
+    CHECK_ERRORS=$((CHECK_ERRORS + 1))
+fi
+
+# ── Resumo ───────────────────────────────────────────────────────────────
+printf "\n${CYAN}══════════════════════════════════════════════════${NC}\n"
+if [ ${CHECK_ERRORS} -eq 0 ]; then
+    printf "  ${GREEN}Verificação concluída — tudo OK!${NC}\n"
+else
+    printf "  ${YELLOW}Verificação concluída — %d ponto(s) requer(em) atenção.${NC}\n" "${CHECK_ERRORS}"
+fi
+printf "${CYAN}══════════════════════════════════════════════════${NC}\n\n"
+
+exit ${CHECK_ERRORS}
+
+fi # fim do modo check
 
 # ── Banner ────────────────────────────────────────────────────────────────
 printf "\n${WHITE}╔════════════════════════════════════════════════════╗${NC}\n"
