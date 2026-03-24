@@ -82,6 +82,7 @@ A tabela a seguir detalha cada container, sua imagem, porta exposta e função.
 | Container | Imagem | Porta | Função |
 |---|---|---|---|
 | `db` | `postgres:17` | — | PostgreSQL com `siscan_rpa` + `siscan_dashboard` (init script cria o segundo banco) |
+| `redis` | `redis:7-alpine` | — | Cache operacional e payloads pré-calculados do dashboard |
 | `migrate` | `siscan-rpa-rpa:main` | — | Alembic migrations do RPA (efêmero) |
 | `app` | `siscan-rpa-rpa:main` | 5001 | Painel web do RPA |
 | `rpa-scheduler` | `siscan-rpa-rpa:main` | — | Coleta automática do SISCAN |
@@ -110,26 +111,36 @@ Antes de prosseguir, verifique os itens da tabela a seguir. Todos os passos são
 
 ## Instalação
 
-A instalação consiste em clonar o repositório do assistente, configurar o `.env` e executar o assistente para baixar as imagens Docker.
+No modo HOST, a instalação é feita pelo assistente interativo (`siscan-assistente.sh` ou `siscan-assistente.ps1`), que guia o operador em três etapas: clonar o repositório, configurar as variáveis de ambiente e baixar as imagens Docker do siscan-rpa e do siscan-dashboard. Não é necessário instalar PostgreSQL nem Redis separadamente — ambos sobem como containers gerenciados pelo compose.
 
-### Clonar o repositório
+### Etapa 1 — Clonar o repositório
+
+Clone o repositório do assistente no PC que receberá a instalação. Esse diretório será o diretório da stack — o compose, o `.env` e os scripts operacionais ficam aqui.
 
 ```bash
 git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git
 cd assistente-siscan-rpa
 ```
 
-### Configurar o `.env`
+### Etapa 2 — Configurar o `.env`
+
+Copie o sample e preencha os valores obrigatórios antes de executar o assistente pela primeira vez.
 
 ```bash
 cp .env.host.sample .env
 ```
 
-Preencha os caminhos das pastas, a senha do banco e a senha do admin do dashboard antes de iniciar o assistente pela primeira vez. A seção [Referência de variáveis](#referência-de-variáveis--env) abaixo documenta todas as variáveis.
+Os itens que precisam ser preenchidos nesta etapa são:
 
-### Executar o assistente
+1. **`DATABASE_PASSWORD`** — altere a senha padrão `siscan_rpa` para uma senha segura. Essa senha será usada pelo PostgreSQL do container.
+2. **`DASHBOARD_ADMIN_PASSWORD`** — defina a senha do usuário administrador do dashboard.
+3. **Caminhos `HOST_*`** — preencha os caminhos onde o sistema guardará logs, PDFs, relatórios e configurações. No Windows use barras invertidas (`C:\siscan-rpa\logs`); no Linux use barras normais (`/opt/siscan-rpa/logs`).
 
-Na primeira execução, o assistente solicita o **usuário GitHub** e o **token PAT** para autenticar no GHCR. Essas credenciais são salvas em `credenciais.txt` e reutilizadas nas execuções seguintes.
+A seção [Referência de variáveis](#referência-de-variáveis--env) abaixo documenta todas as variáveis em detalhe.
+
+### Etapa 3 — Executar o assistente
+
+Na primeira execução, o assistente solicita o **usuário GitHub** e o **token PAT** (com permissão `read:packages`) para autenticar no GHCR e baixar as imagens Docker. Essas credenciais são salvas em `credenciais.txt` e reutilizadas nas execuções seguintes.
 
 **Windows — PowerShell 7+:**
 ```powershell
@@ -151,7 +162,7 @@ bash ./siscan-assistente.sh
 
 > Na primeira execução (Linux), o script define `COMPOSE_DIR` apontando para o diretório onde o repositório foi clonado. Ela é persistida em `/etc/environment` para sessões interativas.
 
-Escolha a **Opção 2 — Atualizar / Instalar** no menu para realizar a primeira instalação. O assistente faz o pull de **duas imagens**: `siscan-rpa-rpa:main` e `siscan-dashboard:main`.
+Ao abrir o menu, escolha a **Opção 2 — Atualizar / Instalar** para realizar a primeira instalação. O assistente autentica no GHCR e faz o pull de **três imagens**: `postgres:17`, `redis:7-alpine`, `siscan-rpa-rpa:main` e `siscan-dashboard:main`. Em seguida, sobe a stack completa com todos os containers descritos no diagrama acima.
 
 ---
 
@@ -183,9 +194,9 @@ O `.env.host.sample` cobre o modo HOST (`docker-compose.prd.host.yml`). As tabel
 - **Obrigatória?** — se precisa ser preenchida antes de subir.
 - **O que é** — explicação em linguagem simples.
 
-### Aplicação HTTP (RPA)
+### Aplicação HTTP (siscan-rpa)
 
-A tabela a seguir descreve as variáveis da aplicação web do RPA, acessível na porta 5001.
+A tabela a seguir descreve as variáveis da aplicação web do siscan-rpa, acessível na porta 5001.
 
 | Variável | `.env.host.sample` | Default no compose | Obrigatória? | O que é |
 |---|---|---|---|---|
@@ -193,9 +204,9 @@ A tabela a seguir descreve as variáveis da aplicação web do RPA, acessível n
 | `APP_LOG_LEVEL` | `INFO` | `:-INFO` | Não | Detalhe dos logs. `DEBUG` só com orientação técnica. |
 | `SECRET_KEY` | *(vazio — gerado pelo assistente)* | sem fallback | **Sim** | Chave de segurança do painel web. Gerada automaticamente. |
 
-### Dashboard
+### siscan-dashboard
 
-A tabela a seguir descreve as variáveis da aplicação dashboard, acessível na porta 5000.
+A tabela a seguir descreve as variáveis do siscan-dashboard, acessível na porta 5000.
 
 | Variável | `.env.host.sample` | Default no compose | Obrigatória? | O que é |
 |---|---|---|---|---|
@@ -220,7 +231,7 @@ O banco PostgreSQL é gerenciado pelo Docker — não é necessário instalar na
 | `DATABASE_PORT` | `5432` | `:-5432` | Não | Porta interna do banco. |
 | `DATABASE_HOST` | `db` | `:-db` | Não | Endereço do banco no Docker — **não altere**. |
 
-### Scheduler batch (RPA)
+### Scheduler batch (siscan-rpa)
 
 | Variável | `.env.host.sample` | Default no compose | Obrigatória? | O que é |
 |---|---|---|---|---|
@@ -253,10 +264,10 @@ Para variáveis opcionais e avançadas (pool de conexões, timeouts Playwright, 
 
 Após subir a stack pela primeira vez, acesse as aplicações conforme a tabela a seguir.
 
-| Aplicação | URL padrão | Próximo passo |
+| Sistema | URL padrão | Próximo passo |
 |---|---|---|
-| RPA | `http://localhost:5001` | Navegar até `/admin/siscan-credentials` e cadastrar usuário/senha do SISCAN |
-| Dashboard | `http://localhost:5000` | Login com admin / senha definida em `DASHBOARD_ADMIN_PASSWORD` |
+| siscan-rpa | `http://localhost:5001` | Navegar até `/admin/siscan-credentials` e cadastrar usuário/senha do SISCAN |
+| siscan-dashboard | `http://localhost:5000` | Login com admin / senha definida em `DASHBOARD_ADMIN_PASSWORD` |
 
 A coleta automática do RPA inicia no próximo ciclo agendado (padrão: 30 minutos). O sync do dashboard roda automaticamente no mesmo intervalo.
 
