@@ -394,6 +394,29 @@ Após a instalação inicial, o assistente não se atualiza sozinho. No entanto,
 
 Isso significa que, **no modo SERVER, o `git pull` é opcional**. Os arquivos operacionais (compose e imagens) já são atualizados automaticamente pelo CD. O `git pull` seria útil apenas para atualizar scripts do assistente (`siscan-server-setup.sh`) e documentação (`docs/`), que raramente mudam após a instalação.
 
+### Verificação de consistência (`--check`)
+
+Para verificar se uma instalação existente está alinhada com a versão atual do assistente — sem refazer o setup — use o flag `--check`:
+
+```bash
+# VM do siscan-rpa:
+bash ./siscan-server-setup.sh --product rpa --check
+
+# VM do siscan-dashboard:
+bash ./siscan-server-setup.sh --product dashboard --check
+```
+
+O `--check` executa 6 verificações em sequência:
+
+1. **Repositório** — compara a branch local com `origin/main`. Se estiver desatualizado, oferece fazer `git pull`.
+2. **Compose file** — verifica se o compose correspondente ao produto está presente no diretório da stack.
+3. **Sample de referência** — verifica se o `.env.*.sample` está presente.
+4. **Variáveis do `.env`** — compara as chaves do `.env` com as do sample. Lista variáveis faltantes e oferece adicioná-las com os valores default do sample.
+5. **COMPOSE_DIR no runner** — verifica se está configurado no `~/actions-runner/.env`. Oferece adicionar se ausente.
+6. **Status do runner** — verifica se o serviço systemd está ativo. Oferece reiniciar se necessário.
+
+O comando retorna exit code 0 se tudo estiver OK, ou o número de problemas encontrados. É seguro executar múltiplas vezes — não altera nada sem confirmação interativa.
+
 Se ainda assim quiser atualizar o repositório completo:
 
 ```bash
