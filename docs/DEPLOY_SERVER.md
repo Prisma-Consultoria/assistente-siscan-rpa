@@ -113,9 +113,9 @@ psql -h <DATABASE_HOST> -U siscan_rpa -c "SELECT version();"
 
 Cada VM precisa de um token de registro gerado no repositório correspondente ao produto:
 
-| Produto | Onde gerar o token |
+| Sistema | Onde gerar o token |
 |---|---|
-| `rpa` | [siscan-rpa → Settings → Actions → Runners → New](https://github.com/Prisma-Consultoria/siscan-rpa/settings/actions/runners/new) |
+| siscan-rpa | [siscan-rpa → Settings → Actions → Runners → New](https://github.com/Prisma-Consultoria/siscan-rpa/settings/actions/runners/new) |
 | `dashboard` | [siscan-dashboard → Settings → Actions → Runners → New](https://github.com/Prisma-Consultoria/siscan-dashboard/settings/actions/runners/new) |
 
 >  ⚠️  O token expira em poucos minutos. Gere-o imediatamente antes de executar o script.
@@ -242,10 +242,10 @@ O diretório da stack é o próprio diretório onde o assistente foi clonado. Os
 
 O script verifica se o compose file correspondente ao produto está presente no diretório da stack. Se não estiver, tenta copiar do diretório de origem do script (caso tenham sido distribuídos juntos). Se o arquivo não for encontrado em nenhum dos dois locais, o script interrompe com a instrução para o operador colocar o arquivo manualmente.
 
-| Produto | Compose file |
+| Sistema | Compose file |
 |---|---|
-| `rpa` | `docker-compose.prd.rpa.yml` |
-| `dashboard` | `docker-compose.prd.dashboard.yml` |
+| siscan-rpa | `docker-compose.prd.rpa.yml` |
+| siscan-dashboard | `docker-compose.prd.dashboard.yml` |
 
 Além do compose, o script verifica o diretório `config/` e a presença do arquivo `excel_columns_mapping.json` (necessário para o RPA). Se o `config/` não existir, tenta copiar do diretório de origem ou cria vazio com aviso.
 
@@ -260,10 +260,10 @@ O fluxo de perguntas segue esta ordem:
 1. **Chave de sessão** — gerada automaticamente sem intervenção do operador. Para o RPA, gera `SECRET_KEY`; para o dashboard, gera `SESSION_SECRET`. Ambas são chaves hexadecimais de 256 bits produzidas via `openssl rand -hex 32`.
 2. **`DATABASE_HOST`** — o script pergunta o IP ou hostname do PostgreSQL externo. Se o valor atual for `db` (padrão de desenvolvimento), avisa que é inválido para banco externo e solicita correção.
 3. **`DATABASE_PASSWORD`** — o script pergunta a senha do banco. Se detectar a senha padrão `siscan_rpa`, exibe aviso para alteração. A entrada é ocultada (não ecoa no terminal).
-4. **`RPA_DATABASE_URL`** (apenas para o produto dashboard) — o script solicita a connection string completa para o banco do RPA, exibindo o formato e um exemplo. Essa variável é obrigatória para que o `sync_exames` consiga ler os dados do RPA.
+4. **`RPA_DATABASE_URL`** (apenas para o siscan-dashboard) — o script solicita a connection string completa para o banco do RPA, exibindo o formato e um exemplo. Essa variável é obrigatória para que o `sync_exames` consiga ler os dados do RPA.
 5. **Diretórios `HOST_*`** — o script percorre cada variável de caminho, exibindo o valor atual e uma descrição. Se o valor atual parecer um caminho Windows (letra de drive, barras invertidas, UNC), exibe um aviso e sugere o equivalente Linux. O operador pode manter o valor atual pressionando Enter ou informar um novo caminho.
 
-| Variável | Produto RPA | Produto Dashboard |
+| Variável | siscan-rpa | siscan-dashboard |
 |---|---|---|
 | Chave de sessão | `SECRET_KEY` (auto-gerada) | `SESSION_SECRET` (auto-gerada) |
 | `DATABASE_HOST` | Pergunta (obrigatório) | Pergunta (obrigatório) |
@@ -295,7 +295,7 @@ Se o runner não estiver instalado, o fluxo completo é:
 6. **Registra o runner** com a label e o nome definidos pelo produto, usando `--unattended --replace`.
 7. **Instala como serviço systemd** e inicia o serviço. O runner passa a rodar em background e sobrevive a reinicializações do servidor.
 
-| Aspecto | Produto RPA | Produto Dashboard |
+| Aspecto | siscan-rpa | siscan-dashboard |
 |---|---|---|
 | Label | `producao-rpa` | `producao-dashboard` |
 | Nome | `<hostname>-siscan-rpa` | `<hostname>-siscan-dashboard` |
@@ -333,9 +333,9 @@ O script exibe um resumo completo do que foi configurado: produto, diretório da
 
 ## Referência de variáveis — `.env`
 
-As variáveis do `.env` são específicas de cada produto. As seções a seguir documentam as variáveis do produto **RPA** (`docker-compose.prd.rpa.yml`). Para as variáveis do produto **Dashboard** (`docker-compose.prd.dashboard.yml`), consulte o `.env.server-dashboard.sample` que acompanha o assistente.
+As variáveis do `.env` são específicas de cada sistema. As seções a seguir documentam as variáveis do **siscan-rpa** (`docker-compose.prd.rpa.yml`). Para as variáveis do **siscan-dashboard** (`docker-compose.prd.dashboard.yml`), consulte o `.env.server-dashboard.sample` que acompanha o assistente.
 
-### Aplicação HTTP (RPA)
+### Aplicação HTTP (siscan-rpa)
 
 | Variável | `.env.server-rpa.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
 |---|---|---|---|---|
@@ -343,7 +343,7 @@ As variáveis do `.env` são específicas de cada produto. As seções a seguir 
 | `APP_LOG_LEVEL` | `INFO` | `:-INFO` | Não | Verbosidade dos logs. Use `INFO` em produção; `DEBUG` gera alto volume. |
 | `SECRET_KEY` | *(vazio — preencher)* | sem fallback | **Sim** | Assina cookies de sessão do painel web. Gere com `openssl rand -hex 32`. |
 
-### Banco de dados (RPA)
+### Banco de dados (siscan-rpa)
 
 | Variável | `.env.server-rpa.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
 |---|---|---|---|---|
@@ -353,9 +353,9 @@ As variáveis do `.env` são específicas de cada produto. As seções a seguir 
 | `DATABASE_PORT` | `5432` | `:-5432` | Não | Porta TCP do PostgreSQL externo. |
 | `DATABASE_HOST` | *(vazio — preencher)* | **sem fallback** | **Sim** | IP ou hostname do PostgreSQL externo. |
 
-### Variáveis específicas do Dashboard
+### Variáveis específicas do siscan-dashboard
 
-A tabela a seguir lista variáveis que existem apenas no `.env.server-dashboard.sample` e não se aplicam ao produto RPA.
+A tabela a seguir lista variáveis que existem apenas no `.env.server-dashboard.sample` e não se aplicam ao siscan-rpa.
 
 | Variável | `.env.server-dashboard.sample` | Obrigatória? | O que faz |
 |---|---|---|---|
@@ -375,10 +375,10 @@ A tabela a seguir lista variáveis que existem apenas no `.env.server-dashboard.
 
 Após o primeiro deploy, acesse a aplicação conforme o produto instalado na VM.
 
-| Produto | URL padrão | Próximo passo |
+| Sistema | URL padrão | Próximo passo |
 |---|---|---|
-| RPA | `http://<IP>:5001` | Navegar até `/admin/siscan-credentials` e cadastrar usuário/senha do SISCAN |
-| Dashboard | `http://<IP>:5000` | Login com admin / senha definida em `ADMIN_PASSWORD` |
+| siscan-rpa | `http://<IP>:5001` | Navegar até `/admin/siscan-credentials` e cadastrar usuário/senha do SISCAN |
+| siscan-dashboard | `http://<IP>:5000` | Login com admin / senha definida em `ADMIN_PASSWORD` |
 
 O runner registrado na fase 7 receberá automaticamente os próximos deploys via GitHub Actions.
 
@@ -388,7 +388,7 @@ O runner registrado na fase 7 receberá automaticamente os próximos deploys via
 
 Os comandos a seguir cobrem as operações mais comuns. Substitua o compose file e a porta conforme o produto instalado na VM.
 
-### Produto RPA
+### siscan-rpa
 
 ```bash
 # Status dos containers
@@ -404,7 +404,7 @@ curl -s http://localhost:5001/health | python3 -m json.tool
 sudo ~/actions-runner/svc.sh status
 ```
 
-### Produto Dashboard
+### siscan-dashboard
 
 ```bash
 # Status dos containers
