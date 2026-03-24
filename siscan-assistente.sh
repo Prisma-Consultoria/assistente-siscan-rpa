@@ -34,6 +34,40 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------------------------------------------------------------------------
+# DIR_SISCAN_ASSISTENTE — raiz do Assistente SIScan RPA
+# Exportada para sessão atual e persistida no ~/.bashrc do usuário para
+# sobreviver a reinicializações do sistema.
+# ---------------------------------------------------------------------------
+export DIR_SISCAN_ASSISTENTE="${SCRIPT_DIR}"
+
+_persist_dir_siscan_assistente() {
+    local value="${SCRIPT_DIR}"
+    local marker="DIR_SISCAN_ASSISTENTE="
+
+    # 1) Persistir no .env do docker compose (sem export)
+    local env_file="${SCRIPT_DIR}/.env"
+    if [ -f "${env_file}" ]; then
+        if grep -q "^${marker}" "${env_file}" 2>/dev/null; then
+            sed -i "s|^${marker}.*|${marker}${value}|" "${env_file}"
+        else
+            printf '\n# Diretório raiz do Assistente SIScan RPA\n%s%s\n' \
+                "${marker}" "${value}" >> "${env_file}"
+        fi
+    fi
+
+    # 2) Persistir no /etc/environment (disponível para todos os usuários)
+    local etc_env="/etc/environment"
+    if [ -w "${etc_env}" ] 2>/dev/null || command -v sudo &>/dev/null; then
+        if grep -q "^${marker}" "${etc_env}" 2>/dev/null; then
+            sudo sed -i "s|^${marker}.*|${marker}\"${value}\"|" "${etc_env}" 2>/dev/null || true
+        else
+            echo "${marker}\"${value}\"" | sudo tee -a "${etc_env}" >/dev/null 2>/dev/null || true
+        fi
+    fi
+}
+_persist_dir_siscan_assistente
+
+# ---------------------------------------------------------------------------
 # Cores ANSI
 # ---------------------------------------------------------------------------
 RED='\033[0;31m'
