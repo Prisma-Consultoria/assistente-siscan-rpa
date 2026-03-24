@@ -124,38 +124,39 @@ Cada VM precisa de um token de registro gerado no repositório correspondente ao
 
 ## Instalação (`siscan-server-setup.sh`)
 
-O script executa **uma única vez** de forma interativa em cada VM. O flag `--product` seleciona qual aplicação será instalada. Em uma infraestrutura com 3 VMs, execute o script uma vez em cada VM com o produto correspondente.
+O script `siscan-server-setup.sh` é o ponto de entrada para instalar o siscan-rpa e/ou o siscan-dashboard em servidores Ubuntu. Ele é executado **uma única vez** de forma interativa em cada VM. O flag `--product` seleciona qual aplicação será instalada naquela VM. O mesmo script e o mesmo repositório do assistente são usados para instalar qualquer um dos dois produtos — a diferença está no argumento passado.
+
+Em uma infraestrutura com 3 VMs (conforme o diagrama de arquitetura acima), o processo de instalação é:
+
+1. **Na VM do RPA (VM 1):** clone o assistente e execute com `--product rpa`. O script configura o compose do RPA, gera a chave de sessão, solicita as credenciais do banco externo e os caminhos de dados, instala o runner do GitHub Actions e registra no repositório `siscan-rpa`.
+2. **Na VM do Dashboard (VM 3):** clone o assistente novamente (ou copie) e execute com `--product dashboard`. O script configura o compose do dashboard (que inclui o Redis), gera a chave de sessão, solicita as credenciais do banco externo, a connection string do banco do RPA para o sync, e o caminho de logs, instala o runner e registra no repositório `siscan-dashboard`.
+3. **A VM do banco de dados (VM 2)** não precisa do assistente — é um PostgreSQL dedicado que deve estar acessível por ambas as VMs antes de executar o script.
+
+Cada VM é independente — não é necessário instalar uma antes da outra. A única dependência é que o PostgreSQL (VM 2) esteja acessível no momento em que os containers subirem pela primeira vez.
+
+### Instalação do siscan-rpa (VM 1)
+
+Na VM dedicada ao RPA, clone o assistente e execute o script com `--product rpa`:
 
 ```bash
 git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git
 cd assistente-siscan-rpa
-
-# VM do RPA:
 bash ./siscan-server-setup.sh --product rpa
-
-# VM do Dashboard:
-bash ./siscan-server-setup.sh --product dashboard
-
-# Sem --product: o script pergunta interativamente.
 ```
 
-A tabela a seguir descreve o que cada produto configura automaticamente.
+O script configura automaticamente:
 
-| Aspecto | `--product rpa` | `--product dashboard` |
-|---|---|---|
-| Compose file | `docker-compose.prd.rpa.yml` | `docker-compose.prd.dashboard.yml` |
-| .env sample | `.env.server-rpa.sample` | `.env.server-dashboard.sample` |
-| Runner label | `producao-rpa` | `producao-dashboard` |
-| Runner name | `<hostname>-siscan-rpa` | `<hostname>-siscan-dashboard` |
-| Diretório da stack | Diretório onde o assistente foi clonado (`COMPOSE_DIR`) | Idem |
-| Repo URL padrão | `Prisma-Consultoria/siscan-rpa` | `Prisma-Consultoria/siscan-dashboard` |
-| Chave de sessão | `SECRET_KEY` (auto-gerada) | `SESSION_SECRET` (auto-gerada) |
-| Variável extra | — | `RPA_DATABASE_URL` (conexão ao banco do RPA) |
-| Diretórios HOST_* | 5 (logs, downloads, consolidated, PDFs, config) | 1 (logs) |
+| Aspecto | Valor |
+|---|---|
+| Compose file | `docker-compose.prd.rpa.yml` |
+| .env sample | `.env.server-rpa.sample` |
+| Runner label | `producao-rpa` |
+| Runner name | `<hostname>-siscan-rpa` |
+| Repo URL padrão | `Prisma-Consultoria/siscan-rpa` |
+| Chave de sessão | `SECRET_KEY` (auto-gerada) |
+| Diretórios HOST_* | 5 (logs, downloads, consolidated, PDFs, config) |
 
-### Respostas esperadas — produto RPA
-
-A tabela a seguir lista as perguntas interativas do script para o produto RPA e os valores esperados.
+Durante a execução, o script solicita interativamente os seguintes valores:
 
 | Fase | Pergunta | Valor esperado |
 |---|---|---|
@@ -171,9 +172,32 @@ A tabela a seguir lista as perguntas interativas do script para o produto RPA e 
 
 > `SECRET_KEY` é gerada automaticamente — não pergunta.
 
-### Respostas esperadas — produto Dashboard
+### Instalação do siscan-dashboard (VM 3)
 
-A tabela a seguir lista as perguntas interativas para o produto dashboard. A principal diferença é a variável `RPA_DATABASE_URL` que permite ao sync conectar no banco do RPA.
+Na VM dedicada ao dashboard, clone o assistente e execute o script com `--product dashboard`:
+
+```bash
+git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git
+cd assistente-siscan-rpa
+bash ./siscan-server-setup.sh --product dashboard
+```
+
+O script configura automaticamente:
+
+| Aspecto | Valor |
+|---|---|
+| Compose file | `docker-compose.prd.dashboard.yml` |
+| .env sample | `.env.server-dashboard.sample` |
+| Runner label | `producao-dashboard` |
+| Runner name | `<hostname>-siscan-dashboard` |
+| Repo URL padrão | `Prisma-Consultoria/siscan-dashboard` |
+| Chave de sessão | `SESSION_SECRET` (auto-gerada) |
+| Diretórios HOST_* | 1 (logs) |
+| Serviço extra | Redis (cache operacional, criado automaticamente pelo compose) |
+
+A principal diferença em relação ao RPA é a variável `RPA_DATABASE_URL`, que permite ao serviço `sync` conectar no banco do RPA para importar os dados de exames. Sem essa variável, o dashboard sobe mas o sync não funciona.
+
+Durante a execução, o script solicita interativamente os seguintes valores:
 
 | Fase | Pergunta | Valor esperado |
 |---|---|---|
