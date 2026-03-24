@@ -193,6 +193,8 @@ A tabela a seguir descreve as variáveis da aplicação dashboard, acessível na
 | `DASHBOARD_WEB_CONCURRENCY` | `2` | `:-2` | Não | Workers Gunicorn do dashboard. |
 | `SYNC_INTERVAL_SECONDS` | `1800` | `:-1800` | Não | Intervalo do sync em segundos (30 min). |
 | `HOST_DASHBOARD_LOG_DIR` | `C:\siscan-rpa\logs\dashboard` | `:-./logs/dashboard` | Não | Pasta de logs do dashboard. |
+| `CACHE_TIMEOUT` | `300` | `:-300` | Não | TTL do cache operacional em segundos. |
+| `CACHE_KEY_PREFIX` | `siscan-dashboard:cache` | `:-siscan-dashboard:cache` | Não | Prefixo das chaves do dashboard no Redis. |
 
 ### Banco de dados
 

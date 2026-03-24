@@ -297,6 +297,10 @@ A tabela a seguir lista variáveis que existem apenas no `.env.server-dashboard.
 | `SYNC_INTERVAL_SECONDS` | `1800` | Não | Intervalo do sync automático em segundos. |
 | `ADMIN_PASSWORD` | *(vazio)* | Sim (1ª exec.) | Senha do admin do dashboard. |
 | `HOST_DASHBOARD_EXTERNAL_PORT` | `5000` | Não | Porta TCP do dashboard. |
+| `REDIS_HOST` | `redis` | Não | Host do Redis. Default `redis` (serviço local no compose). |
+| `REDIS_PORT` | `6379` | Não | Porta TCP do Redis. |
+| `CACHE_TIMEOUT` | `300` | Não | TTL do cache operacional em segundos. |
+| `CACHE_KEY_PREFIX` | `siscan-dashboard:cache` | Não | Prefixo das chaves do dashboard no Redis. |
 
 ---
 
