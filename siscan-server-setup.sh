@@ -223,7 +223,6 @@ case "${SISCAN_PRODUCT}" in
         ENV_SAMPLE_NAME=".env.server-rpa.sample"
         RUNNER_LABEL="producao-rpa"
         RUNNER_NAME="$(hostname)-siscan-rpa"
-        COMPOSE_DIR_DEFAULT="/opt/siscan-rpa"
         PRODUCT_DISPLAY="SISCAN RPA"
         REPO_URL_DEFAULT="https://github.com/Prisma-Consultoria/siscan-rpa"
         ;;
@@ -232,7 +231,6 @@ case "${SISCAN_PRODUCT}" in
         ENV_SAMPLE_NAME=".env.server-dashboard.sample"
         RUNNER_LABEL="producao-dashboard"
         RUNNER_NAME="$(hostname)-siscan-dashboard"
-        COMPOSE_DIR_DEFAULT="/opt/siscan-dashboard"
         PRODUCT_DISPLAY="SISCAN Dashboard"
         REPO_URL_DEFAULT="https://github.com/Prisma-Consultoria/siscan-dashboard"
         ;;
@@ -241,13 +239,12 @@ case "${SISCAN_PRODUCT}" in
         ENV_SAMPLE_NAME=".env.host.sample"
         RUNNER_LABEL="producao-cliente"
         RUNNER_NAME="$(hostname)-siscan-full"
-        COMPOSE_DIR_DEFAULT="/opt/siscan-rpa"
         PRODUCT_DISPLAY="SISCAN RPA + Dashboard"
         REPO_URL_DEFAULT="https://github.com/Prisma-Consultoria/siscan-rpa"
         ;;
 esac
 
-COMPOSE_DIR="${COMPOSE_DIR:-${COMPOSE_DIR_DEFAULT}}"
+COMPOSE_DIR="${COMPOSE_DIR:-${SCRIPT_DIR}}"
 ENV_FILE="${COMPOSE_DIR}/.env"
 
 # ── Banner ────────────────────────────────────────────────────────────────
