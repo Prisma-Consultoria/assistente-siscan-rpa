@@ -206,9 +206,9 @@ Referência: [docs/DEPLOY_AUTOMATICO.md](https://github.com/Prisma-Consultoria/s
 
 ### Referência de variáveis — `.env` (modo servidor)
 
-No modo servidor, o `siscan-server-setup.sh` cria o `.env` a partir do `.env.server.sample` na fase 4. A tabela abaixo documenta todas as variáveis relevantes para `docker-compose.prd.rpa.yml`.
+No modo servidor, o `siscan-server-setup.sh` cria o `.env` a partir do `.env.server-rpa.sample` na fase 4. A tabela abaixo documenta todas as variáveis relevantes para `docker-compose.prd.rpa.yml`.
 
-- **`.env.server.sample`** — valor sugerido no arquivo de exemplo (caminhos em formato Windows — substitua por caminhos Linux no servidor).
+- **`.env.server-rpa.sample`** — valor sugerido no arquivo de exemplo (caminhos em formato Windows — substitua por caminhos Linux no servidor).
 - **Default no compose** — fallback declarado com `${VAR:-default}`. Quando diz **`sem fallback`**, a variável não tem valor padrão: o `docker compose up` falha se estiver ausente ou vazia no `.env`.
 - **Obrigatória?** — indica se a variável precisa ser explicitamente definida no `.env`.
 - **O que faz / Impacto** — comportamento e consequências arquiteturais.
@@ -217,7 +217,7 @@ No modo servidor, o `siscan-server-setup.sh` cria o `.env` a partir do `.env.ser
 
 #### Aplicação HTTP
 
-| Variável | `.env.server.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
+| Variável | `.env.server-rpa.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
 |---|---|---|---|---|
 | `HOST_APP_EXTERNAL_PORT` | `5001` | `:-5001` | Não | Porta TCP publicada no host. URL de acesso: `http://<IP>:<porta>`. |
 | `APP_LOG_LEVEL` | `INFO` | `:-INFO` | Não | Verbosidade dos logs. Use `INFO` em produção; `DEBUG` gera alto volume — somente para diagnóstico. |
@@ -226,7 +226,7 @@ No modo servidor, o `siscan-server-setup.sh` cria o `.env` a partir do `.env.ser
 
 #### Banco de dados
 
-| Variável | `.env.server.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
+| Variável | `.env.server-rpa.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
 |---|---|---|---|---|
 | `DATABASE_NAME` | `siscan_rpa` | `:-siscan_rpa` | Não | Nome do banco operacional no PostgreSQL externo. |
 | `DATABASE_USER` | `siscan_rpa` | `:-siscan_rpa` | Não | Usuário PostgreSQL da aplicação e das migrations. |
@@ -238,7 +238,7 @@ No modo servidor, o `siscan-server-setup.sh` cria o `.env` a partir do `.env.ser
 
 Cada processo mantém pool próprio. Total de conexões no banco externo com os defaults: `4×(4+2) [app] + 1×(4+2) [rpa-scheduler] = 30 conexões`.
 
-| Variável | `.env.server.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
+| Variável | `.env.server-rpa.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
 |---|---|---|---|---|
 | `SQLALCHEMY_POOL_SIZE` | `4` | `:-4` | Não | Conexões permanentes por processo. Deve ser ≥ workers efetivos do `processar_laudos` — com 4 vCPUs: `min(max(4,2), 8) = 4`. |
 | `SQLALCHEMY_MAX_OVERFLOW` | `2` | `:-2` | Não | Conexões extras temporárias acima do pool base. Banco externo dedicado suporta pico maior. |
@@ -247,7 +247,7 @@ Cada processo mantém pool próprio. Total de conexões no banco externo com os 
 
 #### Scheduler batch
 
-| Variável | `.env.server.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
+| Variável | `.env.server-rpa.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
 |---|---|---|---|---|
 | `CRON_ENABLED` | `true` | `:-true` | Não | Habilita o container `rpa-scheduler`. `false` = container sobe mas executa `sleep infinity` — útil para desabilitar o batch sem remover o serviço. |
 | `CRON_INTERVAL_SECONDS` | `1800` | `:-1800` | Não | Intervalo entre ciclos RPA em segundos. `1800` = a cada 30 minutos. |
@@ -257,9 +257,9 @@ Cada processo mantém pool próprio. Total de conexões no banco externo com os 
 
 Diretórios do servidor montados nos containers. **Sem eles o `docker compose up` falha.** O `siscan-server-setup.sh` cria esses diretórios na fase 5 a partir dos valores definidos no `.env`.
 
-> O `.env.server.sample` usa caminhos Windows como exemplo. No servidor Linux, defina caminhos absolutos: ex. `/opt/siscan-rpa/logs`.
+> O `.env.server-rpa.sample` usa caminhos Windows como exemplo. No servidor Linux, defina caminhos absolutos: ex. `/opt/siscan-rpa/logs`.
 
-| Variável | `.env.server.sample` (exemplo Windows) | Default no compose | Obrigatória? | O que faz |
+| Variável | `.env.server-rpa.sample` (exemplo Windows) | Default no compose | Obrigatória? | O que faz |
 |---|---|---|---|---|
 | `HOST_LOG_DIR` | `C:\siscan-rpa\logs` | sem fallback | **Sim** | Logs da aplicação e do scheduler → `/app/logs` no container. Inclua na rotina de backup. |
 | `HOST_SISCAN_REPORTS_INPUT_DIR` | `C:\siscan-rpa\media\downloads` | sem fallback | **Sim** | PDFs baixados do SISCAN → `/app/media/downloads`. Entrada do pipeline `processar_laudos`. |
@@ -271,7 +271,7 @@ Diretórios do servidor montados nos containers. **Sem eles o `docker compose up
 
 #### Opcional
 
-| Variável | `.env.server.sample` | Default no compose | O que faz |
+| Variável | `.env.server-rpa.sample` | Default no compose | O que faz |
 |---|---|---|---|
 | `PW_CONTEXT_TIMEZONE` | *(comentado)* | `:-America/Fortaleza` | Timezone do scheduler e dos contextos Playwright. Afeta timestamps nos logs e o horário percebido pelo agendador. |
 | `PW_CONTEXT_STORAGE_STATE_STRICT` | `true` | `:-true` | `true` = persiste e reutiliza o storage state de autenticação entre execuções (recomendado). `false` = sessão isolada a cada execução. |
@@ -335,7 +335,7 @@ docker compose -f docker-compose.prd.rpa.yml ps
 | `docker-compose.prd.rpa.yml` | Compose modo SERVIDOR — RPA com banco externo (produto `rpa`) |
 | `docker-compose.prd.dashboard.yml` | Compose modo SERVIDOR — Dashboard com banco externo (produto `dashboard`) |
 | `.env.host.sample` | Variáveis de ambiente — modo HOST (produto `full`) |
-| `.env.server.sample` | Variáveis de ambiente — modo Servidor RPA (produto `rpa`) |
+| `.env.server-rpa.sample` | Variáveis de ambiente — modo Servidor RPA (produto `rpa`) |
 | `.env.server-dashboard.sample` | Variáveis de ambiente — modo Servidor Dashboard (produto `dashboard`) |
 | `scripts/docker/init-databases.sh` | Init script PostgreSQL — cria banco `siscan_dashboard` no modo HOST |
 | `.env.help.json` | Documentação de cada variável (lida pelo assistente) |

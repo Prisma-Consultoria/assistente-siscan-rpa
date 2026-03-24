@@ -18,7 +18,7 @@ Este checklist se aplica a qualquer modo de deploy, independentemente do produto
 - [ ] Repositório clonado: `git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git`.
 - [ ] `.env` criado a partir do sample correspondente ao produto:
   - HOST: `.env.host.sample`
-  - Servidor RPA: `.env.server.sample`
+  - Servidor RPA: `.env.server-rpa.sample`
   - Servidor Dashboard: `.env.server-dashboard.sample`
 - [ ] `DATABASE_PASSWORD` alterado (não usar o padrão).
 - [ ] Conectividade com GHCR confirmada (`ghcr.io` porta 443 acessível).

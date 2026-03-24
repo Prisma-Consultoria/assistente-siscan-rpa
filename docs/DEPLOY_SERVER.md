@@ -127,7 +127,7 @@ A tabela a seguir descreve o que cada produto configura automaticamente.
 | Aspecto | `--product rpa` | `--product dashboard` |
 |---|---|---|
 | Compose file | `docker-compose.prd.rpa.yml` | `docker-compose.prd.dashboard.yml` |
-| .env sample | `.env.server.sample` | `.env.server-dashboard.sample` |
+| .env sample | `.env.server-rpa.sample` | `.env.server-dashboard.sample` |
 | Runner label | `producao-rpa` | `producao-dashboard` |
 | Runner name | `<hostname>-siscan-rpa` | `<hostname>-siscan-dashboard` |
 | Diretório padrão | `/opt/siscan-rpa` | `/opt/siscan-dashboard` |
@@ -267,7 +267,7 @@ As variáveis do `.env` são específicas de cada produto. As seções a seguir 
 
 ### Aplicação HTTP (RPA)
 
-| Variável | `.env.server.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
+| Variável | `.env.server-rpa.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
 |---|---|---|---|---|
 | `HOST_APP_EXTERNAL_PORT` | `5001` | `:-5001` | Não | Porta TCP publicada no host. URL de acesso: `http://<IP>:<porta>`. |
 | `APP_LOG_LEVEL` | `INFO` | `:-INFO` | Não | Verbosidade dos logs. Use `INFO` em produção; `DEBUG` gera alto volume. |
@@ -275,7 +275,7 @@ As variáveis do `.env` são específicas de cada produto. As seções a seguir 
 
 ### Banco de dados (RPA)
 
-| Variável | `.env.server.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
+| Variável | `.env.server-rpa.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
 |---|---|---|---|---|
 | `DATABASE_NAME` | `siscan_rpa` | `:-siscan_rpa` | Não | Nome do banco operacional no PostgreSQL externo. |
 | `DATABASE_USER` | `siscan_rpa` | `:-siscan_rpa` | Não | Usuário PostgreSQL da aplicação e das migrations. |

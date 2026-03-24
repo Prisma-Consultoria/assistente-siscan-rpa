@@ -220,7 +220,7 @@ esac
 case "${SISCAN_PRODUCT}" in
     rpa)
         COMPOSE_FILE="docker-compose.prd.rpa.yml"
-        ENV_SAMPLE_NAME=".env.server.sample"
+        ENV_SAMPLE_NAME=".env.server-rpa.sample"
         RUNNER_LABEL="producao-rpa"
         RUNNER_NAME="$(hostname)-siscan-rpa"
         COMPOSE_DIR_DEFAULT="/opt/siscan-rpa"

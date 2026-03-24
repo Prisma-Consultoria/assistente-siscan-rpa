@@ -68,7 +68,7 @@ Sintoma: containers sobem mas falham com erros de configuração; logs indicam v
 | Passo | O que Fazer | Como Fazer |
 |---|---|---|
 | 1 | Verificar variáveis vazias | **Windows:** `Select-String -Path .env -Pattern '^[A-Z0-9_]+=\s*$'`. **Linux:** `grep -E '^[A-Z0-9_]+=$' .env` — qualquer saída indica variável obrigatória vazia |
-| 2 | Recriar `.env` a partir do sample | **HOST Windows:** `Copy-Item .env.host.sample .env -Force`. **HOST Linux:** `cp .env.host.sample .env`. **Servidor:** `cp .env.server.sample .env` |
+| 2 | Recriar `.env` a partir do sample | **HOST Windows:** `Copy-Item .env.host.sample .env -Force`. **HOST Linux:** `cp .env.host.sample .env`. **Servidor:** `cp .env.server-rpa.sample .env` |
 | 3 | Editar variáveis obrigatórias | Preencher `DATABASE_PASSWORD`, `SECRET_KEY` e todos os `HOST_*` |
 | 4 | Reiniciar após corrigir | Opção 1 do menu (HOST) ou `docker compose -f docker-compose.prd.rpa.yml restart` (Servidor) |
 
