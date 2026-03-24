@@ -386,25 +386,32 @@ O runner registrado na fase 7 receberá automaticamente os próximos deploys via
 
 ## Atualização do assistente
 
-Após a instalação inicial, o assistente não se atualiza sozinho. Os deploys automáticos via GitHub Actions atualizam as **imagens Docker** e o **compose file** do produto a cada deploy — o workflow baixa o compose mais recente da branch `main` do repositório do assistente via `curl` e sobrescreve o arquivo local no `COMPOSE_DIR`. No entanto, os scripts do assistente, os `.env` samples e a documentação permanecem na versão do clone original.
+Após a instalação inicial, o assistente não se atualiza sozinho. No entanto, os deploys automáticos via GitHub Actions já mantêm atualizados os arquivos mais importantes a cada deploy:
 
-Para atualizar o assistente no servidor — por exemplo, quando há novas variáveis de ambiente, correções nos scripts ou novos compose files — execute os seguintes comandos na VM correspondente:
+- **Imagens Docker** — o workflow faz pull da imagem mais recente do GHCR.
+- **Compose file** (`docker-compose.prd.*.yml`) — o workflow baixa a versão mais recente da branch `main` do assistente e sobrescreve o arquivo local no `COMPOSE_DIR`.
+- **`.env` sample** (`.env.server-*.sample`) — o workflow baixa o sample atualizado para o `COMPOSE_DIR`, servindo como referência para identificar novas variáveis.
+
+Isso significa que, **no modo SERVER, o `git pull` é opcional**. Os arquivos operacionais (compose e imagens) já são atualizados automaticamente pelo CD. O `git pull` seria útil apenas para atualizar scripts do assistente (`siscan-server-setup.sh`) e documentação (`docs/`), que raramente mudam após a instalação.
+
+Se ainda assim quiser atualizar o repositório completo:
 
 ```bash
-# Ir para o diretório do assistente (onde foi feito o clone)
 cd /app/assistente-siscan-rpa   # ajuste conforme o caminho da sua instalação
-
-# Atualizar para a versão mais recente
 git pull origin main
-
-# Verificar que os arquivos estão atualizados
-ls -la docker-compose.prd.*.yml
-cat .env.server-*.sample
 ```
 
-Se a atualização incluir novas variáveis de ambiente (como foi o caso da adição do Redis), adicione-as manualmente ao `.env` existente. O `.env` não é sobrescrito pelo `git pull` — ele não é versionado. Consulte o `.env.server-rpa.sample` ou `.env.server-dashboard.sample` atualizado para identificar variáveis novas.
+### Novas variáveis de ambiente
 
-Após atualizar, se houver alteração no compose file, reinicie a stack para aplicar:
+Quando uma nova versão do assistente introduz variáveis de ambiente novas (como foi o caso da adição do Redis com `REDIS_HOST`, `REDIS_PORT`, `CACHE_TIMEOUT`), o `.env` sample atualizado já estará disponível no servidor após o próximo deploy automático. Para identificar as variáveis novas, compare o sample com o `.env` em uso:
+
+```bash
+# Ver variáveis que existem no sample mas não no .env atual
+diff <(grep -E '^[A-Z_]+=' .env.server-rpa.sample | cut -d= -f1 | sort) \
+     <(grep -E '^[A-Z_]+=' .env | cut -d= -f1 | sort)
+```
+
+Adicione as variáveis faltantes manualmente ao `.env` e reinicie a stack para aplicar:
 
 ```bash
 # siscan-rpa (VM 1):
@@ -416,24 +423,21 @@ docker compose -f docker-compose.prd.dashboard.yml down
 docker compose -f docker-compose.prd.dashboard.yml up -d --wait
 ```
 
-> No modo HOST (PC local), o assistente oferece a **Opção 7 — Atualizar o Assistente** no menu interativo, que baixa a versão mais recente do script automaticamente. No modo SERVER, a atualização é feita manualmente via `git pull` conforme descrito acima.
+> No modo HOST (PC local), o assistente oferece a **Opção 7 — Atualizar o Assistente** no menu interativo, que baixa a versão mais recente do script automaticamente. A **Opção 3 — Editar configurações** permite revisar e completar variáveis novas interativamente.
 
 ### Compose file e `git pull` — por que não há conflito
 
-Os workflows de CD do siscan-rpa e do siscan-dashboard sobrescrevem o compose file no servidor a cada deploy, baixando a versão mais recente da branch `main` do assistente via `curl`. Como o conteúdo baixado é idêntico ao que está na `main` do repositório remoto, o `git pull` subsequente não detecta diferença e executa normalmente (fast-forward).
+Os workflows de CD sobrescrevem o compose file e o `.env` sample no servidor a cada deploy, baixando a versão mais recente da branch `main` do assistente via `curl`. Como o conteúdo baixado é idêntico ao que está na `main` do repositório remoto, o `git pull` subsequente não detecta diferença e executa normalmente (fast-forward).
 
-O único cenário que causaria conflito é se o operador **modificar manualmente** o compose file no servidor. Nesse caso, o `git pull` recusaria o merge por haver alterações locais não commitadas. Para resolver, descarte as alterações locais antes do pull:
+O único cenário que causaria conflito é se o operador **modificar manualmente** o compose file ou o sample no servidor. Nesse caso, o `git pull` recusaria o merge por haver alterações locais não commitadas. Para resolver, descarte as alterações locais antes do pull:
 
 ```bash
-# Descartar alterações locais no compose (volta à versão do último commit)
-git checkout -- docker-compose.prd.rpa.yml
-git checkout -- docker-compose.prd.dashboard.yml
-
-# Agora o pull funciona normalmente
+git checkout -- docker-compose.prd.rpa.yml docker-compose.prd.dashboard.yml
+git checkout -- .env.server-rpa.sample .env.server-dashboard.sample
 git pull origin main
 ```
 
-> **Recomendação:** nunca edite os compose files diretamente no servidor. Alterações nos composes devem ser feitas no repositório do assistente e propagadas via `git pull` ou automaticamente pelo workflow de CD.
+> **Recomendação:** nunca edite os compose files nem os `.env` samples diretamente no servidor. Alterações devem ser feitas no repositório do assistente e propagadas automaticamente pelo workflow de CD.
 
 ---
 
