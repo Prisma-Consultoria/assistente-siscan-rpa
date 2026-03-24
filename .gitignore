@@ -39,7 +39,8 @@ logs/
 .env.*
 !.env.sample
 !.env.host.sample
-!.env.server.sample
+!.env.server-rpa.sample
+!.env.server-dashboard.sample
 !.env.help.json
 secrets.*
 *.key

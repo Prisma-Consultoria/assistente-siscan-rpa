@@ -4,14 +4,16 @@
 # -------------------------------------------
 # Arquivo: siscan-server-setup.sh
 # Propósito: Preparar servidor Linux para receber deploys automáticos do
-#            SISCAN RPA via GitHub Actions self-hosted runner (Opção 1.A).
+#            SISCAN (RPA e/ou Dashboard) via GitHub Actions self-hosted runner.
 #
 # Uso:
-#   bash ./siscan-server-setup.sh
+#   bash ./siscan-server-setup.sh --product rpa        # VM do RPA
+#   bash ./siscan-server-setup.sh --product dashboard   # VM do Dashboard
+#   bash ./siscan-server-setup.sh --product full        # Host (tudo junto)
+#   bash ./siscan-server-setup.sh                       # pergunta interativamente
 #
 # Variáveis de ambiente opcionais:
 #   RUNNER_DIR     Diretório de instalação do runner (padrão: ~/actions-runner)
-#   RUNNER_LABEL   Label registrada no runner (padrão: producao-cliente)
 #
 # Pré-requisitos:
 #   - Linux (Ubuntu 22.04+ recomendado)
@@ -38,65 +40,23 @@ WHITE='\033[1;37m'
 NC='\033[0m'
 
 # ────────────────────────────────────────────────────────────────────────────
-# Configuração (sobrescrevível via variáveis de ambiente)
+# Parse de argumentos
+# ────────────────────────────────────────────────────────────────────────────
+SISCAN_PRODUCT=""
+while [[ $# -gt 0 ]]; do
+    case "${1}" in
+        --product) SISCAN_PRODUCT="${2:-}"; shift 2 ;;
+        --product=*) SISCAN_PRODUCT="${1#*=}"; shift ;;
+        *) shift ;;
+    esac
+done
+
+# ────────────────────────────────────────────────────────────────────────────
+# Configuração
 # ────────────────────────────────────────────────────────────────────────────
 RUNNER_DIR="${RUNNER_DIR:-${HOME}/actions-runner}"
-RUNNER_LABEL="${RUNNER_LABEL:-producao-cliente}"
 CURRENT_USER="$(whoami)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# DIR_SISCAN_ASSISTENTE — diretório raiz do assistente (onde o repo foi clonado).
-# O .env, o compose file e o config/ ficam todos aqui — é o diretório que o
-# workflow de CD usa para localizar tudo.
-# Persistida em três locais:
-#   1) .env do docker compose  — para docker compose interpolar
-#   2) .env do actions-runner   — para jobs do GitHub Actions enxergarem
-#   3) /etc/environment         — para sessões interativas de qualquer usuário
-export DIR_SISCAN_ASSISTENTE="${SCRIPT_DIR}"
-
-_persist_dir_siscan_assistente() {
-    local value="${SCRIPT_DIR}"
-    local marker="DIR_SISCAN_ASSISTENTE="
-
-    # Função auxiliar: grava marker=value num arquivo, atualizando se já existe
-    _upsert_env_line() {
-        local file="${1}" line="${2}"
-        if grep -q "^${marker}" "${file}" 2>/dev/null; then
-            sed -i "s|^${marker}.*|${line}|" "${file}"
-        else
-            printf '\n# Diretório raiz do Assistente SIScan RPA\n%s\n' \
-                "${line}" >> "${file}"
-        fi
-    }
-
-    # 1) .env do docker compose (sem aspas — formato KEY=value)
-    local compose_env="${SCRIPT_DIR}/.env"
-    if [ -f "${compose_env}" ]; then
-        _upsert_env_line "${compose_env}" "${marker}${value}"
-    fi
-
-    # 2) .env do GitHub Actions runner (sem aspas — formato KEY=value)
-    local runner_env="${RUNNER_DIR}/.env"
-    if [ -d "${RUNNER_DIR}" ]; then
-        touch "${runner_env}" 2>/dev/null || true
-        _upsert_env_line "${runner_env}" "${marker}${value}"
-    fi
-
-    # 3) /etc/environment (com aspas — formato KEY="value")
-    local etc_env="/etc/environment"
-    if [ -w "${etc_env}" ] 2>/dev/null || command -v sudo &>/dev/null; then
-        if grep -q "^${marker}" "${etc_env}" 2>/dev/null; then
-            sudo sed -i "s|^${marker}.*|${marker}\"${value}\"|" "${etc_env}" 2>/dev/null || true
-        else
-            echo "${marker}\"${value}\"" | sudo tee -a "${etc_env}" >/dev/null 2>/dev/null || true
-        fi
-    fi
-}
-# Nota: _persist_dir_siscan_assistente é chamada na FASE 8.5, após o runner
-# estar instalado, para que o .env do runner já exista.
-
-COMPOSE_FILE="docker-compose.prd.external-db.yml"
-ENV_FILE="${SCRIPT_DIR}/.env"
 
 # ────────────────────────────────────────────────────────────────────────────
 # Helpers de output
@@ -231,13 +191,71 @@ ensure_host_paths() {
 # ════════════════════════════════════════════════════════════════════════════
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 
+# ── Seleção de produto ────────────────────────────────────────────────────
+if [ -z "${SISCAN_PRODUCT}" ]; then
+    printf "\n${WHITE}╔════════════════════════════════════════════════════╗${NC}\n"
+    printf "${WHITE}║  SISCAN — Setup do Servidor                        ║${NC}\n"
+    printf "${WHITE}╚════════════════════════════════════════════════════╝${NC}\n\n"
+    printf "  Selecione o produto a instalar nesta máquina:\n\n"
+    printf "  ${CYAN}1${NC}) ${WHITE}rpa${NC}        — SISCAN RPA (coleta e extração de laudos)\n"
+    printf "  ${CYAN}2${NC}) ${WHITE}dashboard${NC}  — SISCAN Dashboard (painel analítico)\n"
+    printf "  ${CYAN}3${NC}) ${WHITE}full${NC}       — Ambos (HOST / PC local com banco em container)\n\n"
+    printf "  Opção: "
+    read -r product_choice
+    case "${product_choice}" in
+        1|rpa)       SISCAN_PRODUCT="rpa" ;;
+        2|dashboard) SISCAN_PRODUCT="dashboard" ;;
+        3|full)      SISCAN_PRODUCT="full" ;;
+        *) fail "Opção inválida. Use: --product rpa | dashboard | full" ;;
+    esac
+fi
+
+# Validar produto
+case "${SISCAN_PRODUCT}" in
+    rpa|dashboard|full) ;;
+    *) fail "Produto inválido: '${SISCAN_PRODUCT}'. Valores aceitos: rpa, dashboard, full" ;;
+esac
+
+# ── Configuração derivada do produto ──────────────────────────────────────
+case "${SISCAN_PRODUCT}" in
+    rpa)
+        COMPOSE_FILE="docker-compose.prd.rpa.yml"
+        ENV_SAMPLE_NAME=".env.server-rpa.sample"
+        RUNNER_LABEL="producao-rpa"
+        RUNNER_NAME="$(hostname)-siscan-rpa"
+        PRODUCT_DISPLAY="SISCAN RPA"
+        REPO_URL_DEFAULT="https://github.com/Prisma-Consultoria/siscan-rpa"
+        ;;
+    dashboard)
+        COMPOSE_FILE="docker-compose.prd.dashboard.yml"
+        ENV_SAMPLE_NAME=".env.server-dashboard.sample"
+        RUNNER_LABEL="producao-dashboard"
+        RUNNER_NAME="$(hostname)-siscan-dashboard"
+        PRODUCT_DISPLAY="SISCAN Dashboard"
+        REPO_URL_DEFAULT="https://github.com/Prisma-Consultoria/siscan-dashboard"
+        ;;
+    full)
+        COMPOSE_FILE="docker-compose.prd.host.yml"
+        ENV_SAMPLE_NAME=".env.host.sample"
+        RUNNER_LABEL="producao-cliente"
+        RUNNER_NAME="$(hostname)-siscan-full"
+        PRODUCT_DISPLAY="SISCAN RPA + Dashboard"
+        REPO_URL_DEFAULT="https://github.com/Prisma-Consultoria/siscan-rpa"
+        ;;
+esac
+
+COMPOSE_DIR="${COMPOSE_DIR:-${SCRIPT_DIR}}"
+ENV_FILE="${COMPOSE_DIR}/.env"
+
+# ── Banner ────────────────────────────────────────────────────────────────
 printf "\n${WHITE}╔════════════════════════════════════════════════════╗${NC}\n"
-printf "${WHITE}║  SISCAN RPA — Setup do Servidor                    ║${NC}\n"
+printf "${WHITE}║  %s — Setup do Servidor$(printf '%*s' $((28 - ${#PRODUCT_DISPLAY})) '')║${NC}\n" "${PRODUCT_DISPLAY}"
 printf "${WHITE}║  Opção 1.A — Self-hosted Runner + Docker Compose   ║${NC}\n"
 printf "${WHITE}╚════════════════════════════════════════════════════╝${NC}\n"
 printf "\n"
-printf "  ${GRAY}Referência: docs/DEPLOY_AUTOMATICO.md — Opção 1.A${NC}\n"
-printf "  ${GRAY}Diretório da stack : %s${NC}\n" "${SCRIPT_DIR}"
+printf "  ${GRAY}Produto            : %s${NC}\n" "${SISCAN_PRODUCT}"
+printf "  ${GRAY}Compose            : %s${NC}\n" "${COMPOSE_FILE}"
+printf "  ${GRAY}Diretório da stack : %s${NC}\n" "${COMPOSE_DIR}"
 printf "  ${GRAY}Diretório do runner: %s${NC}\n" "${RUNNER_DIR}"
 printf "  ${GRAY}Usuário atual      : %s${NC}\n" "${CURRENT_USER}"
 printf "  ${GRAY}Label do runner    : %s${NC}\n" "${RUNNER_LABEL}"
@@ -293,7 +311,7 @@ command -v curl &>/dev/null || fail "curl não encontrado. Instale com: sudo apt
 ok "curl $(curl --version 2>/dev/null | head -1 | awk '{print $2}')"
 
 # sudo
-command -v sudo &>/dev/null || fail "sudo não encontrado. Este script precisa de sudo para instalar o runner como serviço systemd."
+command -v sudo &>/dev/null || fail "sudo não encontrado. Este script precisa de sudo para criar ${COMPOSE_DIR} e instalar o runner como serviço systemd."
 ok "sudo disponível"
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -327,40 +345,56 @@ if [ "$(id -u)" -eq 0 ]; then
 
     info "Re-executando o script como usuário 'siscan'..."
     SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-    exec sudo -u siscan RUNNER_DIR="${RUNNER_DIR}" RUNNER_LABEL="${RUNNER_LABEL}" bash "${SCRIPT_PATH}"
+    exec sudo -u siscan SISCAN_PRODUCT="${SISCAN_PRODUCT}" COMPOSE_DIR="${COMPOSE_DIR}" RUNNER_DIR="${RUNNER_DIR}" bash "${SCRIPT_PATH}" --product "${SISCAN_PRODUCT}"
 else
     ok "Usuário não-root: ${CURRENT_USER}"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 3 — Verificar arquivos da stack"
+step "FASE 3 — Estrutura de diretórios da stack"
 # ════════════════════════════════════════════════════════════════════════════
 
-# Verificar permissões do diretório do assistente
-SCRIPT_DIR_OWNER=$(stat -c '%U' "${SCRIPT_DIR}" 2>/dev/null || echo "")
-if [ "${SCRIPT_DIR_OWNER}" != "${CURRENT_USER}" ]; then
-    info "Ajustando dono de ${SCRIPT_DIR} para ${CURRENT_USER}..."
-    sudo chown -R "${CURRENT_USER}:${CURRENT_USER}" "${SCRIPT_DIR}" \
-        || warn "Não foi possível alterar o dono de ${SCRIPT_DIR}"
-    ok "Permissões ajustadas"
+if [ -d "${COMPOSE_DIR}" ]; then
+    ok "${COMPOSE_DIR} já existe"
 else
-    ok "Permissões de ${SCRIPT_DIR} corretas (dono: ${CURRENT_USER})"
+    info "Criando ${COMPOSE_DIR}..."
+    sudo mkdir -p "${COMPOSE_DIR}" || fail "Não foi possível criar ${COMPOSE_DIR}. Verifique permissões sudo."
+    ok "${COMPOSE_DIR} criado"
 fi
 
-# docker-compose.prd.external-db.yml
-COMPOSE_FILE_PATH="${SCRIPT_DIR}/${COMPOSE_FILE}"
+COMPOSE_DIR_OWNER=$(stat -c '%U' "${COMPOSE_DIR}" 2>/dev/null || echo "")
+if [ "${COMPOSE_DIR_OWNER}" != "${CURRENT_USER}" ]; then
+    info "Ajustando dono de ${COMPOSE_DIR} para ${CURRENT_USER}..."
+    sudo chown "${CURRENT_USER}:${CURRENT_USER}" "${COMPOSE_DIR}" \
+        || warn "Não foi possível alterar o dono de ${COMPOSE_DIR}"
+    ok "Permissões ajustadas"
+else
+    ok "Permissões de ${COMPOSE_DIR} corretas (dono: ${CURRENT_USER})"
+fi
+
+# ════════════════════════════════════════════════════════════════════════════
+step "FASE 4 — Arquivos da stack"
+# ════════════════════════════════════════════════════════════════════════════
+
+# docker-compose.prd.rpa.yml
+COMPOSE_FILE_PATH="${COMPOSE_DIR}/${COMPOSE_FILE}"
 if [ -f "${COMPOSE_FILE_PATH}" ]; then
     ok "${COMPOSE_FILE} presente"
 else
-    printf "\n${RED}  ARQUIVO OBRIGATÓRIO AUSENTE: %s${NC}\n\n" "${COMPOSE_FILE}"
-    printf "  O arquivo deveria estar no repositório clonado.\n"
-    printf "  Verifique se o clone foi feito corretamente:\n"
-    printf "  ${CYAN}git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git${NC}\n\n"
-    fail "${COMPOSE_FILE} não encontrado em ${SCRIPT_DIR}"
+    # Tentar copiar do diretório do script (se distribuídos juntos)
+    if [ -f "${SCRIPT_DIR}/${COMPOSE_FILE}" ]; then
+        cp "${SCRIPT_DIR}/${COMPOSE_FILE}" "${COMPOSE_FILE_PATH}"
+        ok "${COMPOSE_FILE} copiado de ${SCRIPT_DIR}"
+    else
+        printf "\n${RED}  ARQUIVO OBRIGATÓRIO AUSENTE: %s${NC}\n\n" "${COMPOSE_FILE}"
+        printf "  Coloque o arquivo fornecido pela equipe Prisma Educação em:\n"
+        printf "  ${CYAN}%s${NC}\n\n" "${COMPOSE_FILE_PATH}"
+        fail "Execute o script novamente após colocar ${COMPOSE_FILE} em ${COMPOSE_DIR}"
+    fi
 fi
 
 # config/
-CONFIG_DIR="${SCRIPT_DIR}/config"
+CONFIG_DIR="${COMPOSE_DIR}/config"
 if [ -d "${CONFIG_DIR}" ]; then
     ok "config/ presente"
     MAPPING_FILE="${CONFIG_DIR}/excel_columns_mapping.json"
@@ -370,21 +404,26 @@ if [ -d "${CONFIG_DIR}" ]; then
         ok "excel_columns_mapping.json presente"
     fi
 else
-    mkdir -p "${CONFIG_DIR}"
-    warn "config/ criado vazio — coloque excel_columns_mapping.json antes de iniciar a stack"
+    # Tentar copiar do diretório do script
+    if [ -d "${SCRIPT_DIR}/config" ]; then
+        cp -r "${SCRIPT_DIR}/config" "${CONFIG_DIR}"
+        ok "config/ copiado de ${SCRIPT_DIR}"
+    else
+        mkdir -p "${CONFIG_DIR}"
+        warn "config/ criado vazio — coloque excel_columns_mapping.json antes de iniciar a stack"
+    fi
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 4 — Configuração do .env"
+step "FASE 5 — Configuração do .env"
 # ════════════════════════════════════════════════════════════════════════════
 
-# Criar .env a partir do sample se não existir
+# Criar .env a partir do sample correspondente ao produto
 if [ ! -f "${ENV_FILE}" ]; then
-    # Procurar sample em ordem de preferência
     ENV_SAMPLE=""
     for candidate in \
-        "${SCRIPT_DIR}/.env.server.sample" \
-        "${SCRIPT_DIR}/.env.host.sample"; do
+        "${COMPOSE_DIR}/${ENV_SAMPLE_NAME}" \
+        "${SCRIPT_DIR}/${ENV_SAMPLE_NAME}"; do
         if [ -f "${candidate}" ]; then
             ENV_SAMPLE="${candidate}"
             break
@@ -396,22 +435,36 @@ if [ ! -f "${ENV_FILE}" ]; then
         info ".env criado a partir de ${ENV_SAMPLE}"
     else
         touch "${ENV_FILE}"
-        info ".env criado em branco (nenhum sample encontrado)"
+        info ".env criado em branco (${ENV_SAMPLE_NAME} não encontrado)"
     fi
 else
     ok ".env já existe"
 fi
 
-# ── SECRET_KEY ──────────────────────────────────────────────────────────────
+# Persistir o produto selecionado no .env
+_set_env_value "${ENV_FILE}" "SISCAN_PRODUCT" "${SISCAN_PRODUCT}"
+
+# ── Chave de sessão ────────────────────────────────────────────────────────
 printf "\n${WHITE}  Variáveis obrigatórias${NC}\n\n"
 
-SECRET_KEY_VAL="$(_read_env_value "${ENV_FILE}" "SECRET_KEY")"
-if [ -z "${SECRET_KEY_VAL}" ]; then
-    SECRET_KEY_VAL="$(_generate_secret)"
-    _set_env_value "${ENV_FILE}" "SECRET_KEY" "${SECRET_KEY_VAL}"
-    ok "SECRET_KEY gerada automaticamente"
+if [ "${SISCAN_PRODUCT}" = "dashboard" ]; then
+    SESSION_SECRET_VAL="$(_read_env_value "${ENV_FILE}" "SESSION_SECRET")"
+    if [ -z "${SESSION_SECRET_VAL}" ]; then
+        SESSION_SECRET_VAL="$(_generate_secret)"
+        _set_env_value "${ENV_FILE}" "SESSION_SECRET" "${SESSION_SECRET_VAL}"
+        ok "SESSION_SECRET gerada automaticamente"
+    else
+        ok "SESSION_SECRET já configurada"
+    fi
 else
-    ok "SECRET_KEY já configurada"
+    SECRET_KEY_VAL="$(_read_env_value "${ENV_FILE}" "SECRET_KEY")"
+    if [ -z "${SECRET_KEY_VAL}" ]; then
+        SECRET_KEY_VAL="$(_generate_secret)"
+        _set_env_value "${ENV_FILE}" "SECRET_KEY" "${SECRET_KEY_VAL}"
+        ok "SECRET_KEY gerada automaticamente"
+    else
+        ok "SECRET_KEY já configurada"
+    fi
 fi
 
 # ── DATABASE_HOST ────────────────────────────────────────────────────────────
@@ -460,26 +513,63 @@ else
     fi
 fi
 
+# ── RPA_DATABASE_URL (só para dashboard) ──────────────────────────────────
+if [ "${SISCAN_PRODUCT}" = "dashboard" ]; then
+    RPA_DB_URL_VAL="$(_read_env_value "${ENV_FILE}" "RPA_DATABASE_URL")"
+    if [ -z "${RPA_DB_URL_VAL}" ]; then
+        printf "\n  ${CYAN}RPA_DATABASE_URL${NC} — Conexão ao banco do siscan-rpa\n"
+        printf "  ${GRAY}Formato: postgresql://usuario:senha@host:porta/banco${NC}\n"
+        printf "  ${GRAY}Exemplo: postgresql://siscan_rpa:senha@192.168.1.10:5432/siscan_rpa${NC}\n"
+        printf "  Valor: "
+        read -r RPA_DB_URL_NEW
+        if [ -n "${RPA_DB_URL_NEW}" ]; then
+            _set_env_value "${ENV_FILE}" "RPA_DATABASE_URL" "${RPA_DB_URL_NEW}"
+            ok "RPA_DATABASE_URL configurado"
+        else
+            warn "RPA_DATABASE_URL não definido — o sync não funcionará até ser configurado"
+        fi
+    else
+        ok "RPA_DATABASE_URL já configurado"
+    fi
+fi
+
 # ── HOST_* paths ─────────────────────────────────────────────────────────────
 printf "\n${WHITE}  Variáveis HOST_* — caminhos de dados no servidor${NC}\n"
 printf "  ${GRAY}(diretórios que serão montados como bind mounts nos containers)${NC}\n\n"
 
-# Descrições dos paths para orientar o usuário
+# Descrições e lista de paths variam por produto
 declare -A HOST_VAR_HELP=(
     [HOST_LOG_DIR]="Logs da aplicação e do scheduler"
     [HOST_SISCAN_REPORTS_INPUT_DIR]="PDFs-fonte baixados do SISCAN"
     [HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR]="Artefatos consolidados (Excel, Parquet)"
     [HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR]="PDFs individuais por laudo"
     [HOST_CONFIG_DIR]="Arquivos de configuração (ex: excel_columns_mapping.json)"
+    [HOST_DASHBOARD_LOG_DIR]="Logs do dashboard"
 )
 
-HOST_PATH_VARS=(
-    HOST_LOG_DIR
-    HOST_SISCAN_REPORTS_INPUT_DIR
-    HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR
-    HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR
-    HOST_CONFIG_DIR
-)
+case "${SISCAN_PRODUCT}" in
+    rpa)
+        HOST_PATH_VARS=(
+            HOST_LOG_DIR
+            HOST_SISCAN_REPORTS_INPUT_DIR
+            HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR
+            HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR
+            HOST_CONFIG_DIR
+        ) ;;
+    dashboard)
+        HOST_PATH_VARS=(
+            HOST_LOG_DIR
+        ) ;;
+    full)
+        HOST_PATH_VARS=(
+            HOST_LOG_DIR
+            HOST_SISCAN_REPORTS_INPUT_DIR
+            HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR
+            HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR
+            HOST_CONFIG_DIR
+            HOST_DASHBOARD_LOG_DIR
+        ) ;;
+esac
 
 for var in "${HOST_PATH_VARS[@]}"; do
     current="$(_read_env_value "${ENV_FILE}" "${var}")"
@@ -517,13 +607,13 @@ for var in "${HOST_PATH_VARS[@]}"; do
 done
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 5 — Criação dos diretórios HOST_*"
+step "FASE 6 — Criação dos diretórios HOST_*"
 # ════════════════════════════════════════════════════════════════════════════
 
 ensure_host_paths "${ENV_FILE}"
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 6 — GitHub Actions Runner"
+step "FASE 7 — GitHub Actions Runner"
 # ════════════════════════════════════════════════════════════════════════════
 
 RUNNER_ALREADY_INSTALLED=false
@@ -590,9 +680,10 @@ else
     printf "  ${CYAN}Settings → Actions → Runners → New self-hosted runner${NC}\n\n"
 
     printf "  URL do repositório\n"
-    printf "  ${GRAY}(ex: https://github.com/Prisma-Consultoria/siscan-rpa)${NC}\n"
-    printf "  URL: "
+    printf "  ${GRAY}(padrão: %s)${NC}\n" "${REPO_URL_DEFAULT}"
+    printf "  URL (Enter para usar o padrão): "
     read -r REPO_URL
+    REPO_URL="${REPO_URL:-${REPO_URL_DEFAULT}}"
     [ -z "${REPO_URL}" ] && fail "URL do repositório é obrigatória"
 
     printf "\n  Token de registro: "
@@ -605,12 +696,12 @@ else
             --url "${REPO_URL}" \
             --token "${REG_TOKEN}" \
             --labels "${RUNNER_LABEL}" \
-            --name "$(hostname)-siscan-rpa" \
+            --name "${RUNNER_NAME}" \
             --unattended \
             --replace); then
         fail "Falha ao registrar o runner. Verifique a URL e o token (tokens expiram após alguns minutos)."
     fi
-    ok "Runner registrado: $(hostname)-siscan-rpa [${RUNNER_LABEL}]"
+    ok "Runner registrado: ${RUNNER_NAME} [${RUNNER_LABEL}]"
 
     # Instalar e iniciar como serviço systemd
     # sudo não preserva o diretório de trabalho — passar via bash -c para garantir
@@ -626,7 +717,39 @@ else
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 7 — Permissões Docker"
+step "FASE 8 — Persistir variáveis no ambiente do runner"
+# ════════════════════════════════════════════════════════════════════════════
+
+# O runner roda como serviço systemd e NÃO carrega ~/.bashrc nem
+# /etc/environment. O único mecanismo para injetar variáveis nos
+# jobs é o arquivo .env dentro do diretório do runner.
+# O runner roda como serviço systemd e NÃO carrega ~/.bashrc nem
+# /etc/environment. O único mecanismo para injetar variáveis nos
+# jobs é o arquivo .env dentro do diretório do runner.
+RUNNER_ENV="${RUNNER_DIR}/.env"
+if [ -d "${RUNNER_DIR}" ]; then
+    touch "${RUNNER_ENV}" 2>/dev/null || true
+    _set_env_value "${RUNNER_ENV}" "COMPOSE_DIR" "${COMPOSE_DIR}"
+    ok "COMPOSE_DIR=${COMPOSE_DIR} → ${RUNNER_ENV}"
+else
+    warn "Runner não instalado — variável não persistida"
+    warn "Se instalar o runner depois, adicione ao ${RUNNER_ENV}:"
+    printf "  ${GRAY}COMPOSE_DIR=%s${NC}\n" "${COMPOSE_DIR}"
+fi
+
+# Persistir em /etc/environment (para sessões interativas)
+ETC_ENV="/etc/environment"
+if [ -w "${ETC_ENV}" ] 2>/dev/null || command -v sudo &>/dev/null; then
+    if grep -q "^COMPOSE_DIR=" "${ETC_ENV}" 2>/dev/null; then
+        sudo sed -i "s|^COMPOSE_DIR=.*|COMPOSE_DIR=\"${COMPOSE_DIR}\"|" "${ETC_ENV}" 2>/dev/null || true
+    else
+        echo "COMPOSE_DIR=\"${COMPOSE_DIR}\"" | sudo tee -a "${ETC_ENV}" >/dev/null 2>/dev/null || true
+    fi
+    ok "COMPOSE_DIR persistido em /etc/environment"
+fi
+
+# ════════════════════════════════════════════════════════════════════════════
+step "FASE 9 — Permissões Docker"
 # ════════════════════════════════════════════════════════════════════════════
 
 if id -nG "${CURRENT_USER}" 2>/dev/null | grep -qw docker; then
@@ -642,32 +765,18 @@ else
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-step "FASE 8 — Persistir DIR_SISCAN_ASSISTENTE"
-# ════════════════════════════════════════════════════════════════════════════
-
-info "DIR_SISCAN_ASSISTENTE=${DIR_SISCAN_ASSISTENTE}"
-_persist_dir_siscan_assistente
-ok ".env do compose: ${SCRIPT_DIR}/.env"
-if [ -d "${RUNNER_DIR}" ]; then
-    ok ".env do runner:  ${RUNNER_DIR}/.env"
-else
-    warn "Runner não encontrado em ${RUNNER_DIR} — configure manualmente: echo 'DIR_SISCAN_ASSISTENTE=${DIR_SISCAN_ASSISTENTE}' >> <RUNNER_DIR>/.env"
-fi
-ok "/etc/environment"
-
-# ════════════════════════════════════════════════════════════════════════════
-step "FASE 9 — Resumo e próximos passos"
+step "FASE 10 — Resumo e próximos passos"
 # ════════════════════════════════════════════════════════════════════════════
 
 printf "  ${GREEN}Setup concluído!${NC}\n\n"
 
 printf "  ${WHITE}O que foi configurado:${NC}\n"
-ok "Stack:      ${SCRIPT_DIR}"
-ok "Compose:    ${SCRIPT_DIR}/${COMPOSE_FILE}"
-ok "Env:        ${ENV_FILE}"
-ok "Runner:     ${RUNNER_DIR}"
-ok "Label:      ${RUNNER_LABEL}"
-ok "Assistente: DIR_SISCAN_ASSISTENTE=${DIR_SISCAN_ASSISTENTE}"
+ok "Produto: ${PRODUCT_DISPLAY} (${SISCAN_PRODUCT})"
+ok "Stack:   ${COMPOSE_DIR}"
+ok "Compose: ${COMPOSE_DIR}/${COMPOSE_FILE}"
+ok "Env:     ${ENV_FILE}"
+ok "Runner:  ${RUNNER_DIR}"
+ok "Label:   ${RUNNER_LABEL}"
 
 printf "\n  ${WHITE}Próximos passos:${NC}\n\n"
 
@@ -688,15 +797,15 @@ printf "  5. Para acompanhar os logs do runner:\n"
 printf "     ${CYAN}journalctl -u actions.runner.*.service -f${NC}\n\n"
 
 printf "  6. Para acompanhar os logs da stack após o primeiro deploy:\n"
-printf "     ${CYAN}docker compose -f %s/%s logs -f${NC}\n\n" "${SCRIPT_DIR}" "${COMPOSE_FILE}"
+printf "     ${CYAN}docker compose -f %s/%s logs -f${NC}\n\n" "${COMPOSE_DIR}" "${COMPOSE_FILE}"
 
 printf "  ${GRAY}Referência completa: docs/DEPLOY_AUTOMATICO.md — Opção 1.A${NC}\n\n"
 
 printf "${CYAN}══════════════════════════════════════════════════${NC}\n"
 printf "  ${WHITE}Você está em:${NC} $(pwd)\n"
-printf "  ${WHITE}Diretório da stack:${NC} ${SCRIPT_DIR}\n"
+printf "  ${WHITE}Diretório da stack:${NC} ${COMPOSE_DIR}\n"
 printf "${CYAN}══════════════════════════════════════════════════${NC}\n\n"
 printf "  Para ir ao diretório da stack:\n"
-printf "  ${CYAN}cd %s${NC}\n\n" "${SCRIPT_DIR}"
+printf "  ${CYAN}cd %s${NC}\n\n" "${COMPOSE_DIR}"
 
 fi # fim do guard BASH_SOURCE

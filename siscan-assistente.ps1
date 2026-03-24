@@ -58,8 +58,38 @@ try {
 } catch {}
 
 $CRED_FILE = "credenciais.txt"
-$IMAGE_PATH = "ghcr.io/prisma-consultoria/siscan-rpa-rpa:main"
-$COMPOSE_FILE = Join-Path $PSScriptRoot "docker-compose.prd.host.yml"
+$IMAGE_PATH_RPA = "ghcr.io/prisma-consultoria/siscan-rpa-rpa:main"
+$IMAGE_PATH_DASHBOARD = "ghcr.io/prisma-consultoria/siscan-dashboard:main"
+
+# Detectar produto a partir do .env
+$SISCAN_PRODUCT = "full"
+$envFilePath = Join-Path $PSScriptRoot ".env"
+if (Test-Path $envFilePath) {
+    $productLine = Get-Content $envFilePath -Encoding UTF8 | Where-Object { $_ -match '^\s*SISCAN_PRODUCT\s*=' } | Select-Object -Last 1
+    if ($productLine) {
+        $val = ($productLine -replace '^[^=]*=','').Trim().Trim('"').Trim("'")
+        if ($val) { $SISCAN_PRODUCT = $val }
+    }
+}
+
+# Configuracao derivada do produto
+switch ($SISCAN_PRODUCT) {
+    "rpa" {
+        $IMAGE_PATH = $IMAGE_PATH_RPA
+        $COMPOSE_FILE = Join-Path $PSScriptRoot "docker-compose.prd.rpa.yml"
+        $PRODUCT_DISPLAY = "SISCAN RPA"
+    }
+    "dashboard" {
+        $IMAGE_PATH = $IMAGE_PATH_DASHBOARD
+        $COMPOSE_FILE = Join-Path $PSScriptRoot "docker-compose.prd.dashboard.yml"
+        $PRODUCT_DISPLAY = "SISCAN Dashboard"
+    }
+    default {
+        $IMAGE_PATH = $IMAGE_PATH_RPA
+        $COMPOSE_FILE = Join-Path $PSScriptRoot "docker-compose.prd.host.yml"
+        $PRODUCT_DISPLAY = "SISCAN RPA + Dashboard"
+    }
+}
 
 # Textos de ajuda para variáveis do .env (usado por Update-EnvFile)
 # Carrega textos de ajuda de .env.help.json se presente, caso contrario usa valores embutidos simples
@@ -289,7 +319,7 @@ function Test-GitHubToken ($creds) {
 }
 
 function Docker-Login ($creds) {
-    Write-Host "`nTentando acessar ao serviço SISCAN RPA (ghcr.io)..." -ForegroundColor Cyan
+    Write-Host "`nTentando acessar ao serviço SISCAN (ghcr.io)..." -ForegroundColor Cyan
 
     # Validar se credenciais foram fornecidas
     if (-not $creds -or -not $creds.usuario -or -not $creds.token) {
@@ -552,10 +582,10 @@ exit `$LASTEXITCODE
 function UpdateAndRestart {
     param([hashtable]$creds)
 
-    Write-Host "`nAtualizando o SISCAN RPA e reiniciando (pode demorar)..." -ForegroundColor Yellow
+    Write-Host "`nAtualizando $PRODUCT_DISPLAY e reiniciando (pode demorar)..." -ForegroundColor Yellow
 
-    if (-not (Test-Path "./docker-compose.prd.host.yml")) {
-        Write-Host "Arquivo de configuração 'docker-compose.prd.host.yml' não encontrado." -ForegroundColor Red
+    if (-not (Test-Path $COMPOSE_FILE)) {
+        Write-Host "Compose file não encontrado: $COMPOSE_FILE" -ForegroundColor Red
         return
     }
 
@@ -573,9 +603,16 @@ function UpdateAndRestart {
     Write-Host "Imagem: $IMAGE_PATH" -ForegroundColor Gray
     Write-Host ""
     
-    $pullResult = Docker-PullWithProgress -ImagePath $IMAGE_PATH -Activity "Baixando SISCAN RPA"
+    $pullResult = Docker-PullWithProgress -ImagePath $IMAGE_PATH -Activity "Baixando $PRODUCT_DISPLAY"
     $pullOutput = $pullResult.Output
     $pullCode = if ($pullResult.ExitCode) { $pullResult.ExitCode } else { $LASTEXITCODE }
+
+    # No modo full, também faz pull da imagem do dashboard
+    if ($SISCAN_PRODUCT -eq "full" -and $pullCode -eq 0) {
+        Write-Host "`nBaixando imagem do Dashboard..." -ForegroundColor Cyan
+        Write-Host "Imagem: $IMAGE_PATH_DASHBOARD" -ForegroundColor Gray
+        $dashPull = Docker-PullWithProgress -ImagePath $IMAGE_PATH_DASHBOARD -Activity "Baixando Dashboard"
+    }
 
     if ($pullCode -ne 0) {
         Write-Host "Não foi possível baixar diretamente. Verificando Docker e credenciais..." -ForegroundColor Yellow
@@ -601,7 +638,7 @@ function UpdateAndRestart {
             if (Docker-Login $savedCreds) {
                 Write-Host "Acesso com credenciais salvas OK. Tentando baixar novamente..." -ForegroundColor Cyan
                 Write-Host ""
-                $pullResult = Docker-PullWithProgress -ImagePath $IMAGE_PATH -Activity "Baixando SISCAN RPA"
+                $pullResult = Docker-PullWithProgress -ImagePath $IMAGE_PATH -Activity "Baixando $PRODUCT_DISPLAY"
                 $pullOutput = $pullResult.Output
                 if ($LASTEXITCODE -eq 0) { Write-Host "\nDownload concluído com sucesso." -ForegroundColor Green } else { $pullCode = $LASTEXITCODE }
             } else {
@@ -616,7 +653,7 @@ function UpdateAndRestart {
             if (Docker-Login $newCreds) {
                 Write-Host "Acesso com novas credenciais OK. Tentando baixar novamente..." -ForegroundColor Cyan
                 Write-Host ""
-                $pullResult = Docker-PullWithProgress -ImagePath $IMAGE_PATH -Activity "Baixando SISCAN RPA"
+                $pullResult = Docker-PullWithProgress -ImagePath $IMAGE_PATH -Activity "Baixando $PRODUCT_DISPLAY"
                 $pullOutput = $pullResult.Output
                 $pullCode = $LASTEXITCODE
             } else {
@@ -627,7 +664,7 @@ function UpdateAndRestart {
         # Se ainda falhar, tentar fallback para 'docker compose pull' uma ultima vez
         if ($pullCode -ne 0) {
             Write-Host "Ainda não foi possível baixar. Tentando 'docker compose pull' como último recurso..." -ForegroundColor Yellow
-            $composeOutput = docker compose pull 2>&1
+            $composeOutput = docker compose -f $COMPOSE_FILE pull 2>&1
             $composeCode = $LASTEXITCODE
             if ($composeCode -ne 0) {
                 Write-Host "Erro ao baixar a atualização via compose." -ForegroundColor Red
@@ -725,19 +762,19 @@ function UpdateAndRestart {
     Ensure-HostPaths
 
     # Depois reinicia tudo
-    Write-Host "`nRecriando o SISCAN RPA..." -ForegroundColor Cyan
-    docker compose down
-    docker compose up -d
+    Write-Host "`nRecriando $PRODUCT_DISPLAY..." -ForegroundColor Cyan
+    docker compose -f $COMPOSE_FILE down
+    docker compose -f $COMPOSE_FILE up -d
 
     if ($LASTEXITCODE -eq 0) {
         Write-Host "`n============================================" -ForegroundColor Green
-        Write-Host "  SISCAN RPA PRONTO PARA USO!" -ForegroundColor Green
+        Write-Host "  $PRODUCT_DISPLAY PRONTO PARA USO!" -ForegroundColor Green
         Write-Host "============================================" -ForegroundColor Green
         Write-Host "`nO serviço foi atualizado e iniciado com sucesso!" -ForegroundColor Green
         Write-Host "Voce pode acessar o sistema em: http://localhost:5001" -ForegroundColor Cyan
     }
     else {
-        Write-Host "`nErro ao reiniciar o SISCAN RPA." -ForegroundColor Red
+        Write-Host "`nErro ao reiniciar o $PRODUCT_DISPLAY." -ForegroundColor Red
     }
 }
 
@@ -754,14 +791,14 @@ function Restart-Service {
 
     Ensure-HostPaths
 
-    Write-Host "`nReiniciando o SISCAN RPA..."
-    docker compose down
-    docker compose up -d
+    Write-Host "`nReiniciando $PRODUCT_DISPLAY..."
+    docker compose -f $COMPOSE_FILE down
+    docker compose -f $COMPOSE_FILE up -d
 
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "SISCAN RPA reiniciado com sucesso." -ForegroundColor Green
+        Write-Host "$PRODUCT_DISPLAY reiniciado com sucesso." -ForegroundColor Green
     } else {
-        Write-Host "Erro ao reiniciar o SISCAN RPA." -ForegroundColor Red
+        Write-Host "Erro ao reiniciar o $PRODUCT_DISPLAY." -ForegroundColor Red
     }
 }
 
@@ -957,7 +994,7 @@ function Run-NightlyScript {
     
     # Verificar se o serviço está rodando
     if (-not (Check-Service)) {
-        Write-Host "`nERRO: O serviço SISCAN RPA não está em execução." -ForegroundColor Red
+        Write-Host "`nERRO: O serviço $PRODUCT_DISPLAY não está em execução." -ForegroundColor Red
         Write-Host "Inicie o serviço primeiro (opção 1 do menu)." -ForegroundColor Yellow
         return
     }
@@ -970,7 +1007,7 @@ function Run-NightlyScript {
     }
     
     if ([string]::IsNullOrWhiteSpace($containerName)) {
-        Write-Host "`nERRO: Não foi possível encontrar o container do SISCAN RPA." -ForegroundColor Red
+        Write-Host "`nERRO: Não foi possível encontrar o container do $PRODUCT_DISPLAY." -ForegroundColor Red
         Write-Host "Verifique se o serviço está rodando com 'docker ps'." -ForegroundColor Yellow
         return
     }
@@ -1441,7 +1478,7 @@ function Manage-Env {
         
         # Verificar se há serviços rodando
         if (Check-Service) {
-            Write-Host "`nO serviço SISCAN RPA esta em execução." -ForegroundColor Yellow
+            Write-Host "`nO serviço $PRODUCT_DISPLAY esta em execução." -ForegroundColor Yellow
             Write-Host "Para aplicar as mudancas no .env, e necessário reiniciar o serviço." -ForegroundColor Yellow
             Write-Host "`nDeseja reiniciar o serviço agora? (S/N)" -ForegroundColor Cyan
             $resposta = Read-Host
@@ -1453,8 +1490,8 @@ function Manage-Env {
                 # Verificar se configuração está completa antes de reiniciar
                 if (Check-EnvConfigured -ShowMessage $false) {
                     Ensure-HostPaths
-                    docker compose down
-                    docker compose up -d
+                    docker compose -f $COMPOSE_FILE down
+                    docker compose -f $COMPOSE_FILE up -d
                     
                     if ($LASTEXITCODE -eq 0) {
                         Write-Host "`n============================================" -ForegroundColor Green
@@ -1535,7 +1572,7 @@ function Update-AssistantScript {
         valida o novo script e oferece rollback em caso de falha.
     #>
     Write-Host "`n========================================" -ForegroundColor Cyan
-    Write-Host "  Atualização do Assistente SISCAN RPA" -ForegroundColor Cyan
+    Write-Host "  Atualização do Assistente SISCAN" -ForegroundColor Cyan
     Write-Host "========================================`n" -ForegroundColor Cyan
 
     $scriptPath = $PSCommandPath
@@ -1699,22 +1736,28 @@ function Show-Menu {
     Clear-Host
 
     Write-Host "========================================"
-    Write-Host "   Assistente SISCAN RPA - Fácil e seguro"
+    Write-Host "   Assistente $PRODUCT_DISPLAY"
     Write-Host "========================================"
     Write-Host ""
-        Write-Host " 1) Reiniciar o SISCAN RPA"
-        Write-Host "    - Fecha e inicia o serviço (útil para problemas simples)"
-        Write-Host " 2) Atualizar / Instalar o SISCAN RPA"
-        Write-Host "    - Baixa a versão mais recente do serviço SISCAN RPA"
+        Write-Host " 1) Reiniciar"
+        Write-Host "    - Fecha e inicia os serviços (útil para problemas simples)"
+        Write-Host " 2) Atualizar / Instalar"
+        Write-Host "    - Baixa a versão mais recente das imagens"
         Write-Host " 3) Editar configurações básicas"
         Write-Host "    - Ajuste caminhos e opções essenciais (.env)"
+    if ($SISCAN_PRODUCT -eq "rpa" -or $SISCAN_PRODUCT -eq "full") {
         Write-Host " 4) Executar tarefas RPA manualmente"
         Write-Host "    - Força execução do script de download/processamento (dia anterior)"
-        Write-Host " 5) Histórico do Sistema"
+    }
+    if ($SISCAN_PRODUCT -eq "dashboard" -or $SISCAN_PRODUCT -eq "full") {
+        Write-Host " 5) Sync Dashboard manualmente"
+        Write-Host "    - Sincroniza dados do RPA para o dashboard (full refresh)"
+    }
+        Write-Host " 6) Histórico do Sistema"
         Write-Host "    - Visualiza desligamentos, crashes e reinicializações"
-        Write-Host " 6) Atualizar o Assistente"
+        Write-Host " 7) Atualizar o Assistente"
         Write-Host "    - Baixa a versão mais recente do assistente com rollback automático"
-        Write-Host " 7) Sair"
+        Write-Host " 8) Sair"
     Write-Host ""
     Write-Host "----------------------------------------"
 }
@@ -1729,38 +1772,36 @@ $running = $true
 
 while ($running) {
     Show-Menu
-    $op = Read-Host "Escolha uma opção (1-7)"
+    $op = Read-Host "Escolha uma opção (1-8)"
 
     switch ($op) {
         "1" {
             if (Check-Service) {
                 Restart-Service
             } else {
-                Write-Host "Nenhum serviço do SISCAN RPA em execução encontrado." -ForegroundColor Yellow
-                Write-Host "Tentando iniciar o serviço..." -ForegroundColor Cyan
-                
+                Write-Host "Nenhum serviço em execução encontrado." -ForegroundColor Yellow
+                Write-Host "Tentando iniciar..." -ForegroundColor Cyan
+
                 if (-not (Test-Path $COMPOSE_FILE)) {
-                    Write-Host "Erro: Arquivo docker-compose.prd.host.yml não encontrado em: $COMPOSE_FILE" -ForegroundColor Red
+                    Write-Host "Erro: Compose file não encontrado: $COMPOSE_FILE" -ForegroundColor Red
                 } elseif (-not (Check-EnvConfigured -ShowMessage $true)) {
                     # Mensagem ja exibida pela funcao Check-EnvConfigured
                 } else {
                     $expected = Get-ExpectedServiceNames -ComposePath $COMPOSE_FILE
                     if ($expected -and $expected.Count -gt 0) {
-                        Write-Host "Servicos encontrados no docker-compose.prd.host.yml:" -ForegroundColor Cyan
+                        Write-Host "Servicos do compose:" -ForegroundColor Cyan
                         foreach ($s in $expected) { Write-Host " - $s" -ForegroundColor Gray }
-                        Write-Host "`nIniciando serviços..." -ForegroundColor Cyan
+                        Write-Host "`nIniciando servicos..." -ForegroundColor Cyan
                         Ensure-HostPaths
-                        docker compose up -d
+                        docker compose -f $COMPOSE_FILE up -d
                         if ($LASTEXITCODE -eq 0) {
                             Write-Host "Servicos iniciados com sucesso!" -ForegroundColor Green
                         } else {
-                            Write-Host "Erro ao iniciar os serviços." -ForegroundColor Red
+                            Write-Host "Erro ao iniciar os servicos." -ForegroundColor Red
                         }
                     } else {
-                        Write-Host "Aviso: Nenhum serviço detectado no arquivo docker-compose.prd.host.yml" -ForegroundColor Yellow
-                        Write-Host "Tentando iniciar mesmo assim..." -ForegroundColor Cyan
                         Ensure-HostPaths
-                        docker compose up -d
+                        docker compose -f $COMPOSE_FILE up -d
                     }
                 }
             }
@@ -1768,12 +1809,11 @@ while ($running) {
         }
 
         "2" {
-            # Combina: pedir credenciais e atualizar/reiniciar
             $creds = Ask-Credentials
             if (Docker-Login $creds) {
                 UpdateAndRestart -creds $creds
             } else {
-                Write-Host "Aviso: não foi possivel autenticar. Tentarei atualizar mesmo assim..." -ForegroundColor Yellow
+                Write-Host "Aviso: não foi possível autenticar. Tentarei atualizar mesmo assim..." -ForegroundColor Yellow
                 UpdateAndRestart -creds $creds
             }
             Pause
@@ -1785,28 +1825,48 @@ while ($running) {
         }
 
         "4" {
-            Run-NightlyScript
+            if ($SISCAN_PRODUCT -eq "rpa" -or $SISCAN_PRODUCT -eq "full") {
+                Run-NightlyScript
+            } else {
+                Write-Host "Opção disponível apenas para o produto RPA." -ForegroundColor Yellow
+            }
             Pause
         }
 
         "5" {
-            Show-SystemHistory
+            if ($SISCAN_PRODUCT -eq "dashboard" -or $SISCAN_PRODUCT -eq "full") {
+                Write-Host "`nExecutando sync full do dashboard..." -ForegroundColor Cyan
+                try {
+                    docker compose -f $COMPOSE_FILE exec dashboard-app python -m src.commands.sync_exames --full
+                } catch {
+                    try {
+                        docker compose -f $COMPOSE_FILE exec app python -m src.commands.sync_exames --full
+                    } catch {
+                        Write-Host "Erro ao executar sync. Verifique se os containers estao rodando." -ForegroundColor Red
+                    }
+                }
+            } else {
+                Write-Host "Opção disponível apenas para o produto Dashboard." -ForegroundColor Yellow
+            }
             Pause
         }
 
         "6" {
+            Show-SystemHistory
+            Pause
+        }
+
+        "7" {
             $updated = Update-AssistantScript
             if ($updated) {
-                # Usuario foi instruido a reiniciar; saimos do loop
                 $running = $false
                 break
             } else {
-                # Falha ou cancelamento; volta ao menu
                 Pause
             }
         }
 
-        "7" {
+        "8" {
             Write-Host "`nSaindo..."
             $running = $false
             break

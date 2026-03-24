@@ -1,8 +1,8 @@
-# Guia de Troubleshooting — Assistente SISCAN RPA
+# Guia de Troubleshooting — Assistente SISCAN
 <a name="troubleshooting"></a>
 
-Versão: 3.0
-Data: 2026-03-18
+Versão: 4.0
+Data: 2026-03-23
 
 Os problemas estão organizados em três grupos:
 - **Problemas comuns** — ocorrem em qualquer modo (HOST ou Servidor).
@@ -68,9 +68,9 @@ Sintoma: containers sobem mas falham com erros de configuração; logs indicam v
 | Passo | O que Fazer | Como Fazer |
 |---|---|---|
 | 1 | Verificar variáveis vazias | **Windows:** `Select-String -Path .env -Pattern '^[A-Z0-9_]+=\s*$'`. **Linux:** `grep -E '^[A-Z0-9_]+=$' .env` — qualquer saída indica variável obrigatória vazia |
-| 2 | Recriar `.env` a partir do sample | **HOST Windows:** `Copy-Item .env.host.sample .env -Force`. **HOST Linux:** `cp .env.host.sample .env`. **Servidor:** `cp .env.server.sample .env` |
+| 2 | Recriar `.env` a partir do sample | **HOST Windows:** `Copy-Item .env.host.sample .env -Force`. **HOST Linux:** `cp .env.host.sample .env`. **Servidor:** `cp .env.server-rpa.sample .env` |
 | 3 | Editar variáveis obrigatórias | Preencher `DATABASE_PASSWORD`, `SECRET_KEY` e todos os `HOST_*` |
-| 4 | Reiniciar após corrigir | Opção 1 do menu (HOST) ou `docker compose -f docker-compose.prd.external-db.yml restart` (Servidor) |
+| 4 | Reiniciar após corrigir | Opção 1 do menu (HOST) ou `docker compose -f docker-compose.prd.rpa.yml restart` (Servidor) |
 
 ---
 
@@ -109,9 +109,9 @@ Sintoma: assistente ou comandos `docker compose` indicam containers inexistentes
 
 | Passo | O que Fazer | Como Fazer |
 |---|---|---|
-| 1 | Verificar status real | **HOST:** `docker compose -f docker-compose.prd.host.yml ps`. **Servidor:** `docker compose -f docker-compose.prd.external-db.yml ps` |
+| 1 | Verificar status real | **HOST:** `docker compose -f docker-compose.prd.host.yml ps`. **Servidor:** `docker compose -f docker-compose.prd.rpa.yml ps` |
 | 2 | Docker está rodando? | **Windows:** ícone do Docker na bandeja deve estar estável. **Linux:** `systemctl status docker` |
-| 3 | Subir a stack manualmente | **HOST:** `docker compose -f docker-compose.prd.host.yml up -d`. **Servidor:** `docker compose -f docker-compose.prd.external-db.yml up -d` |
+| 3 | Subir a stack manualmente | **HOST:** `docker compose -f docker-compose.prd.host.yml up -d`. **Servidor:** `docker compose -f docker-compose.prd.rpa.yml up -d` |
 | 4 | Verificar se `.env` está preenchido | Se `up` falhar, verificar Problema B acima |
 | 5 | Logs de inicialização | `docker compose logs --tail=50` (acrescente `-f` para o arquivo correto) |
 
@@ -393,7 +393,7 @@ Get-Content .env | Select-String -Pattern '^[^#]' | ForEach-Object { ($_ -split 
 
 ```bash
 # Logs
-docker compose -f docker-compose.prd.external-db.yml logs --no-log-prefix --since 1h > /tmp/compose-logs.txt
+docker compose -f docker-compose.prd.rpa.yml logs --no-log-prefix --since 1h > /tmp/compose-logs.txt
 
 # Docker info
 docker info > /tmp/docker-info.txt
@@ -406,4 +406,49 @@ cd ~/actions-runner && ./svc.sh status > /tmp/runner-status.txt 2>&1
 
 # Chaves do .env (sem valores)
 grep -v '^#' /opt/siscan-rpa/.env | cut -d= -f1 > /tmp/env-keys.txt
+```
+
+---
+
+## Problemas específicos do Dashboard
+
+Esta seção cobre problemas que ocorrem apenas com o produto `dashboard` (modo servidor ou HOST).
+
+### Sync retorna "0 registros" mas o banco do RPA tem dados
+
+O `sync_control` registrou um timestamp posterior aos dados do RPA. Isso acontece quando um backup é restaurado após o primeiro sync. A solução é forçar um sync full via menu (Opção 5) ou via comando:
+
+```bash
+docker compose -f docker-compose.prd.dashboard.yml exec app python -m src.commands.sync_exames --full
+```
+
+### `RPA_DATABASE_URL` inválido ou inacessível
+
+O serviço `sync` falha ao conectar no banco do RPA. Verifique a variável `RPA_DATABASE_URL` no `.env`:
+
+```bash
+# Formato esperado:
+RPA_DATABASE_URL=postgresql://usuario:senha@host:porta/siscan_rpa
+
+# Testar conectividade (de dentro do container):
+docker compose -f docker-compose.prd.dashboard.yml exec app python -c "
+from sqlalchemy import create_engine, text
+import os
+e = create_engine(os.environ['RPA_DATABASE_URL'])
+with e.connect() as c: print(c.execute(text('SELECT count(*) FROM exam_records')).scalar())
+"
+```
+
+### Dashboard mostra "schema_status: outdated"
+
+As migrations do dashboard não foram aplicadas. O serviço `migrate` pode ter falhado. Verifique os logs:
+
+```bash
+docker compose -f docker-compose.prd.dashboard.yml logs migrate
+```
+
+Se necessário, force a migration manualmente:
+
+```bash
+docker compose -f docker-compose.prd.dashboard.yml run --rm app alembic upgrade head
 ```
