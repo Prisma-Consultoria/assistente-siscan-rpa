@@ -384,9 +384,45 @@ O runner registrado na fase 7 receberá automaticamente os próximos deploys via
 
 ---
 
+## Atualização do assistente
+
+Após a instalação inicial, o assistente não se atualiza sozinho. Os deploys automáticos via GitHub Actions atualizam as **imagens Docker** e o **compose file** do produto (o workflow baixa o compose mais recente do repositório do assistente a cada deploy). No entanto, os scripts do assistente, os `.env` samples e a documentação permanecem na versão do clone original.
+
+Para atualizar o assistente no servidor — por exemplo, quando há novas variáveis de ambiente, correções nos scripts ou novos compose files — execute os seguintes comandos na VM correspondente:
+
+```bash
+# Ir para o diretório do assistente (onde foi feito o clone)
+cd /app/assistente-siscan-rpa   # ajuste conforme o caminho da sua instalação
+
+# Atualizar para a versão mais recente
+git pull origin main
+
+# Verificar que os arquivos estão atualizados
+ls -la docker-compose.prd.*.yml
+cat .env.server-*.sample
+```
+
+Se a atualização incluir novas variáveis de ambiente (como foi o caso da adição do Redis), adicione-as manualmente ao `.env` existente. O `.env` não é sobrescrito pelo `git pull` — ele não é versionado. Consulte o `.env.server-rpa.sample` ou `.env.server-dashboard.sample` atualizado para identificar variáveis novas.
+
+Após atualizar, se houver alteração no compose file, reinicie a stack para aplicar:
+
+```bash
+# siscan-rpa (VM 1):
+docker compose -f docker-compose.prd.rpa.yml down
+docker compose -f docker-compose.prd.rpa.yml up -d --wait
+
+# siscan-dashboard (VM 3):
+docker compose -f docker-compose.prd.dashboard.yml down
+docker compose -f docker-compose.prd.dashboard.yml up -d --wait
+```
+
+> No modo HOST (PC local), o assistente oferece a **Opção 7 — Atualizar o Assistente** no menu interativo, que baixa a versão mais recente do script automaticamente. No modo SERVER, a atualização é feita manualmente via `git pull` conforme descrito acima.
+
+---
+
 ## Comandos úteis
 
-Os comandos a seguir cobrem as operações mais comuns. Substitua o compose file e a porta conforme o produto instalado na VM.
+Os comandos a seguir cobrem as operações mais comuns. Substitua o compose file e a porta conforme o sistema instalado na VM.
 
 ### siscan-rpa
 

@@ -181,6 +181,21 @@ O menu se adapta ao produto detectado via `SISCAN_PRODUCT` no `.env`. No modo HO
 | **7 — Atualizar o Assistente** | Baixa a versão mais recente dos scripts com rollback automático. |
 | **8 — Sair** | Encerra o assistente. Os containers continuam rodando. |
 
+### Atualização do assistente (Opção 7)
+
+Após a instalação inicial, o assistente permanece na versão do clone original. Quando a equipe publica uma nova versão — com novas variáveis de ambiente, correções nos scripts ou alterações nos compose files — é necessário atualizar.
+
+No modo HOST, use a **Opção 7** do menu. Ela baixa a versão mais recente do script diretamente do GitHub, cria um backup automático do script atual (com timestamp) e substitui pelo novo. Se o download falhar, o backup é restaurado automaticamente (rollback).
+
+A Opção 7 atualiza apenas o script do assistente (`siscan-assistente.sh` ou `siscan-assistente.ps1`). Para atualizar também os compose files, `.env` samples e demais arquivos do repositório, execute manualmente:
+
+```bash
+cd assistente-siscan-rpa
+git pull origin main
+```
+
+Se a atualização incluir novas variáveis de ambiente, adicione-as ao `.env` existente. O `.env` não é sobrescrito pelo `git pull` — ele não é versionado. Consulte o `.env.host.sample` atualizado para identificar variáveis novas, ou use a **Opção 3 — Editar configurações** para revisar e completar as variáveis interativamente.
+
 ---
 
 ## Referência de variáveis — `.env`
