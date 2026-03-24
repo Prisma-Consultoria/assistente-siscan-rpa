@@ -1,8 +1,8 @@
 # Guia de Deploy — Modo Servidor (Ubuntu Server)
 <a name="deploy-server"></a>
 
-Versão: 2.0
-Data: 2026-03-23
+Versão: 2.1
+Data: 2026-03-24
 
 Deploy em Ubuntu Server com PostgreSQL externo. O deploy de novas versões é automático via GitHub Actions com self-hosted runner. O assistente suporta dois produtos (`rpa` e `dashboard`), cada um instalado em sua própria VM.
 

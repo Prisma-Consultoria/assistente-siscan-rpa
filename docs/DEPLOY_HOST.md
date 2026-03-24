@@ -1,8 +1,8 @@
 # Guia de Deploy — Modo HOST (PC local)
 <a name="deploy-host"></a>
 
-Versão: 2.0
-Data: 2026-03-23
+Versão: 2.1
+Data: 2026-03-24
 
 Deploy em PC local (Windows ou Linux) com Docker Desktop. O banco de dados PostgreSQL roda em container local junto com as aplicações. No modo HOST, o assistente opera como produto `full` — gerenciando tanto o siscan-rpa quanto o siscan-dashboard em uma única stack.
 
