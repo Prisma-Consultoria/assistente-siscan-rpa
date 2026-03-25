@@ -513,6 +513,26 @@ else
     fi
 fi
 
+# ── ADMIN_PASSWORD (só para dashboard) ────────────────────────────────────
+if [ "${SISCAN_PRODUCT}" = "dashboard" ]; then
+    ADMIN_PASS_VAL="$(_read_env_value "${ENV_FILE}" "ADMIN_PASSWORD")"
+    if [ -z "${ADMIN_PASS_VAL}" ]; then
+        printf "\n  ${CYAN}ADMIN_PASSWORD${NC} — Senha do usuário administrador do dashboard\n"
+        printf "  ${GRAY}Obrigatória na primeira execução. Se vazia, uma senha temporária é gerada nos logs.${NC}\n"
+        printf "  Valor: "
+        read -rs ADMIN_PASS_NEW
+        printf "\n"
+        if [ -n "${ADMIN_PASS_NEW}" ]; then
+            _set_env_value "${ENV_FILE}" "ADMIN_PASSWORD" "${ADMIN_PASS_NEW}"
+            ok "ADMIN_PASSWORD configurado"
+        else
+            warn "ADMIN_PASSWORD vazio — o dashboard gerará uma senha temporária nos logs na primeira execução"
+        fi
+    else
+        ok "ADMIN_PASSWORD já configurado"
+    fi
+fi
+
 # ── RPA_DATABASE_URL (só para dashboard) ──────────────────────────────────
 if [ "${SISCAN_PRODUCT}" = "dashboard" ]; then
     RPA_DB_URL_VAL="$(_read_env_value "${ENV_FILE}" "RPA_DATABASE_URL")"
@@ -723,14 +743,25 @@ step "FASE 8 — Persistir variáveis no ambiente do runner"
 # O runner roda como serviço systemd e NÃO carrega ~/.bashrc nem
 # /etc/environment. O único mecanismo para injetar variáveis nos
 # jobs é o arquivo .env dentro do diretório do runner.
-# O runner roda como serviço systemd e NÃO carrega ~/.bashrc nem
-# /etc/environment. O único mecanismo para injetar variáveis nos
-# jobs é o arquivo .env dentro do diretório do runner.
 RUNNER_ENV="${RUNNER_DIR}/.env"
 if [ -d "${RUNNER_DIR}" ]; then
     touch "${RUNNER_ENV}" 2>/dev/null || true
     _set_env_value "${RUNNER_ENV}" "COMPOSE_DIR" "${COMPOSE_DIR}"
     ok "COMPOSE_DIR=${COMPOSE_DIR} → ${RUNNER_ENV}"
+
+    # O runner foi iniciado na fase 7 antes do COMPOSE_DIR ser gravado.
+    # Reiniciar para que ele carregue o .env atualizado.
+    if [ -f "${RUNNER_DIR}/svc.sh" ]; then
+        info "Reiniciando o runner para carregar COMPOSE_DIR..."
+        sudo "${RUNNER_DIR}/svc.sh" stop 2>/dev/null || true
+        sudo "${RUNNER_DIR}/svc.sh" start 2>/dev/null || true
+        RUNNER_SVC_STATUS=$(sudo "${RUNNER_DIR}/svc.sh" status 2>/dev/null || true)
+        if echo "${RUNNER_SVC_STATUS}" | grep -qi "active\|running"; then
+            ok "Runner reiniciado — COMPOSE_DIR carregado"
+        else
+            warn "Runner pode não ter reiniciado — verifique com: sudo ${RUNNER_DIR}/svc.sh status"
+        fi
+    fi
 else
     warn "Runner não instalado — variável não persistida"
     warn "Se instalar o runner depois, adicione ao ${RUNNER_ENV}:"

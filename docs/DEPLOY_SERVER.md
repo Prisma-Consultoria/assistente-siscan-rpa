@@ -203,6 +203,7 @@ Durante a execução, o script solicita interativamente os seguintes valores:
 |---|---|---|
 | 5 | `DATABASE_HOST` | IP ou hostname do PostgreSQL (ex.: `192.168.1.10`) |
 | 5 | `DATABASE_PASSWORD` | Senha do banco do dashboard |
+| 5 | `ADMIN_PASSWORD` | Senha do administrador do dashboard |
 | 5 | `RPA_DATABASE_URL` | `postgresql://siscan_rpa:senha@192.168.1.10:5432/siscan_rpa` |
 | 5 | `HOST_LOG_DIR` | `/opt/siscan-dashboard/logs` |
 | 7 | `URL do repositório` | Enter para aceitar `https://github.com/Prisma-Consultoria/siscan-dashboard` |
@@ -260,14 +261,16 @@ O fluxo de perguntas segue esta ordem:
 1. **Chave de sessão** — gerada automaticamente sem intervenção do operador. Para o RPA, gera `SECRET_KEY`; para o dashboard, gera `SESSION_SECRET`. Ambas são chaves hexadecimais de 256 bits produzidas via `openssl rand -hex 32`.
 2. **`DATABASE_HOST`** — o script pergunta o IP ou hostname do PostgreSQL externo. Se o valor atual for `db` (padrão de desenvolvimento), avisa que é inválido para banco externo e solicita correção.
 3. **`DATABASE_PASSWORD`** — o script pergunta a senha do banco. Se detectar a senha padrão `siscan_rpa`, exibe aviso para alteração. A entrada é ocultada (não ecoa no terminal).
-4. **`RPA_DATABASE_URL`** (apenas para o siscan-dashboard) — o script solicita a connection string completa para o banco do RPA, exibindo o formato e um exemplo. Essa variável é obrigatória para que o `sync_exames` consiga ler os dados do RPA.
-5. **Diretórios `HOST_*`** — o script percorre cada variável de caminho, exibindo o valor atual e uma descrição. Se o valor atual parecer um caminho Windows (letra de drive, barras invertidas, UNC), exibe um aviso e sugere o equivalente Linux. O operador pode manter o valor atual pressionando Enter ou informar um novo caminho.
+4. **`ADMIN_PASSWORD`** (apenas para o siscan-dashboard) — o script solicita a senha do usuário administrador do dashboard. Se deixada vazia, o dashboard gera uma senha temporária nos logs na primeira execução.
+5. **`RPA_DATABASE_URL`** (apenas para o siscan-dashboard) — o script solicita a connection string completa para o banco do RPA, exibindo o formato e um exemplo. Essa variável é obrigatória para que o `sync_exames` consiga ler os dados do RPA.
+6. **Diretórios `HOST_*`** — o script percorre cada variável de caminho, exibindo o valor atual e uma descrição. Se o valor atual parecer um caminho Windows (letra de drive, barras invertidas, UNC), exibe um aviso e sugere o equivalente Linux. O operador pode manter o valor atual pressionando Enter ou informar um novo caminho.
 
 | Variável | siscan-rpa | siscan-dashboard |
 |---|---|---|
 | Chave de sessão | `SECRET_KEY` (auto-gerada) | `SESSION_SECRET` (auto-gerada) |
 | `DATABASE_HOST` | Pergunta (obrigatório) | Pergunta (obrigatório) |
 | `DATABASE_PASSWORD` | Pergunta | Pergunta |
+| `ADMIN_PASSWORD` | — | Pergunta (senha do admin do dashboard) |
 | `RPA_DATABASE_URL` | — | Pergunta (obrigatório para o sync) |
 | Diretórios `HOST_*` | 5 caminhos | 1 caminho (`HOST_LOG_DIR`) |
 
@@ -309,6 +312,8 @@ O runner roda como serviço systemd e não carrega `~/.bashrc` nem `/etc/environ
 
 1. **`~/actions-runner/.env`** — é o único mecanismo para injetar variáveis de ambiente nos jobs executados pelo runner. Ambos os workflows de CD (siscan-rpa e siscan-dashboard) usam `${COMPOSE_DIR}` para navegar até o diretório correto antes de executar `docker compose`.
 2. **`/etc/environment`** — disponibiliza a variável para sessões interativas (SSH), permitindo que o operador use `cd $COMPOSE_DIR` para acessar rapidamente o diretório da stack.
+
+Como o runner foi instalado e iniciado na fase 7 — antes do `COMPOSE_DIR` ser gravado — o script **reinicia o serviço do runner** ao final desta fase para que ele carregue o `.env` atualizado. Isso garante que o primeiro deploy via workflow já encontre o `COMPOSE_DIR` disponível.
 
 ---
 
