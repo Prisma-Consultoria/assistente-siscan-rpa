@@ -536,20 +536,37 @@ fi
 # ── RPA_DATABASE_URL (só para dashboard) ──────────────────────────────────
 if [ "${SISCAN_PRODUCT}" = "dashboard" ]; then
     RPA_DB_URL_VAL="$(_read_env_value "${ENV_FILE}" "RPA_DATABASE_URL")"
-    if [ -z "${RPA_DB_URL_VAL}" ]; then
+
+    # Validar formato: deve começar com postgresql:// e ter pelo menos user@host/db
+    RPA_URL_VALID=false
+    if [[ "${RPA_DB_URL_VAL}" =~ ^postgresql://[^@]+@[^/]+/.+ ]]; then
+        RPA_URL_VALID=true
+    fi
+
+    if [ -z "${RPA_DB_URL_VAL}" ] || ! ${RPA_URL_VALID}; then
         printf "\n  ${CYAN}RPA_DATABASE_URL${NC} — Conexão ao banco do siscan-rpa\n"
         printf "  ${GRAY}Formato: postgresql://usuario:senha@host:porta/banco${NC}\n"
         printf "  ${GRAY}Exemplo: postgresql://siscan_rpa:senha@192.168.1.10:5432/siscan_rpa${NC}\n"
+        if [ -n "${RPA_DB_URL_VAL}" ] && ! ${RPA_URL_VALID}; then
+            printf "  ${YELLOW}Valor atual '${RPA_DB_URL_VAL}' não parece uma URL PostgreSQL válida.${NC}\n"
+        fi
         printf "  Valor: "
         read -r RPA_DB_URL_NEW
         if [ -n "${RPA_DB_URL_NEW}" ]; then
-            _set_env_value "${ENV_FILE}" "RPA_DATABASE_URL" "${RPA_DB_URL_NEW}"
-            ok "RPA_DATABASE_URL configurado"
+            if [[ "${RPA_DB_URL_NEW}" =~ ^postgresql://[^@]+@[^/]+/.+ ]]; then
+                _set_env_value "${ENV_FILE}" "RPA_DATABASE_URL" "${RPA_DB_URL_NEW}"
+                ok "RPA_DATABASE_URL configurado"
+            else
+                warn "Valor informado não parece uma URL PostgreSQL válida"
+                printf "  ${GRAY}Formato esperado: postgresql://usuario:senha@host:porta/banco${NC}\n"
+                _set_env_value "${ENV_FILE}" "RPA_DATABASE_URL" "${RPA_DB_URL_NEW}"
+                warn "RPA_DATABASE_URL salvo mesmo assim — revise no .env"
+            fi
         else
             warn "RPA_DATABASE_URL não definido — o sync não funcionará até ser configurado"
         fi
     else
-        ok "RPA_DATABASE_URL já configurado"
+        ok "RPA_DATABASE_URL já configurado (formato válido)"
     fi
 fi
 
