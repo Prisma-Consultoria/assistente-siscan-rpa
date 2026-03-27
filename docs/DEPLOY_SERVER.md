@@ -492,10 +492,53 @@ docker compose -f docker-compose.prd.dashboard.yml logs -f
 # Testar health endpoint
 curl -s http://localhost:5000/health | python3 -m json.tool
 
-# Sync manual (full refresh)
+# Sync full (re-importa todos os registros do RPA)
 docker compose -f docker-compose.prd.dashboard.yml exec app \
   python -m src.commands.sync_exames --full
+
+# Sync incremental (apenas registros novos desde o último sync)
+docker compose -f docker-compose.prd.dashboard.yml exec app \
+  python -m src.commands.sync_exames
 
 # Status do runner
 sudo ~/actions-runner/svc.sh status
 ```
+
+---
+
+## Backup e restauração
+
+O script `backup_manager.sh` oferece um menu interativo para backup e restauração do banco PostgreSQL. O workflow de CD do siscan-rpa copia automaticamente o script para `${COMPOSE_DIR}/scripts/backup_manager.sh` a cada deploy.
+
+### Executar backup/restauração (menu interativo)
+
+Na VM do RPA (VM 1):
+
+```bash
+cd /app/assistente-siscan-rpa
+bash scripts/backup_manager.sh
+```
+
+O menu lista as opções disponíveis (backup, restauração, listar backups). Os dumps são salvos em `backups/` no diretório da stack.
+
+### Restauração manual (sem menu)
+
+Se preferir restaurar diretamente, copie o dump para `backups/` e execute:
+
+```bash
+docker compose -f docker-compose.prd.rpa.yml exec -T app \
+  pg_restore -h <IP-VM2> -U siscan_rpa -d siscan_rpa --clean --if-exists --no-owner \
+  < backups/<nome_do_dump>.dump
+```
+
+### Sincronizar dashboard após restauração
+
+Após restaurar o banco do RPA, o dashboard precisa ser re-sincronizado para refletir os dados atualizados. Na VM do dashboard (VM 3):
+
+```bash
+# Sync full — re-importa todos os registros do banco do RPA
+docker compose -f docker-compose.prd.dashboard.yml exec app \
+  python -m src.commands.sync_exames --full
+```
+
+O sync incremental (sem `--full`) roda automaticamente a cada 30 minutos via container `sync`. O `--full` é necessário após restauração de backup porque o `sync_control` pode ter timestamps inconsistentes com os dados restaurados.
