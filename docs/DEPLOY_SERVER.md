@@ -1,8 +1,8 @@
 # Guia de Deploy — Modo Servidor (Ubuntu Server)
 <a name="deploy-server"></a>
 
-Versão: 2.1
-Data: 2026-03-24
+Versão: 2.2
+Data: 2026-03-27
 
 Deploy em Ubuntu Server com PostgreSQL externo. O deploy de novas versões é automático via GitHub Actions com self-hosted runner. O assistente suporta dois produtos (`rpa` e `dashboard`), cada um instalado em sua própria VM.
 
@@ -94,6 +94,9 @@ Antes de executar o setup, verifique os pré-requisitos em cada VM conforme a ta
 | Docker Compose | ≥ 2.37 | `docker compose version` |
 | git | qualquer versão | `git --version` |
 | Conectividade HTTPS | `github.com` e `ghcr.io` porta 443 | `curl -Iv https://github.com` |
+| Docker network pool | Pool com subnets disponíveis | `docker network create teste && docker network rm teste` |
+
+> **Docker daemon.json:** se a equipe de infraestrutura configurou `/etc/docker/daemon.json` com `default-address-pools` restrito (ex: uma única subnet `/24`), o Docker não conseguirá criar redes para os compose projects. Verifique com `cat /etc/docker/daemon.json` e consulte o [Problema 1 do Troubleshooting](TROUBLESHOOTING.md#problema-1--pool-de-endereços-docker-esgotado-ao-criar-rede) para a solução.
 
 ### VM do banco de dados
 
@@ -102,6 +105,9 @@ Antes de executar o setup, verifique os pré-requisitos em cada VM conforme a ta
 | PostgreSQL | ≥ 16 |
 | Bancos criados | `siscan_rpa` + `siscan_dashboard` |
 | Conectividade TCP | Porta 5432 acessível por ambas as VMs de aplicação |
+| Senhas sem caracteres especiais | Evitar `@`, `%`, `/`, `#`, `:`, `\` nas senhas dos bancos |
+
+> **Senhas do banco:** o Docker Compose monta a `DATABASE_URL` por interpolação de variáveis. Caracteres como `@` na senha quebram o parsing da URL (o `@` é o separador entre credenciais e host). Use senhas alfanuméricas com símbolos seguros (`_`, `-`, `!`, `^`).
 
 Verificar conectividade antes de prosseguir:
 

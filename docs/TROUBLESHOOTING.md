@@ -1,8 +1,8 @@
 # Guia de Troubleshooting — Assistente SISCAN
 <a name="troubleshooting"></a>
 
-Versão: 4.1
-Data: 2026-03-24
+Versão: 4.2
+Data: 2026-03-27
 
 Os problemas estão organizados em três grupos:
 - **Problemas comuns** — ocorrem em qualquer modo (HOST ou Servidor).
@@ -232,17 +232,67 @@ Sintoma: deploy falha com:
 failed to create network siscan-rpa_default: Error response from daemon: all predefined address pools have been fully subnetted
 ```
 
-O Docker esgotou os blocos de IP disponíveis no pool padrão de redes bridge (172.16.0.0/12). Ocorre quando há muitas redes antigas não utilizadas acumuladas no servidor.
+O Docker esgotou os blocos de IP disponíveis para redes bridge. Há duas causas possíveis:
 
-#### Solução
+#### Causa A — Redes antigas acumuladas
+
+Redes de deploys anteriores que não foram removidas. Solução rápida:
 
 ```bash
-# Remover todas as redes Docker sem containers associados
-docker network prune
+docker network prune -f
 ```
 
-Confirme com `y`. Em seguida, acione o deploy manualmente:
-**GitHub → repositório `siscan-rpa` → Actions → CD — Deploy Produção → Run workflow**
+#### Causa B — `daemon.json` com pool restrito (mais comum em infra corporativa)
+
+A equipe de infraestrutura pode ter configurado `/etc/docker/daemon.json` com um pool de endereços muito pequeno. Exemplo de configuração problemática:
+
+```json
+{
+    "bip": "192.168.4.1/24",
+    "default-address-pools": [
+        { "base": "192.168.4.0/24", "size": 24 }
+    ]
+}
+```
+
+Nesse exemplo, o pool tem **apenas 1 subnet** (`/24` com size 24), que já está ocupada pela bridge padrão (`bip`). Resultado: zero subnets disponíveis para novas redes.
+
+**Diagnóstico:**
+
+```bash
+# Ver configuração atual
+cat /etc/docker/daemon.json
+
+# Ver subnets em uso
+docker network inspect $(docker network ls -q) 2>/dev/null | grep -A2 "Subnet"
+
+# Testar criação de rede
+docker network create teste && docker network rm teste && echo "OK" || echo "FALHOU"
+```
+
+**Solução:** expandir o pool para o range `172.16.0.0/12` (privado, sem conflito com `192.168.x.x`):
+
+```bash
+sudo tee /etc/docker/daemon.json <<'EOF'
+{
+    "bip": "192.168.4.1/24",
+    "default-address-pools": [
+        { "base": "172.16.0.0/12", "size": 24 }
+    ],
+    "log-driver": "json-file",
+    "log-opts": {
+        "max-size": "100m",
+        "max-file": "7"
+    }
+}
+EOF
+sudo systemctl restart docker
+```
+
+> Ajuste o `bip` conforme o valor original do `daemon.json` da VM. Se não havia `daemon.json`, omita o `bip` (o Docker usará o default `172.17.0.1/16`).
+
+Após corrigir, acione o deploy manualmente:
+**GitHub → repositório → Actions → CD — Deploy Produção → Run workflow**
 
 ---
 
@@ -252,25 +302,76 @@ Sintoma: container `migrate` falha no boot; logs mostram `could not connect to s
 
 | Passo | O que Fazer | Como Fazer |
 |---|---|---|
-| 1 | Confirmar `DATABASE_HOST` no `.env` | `grep DATABASE_HOST /opt/siscan-rpa/.env` — deve ter o IP/hostname do PostgreSQL externo, não `db` |
+| 1 | Confirmar `DATABASE_HOST` no `.env` | `grep DATABASE_HOST .env` — deve ter o IP/hostname do PostgreSQL externo, não `db` |
 | 2 | Testar conectividade TCP com o banco | `nc -zv $DATABASE_HOST $DATABASE_PORT` ou `telnet $DATABASE_HOST $DATABASE_PORT` |
 | 3 | Testar autenticação | `psql -h $DATABASE_HOST -U $DATABASE_USER -d $DATABASE_NAME -c "SELECT 1"` |
 | 4 | Verificar firewall entre servidores | O servidor de app precisa de acesso à porta TCP 5432 do servidor do banco. Verificar regras de firewall / security group |
 | 5 | Verificar `pg_hba.conf` no PostgreSQL | O PostgreSQL externo precisa ter regra `host` permitindo o IP do servidor de app |
 
+#### Problema 2B — Senha com caracteres especiais quebra a DATABASE_URL
+
+Sintoma: `migrate` falha com `could not translate host name "P@172.x.x.x"` ou similar — parte da senha é interpretada como hostname.
+
+**Causa:** o compose monta a `DATABASE_URL` por interpolação: `postgresql://${DATABASE_USER}:${DATABASE_PASSWORD}@${DATABASE_HOST}:...`. Se a senha contém `@`, o SQLAlchemy interpreta o `@` da senha como separador entre credenciais e host.
+
+**Diagnóstico:**
+
+```bash
+# Ver como o compose resolve a URL
+cd /app/assistente-siscan-rpa
+docker compose -f docker-compose.prd.dashboard.yml config 2>&1 | grep DATABASE_URL
+```
+
+Se a URL mostrar algo como `...senha@P@172.19...`, a senha tem `@`.
+
+**Solução:** trocar a senha no PostgreSQL para uma sem caracteres especiais (`@`, `%`, `/`, `#`, `:`):
+
+```bash
+# Na VM do banco (PostgreSQL):
+sudo -u postgres psql -c "ALTER USER siscan_dashboard PASSWORD 'NovaSenhaSegura123';"
+
+# Na VM da aplicação:
+sed -i "s/^DATABASE_PASSWORD=.*/DATABASE_PASSWORD=NovaSenhaSegura123/" /app/assistente-siscan-rpa/.env
+```
+
+> **Prevenção:** ao criar senhas para o banco, evite os caracteres `@`, `%`, `/`, `#`, `:` e `\`. Esses caracteres têm significado especial em URLs PostgreSQL e causam problemas quando interpolados pelo Docker Compose.
+
 ---
 
 ### Problema 2 — Runner do GitHub Actions offline ou sem receber jobs
 
-Sintoma: deploys via GitHub Actions ficam aguardando runner; GitHub mostra runner como `Offline`.
+Sintoma: deploys via GitHub Actions ficam aguardando runner; GitHub mostra runner como `Offline` ou jobs ficam `queued` indefinidamente.
+
+#### 2A — Runner offline
 
 | Passo | O que Fazer | Como Fazer |
 |---|---|---|
-| 1 | Verificar status do runner | `cd ~/actions-runner && ./svc.sh status` |
-| 2 | Iniciar se estiver parado | `./svc.sh start` |
-| 3 | Verificar logs do runner | `journalctl -u actions.runner.* --since "1h ago"` |
-| 4 | Verificar conectividade com GitHub | `curl -s https://api.github.com` deve retornar JSON. Verificar firewall para `github.com` porta 443 |
-| 5 | Re-registrar o runner (token expirado) | Obter novo token de registro no GitHub → Settings → Actions → Runners → `./config.sh` com o novo token |
+| 1 | Verificar status do runner | `sudo ~/actions-runner/svc.sh status` |
+| 2 | Verificar logs recentes | `journalctl -u actions.runner.* --since "1h ago" --no-pager` |
+| 3 | Se aparecer `SSL connection could not be established` | O runner perdeu conectividade SSL. Reiniciar o serviço: `sudo ~/actions-runner/svc.sh stop && sudo ~/actions-runner/svc.sh start` |
+| 4 | Se `start` não resolver SSL | Testar conectividade da VM: `curl -Iv https://github.com`. Se falhar, é problema de rede/firewall — envolver infra |
+| 5 | Verificar conectividade com GitHub | `curl -s https://api.github.com` deve retornar JSON |
+| 6 | Re-registrar o runner (token expirado) | Obter novo token de registro no GitHub → Settings → Actions → Runners → `./config.sh` com o novo token |
+
+> O runner pode mostrar `Active (running)` no systemd mas estar desconectado do GitHub (loop de erro SSL). Nesse caso, `svc.sh status` mostra ativo mas o GitHub mostra Offline. A solução é `stop` + `start` para forçar reconexão.
+
+#### 2B — Jobs queued mas runner está Idle
+
+Se o runner aparece como **Idle** no GitHub mas os jobs ficam **queued**, o problema é **labels incompatíveis**. O workflow espera labels que o runner não tem.
+
+| Passo | O que Fazer | Como Fazer |
+|---|---|---|
+| 1 | Verificar labels do runner | GitHub → repo → Settings → Actions → Runners → clicar no runner |
+| 2 | Verificar labels do workflow | No arquivo `.github/workflows/cd_*.yml`, procurar `runs-on:` |
+| 3 | Comparar | O runner deve ter **todas** as labels listadas no `runs-on` |
+| 4 | Adicionar label via UI | Na página do runner no GitHub, clicar em "Add label" |
+
+Labels esperadas por produto:
+
+| Produto | Label no workflow | Label no runner |
+|---|---|---|
+| siscan-rpa | `producao-rpa` | `producao-rpa` |
+| siscan-dashboard | `producao-dashboard` | `producao-dashboard` |
 
 ---
 
@@ -449,7 +550,7 @@ Sintoma: container `redis` não aparece no `docker compose ps`, ou o dashboard a
 | 2 | Verificar se o Redis responde | `docker compose -f docker-compose.prd.dashboard.yml exec redis redis-cli ping` — esperado: `PONG` |
 | 3 | Verificar variáveis no `.env` | `grep REDIS .env` — deve ter `REDIS_HOST=redis` e `REDIS_PORT=6379` |
 | 4 | Verificar se o compose inclui o serviço Redis | `grep -A3 'redis:' docker-compose.prd.dashboard.yml` — deve mostrar `image: redis:7-alpine` |
-| 5 | Atualizar compose se Redis ausente | O workflow de CD atualiza automaticamente. Para forçar: `curl -fsSL https://raw.githubusercontent.com/Prisma-Consultoria/assistente-siscan-rpa/main/docker-compose.prd.dashboard.yml -o docker-compose.prd.dashboard.yml` |
+| 5 | Atualizar compose se Redis ausente | O workflow de CD atualiza automaticamente. Para forçar: `curl -fsSL https://raw.githubusercontent.com/Prisma-Consultoria/siscan-dashboard/main/docker-compose.prd.dashboard.yml -o docker-compose.prd.dashboard.yml` |
 | 6 | Recriar a stack | `docker compose -f docker-compose.prd.dashboard.yml down && docker compose -f docker-compose.prd.dashboard.yml up -d --wait` |
 
 > O Redis é um serviço local do compose — não precisa de instalação separada. Se o compose estiver atualizado e o `.env` tiver as variáveis `REDIS_HOST` e `REDIS_PORT`, o container sobe automaticamente.
@@ -467,6 +568,21 @@ Sintoma: novos recursos não funcionam após atualizar o assistente (ex.: Redis 
 | 3 | Reiniciar a stack | `docker compose -f docker-compose.prd.dashboard.yml down && docker compose -f docker-compose.prd.dashboard.yml up -d --wait` |
 
 O `--check` compara o `.env` atual com o `.env.server-dashboard.sample` e identifica variáveis que existem no sample mas não no `.env`. Funciona também para o siscan-rpa com `--product rpa --check`.
+
+---
+
+### Build da imagem falha com "toomanyrequests" no Docker Hub
+
+Sintoma: workflow "Docker Image Build" falha no step "Set up Docker BuildX" com:
+```
+toomanyrequests: too many failed login attempts for username or IP address
+```
+
+**Causa:** o build roda em GitHub-hosted runners que compartilham IPs. O Docker Hub aplica rate limit por IP e bloqueia temporariamente quando o limite é atingido.
+
+**Solução:** aguardar alguns minutos e re-executar o workflow. Não é problema do código nem da infraestrutura.
+
+> O CD (deploy) não depende de novo build — ele usa a última imagem publicada no GHCR. Se o build falhou por rate limit mas a imagem anterior está correta, acione o CD manualmente: **Actions → CD — Deploy Produção → Run workflow**.
 
 ---
 
