@@ -636,73 +636,65 @@ ensure_host_paths "${ENV_FILE}"
 step "FASE 7 — GitHub Actions Runner"
 # ════════════════════════════════════════════════════════════════════════════
 
-# .runner só existe após config.sh --url/--token bem-sucedido.
-# config.sh existe logo após a extração do tarball, antes do registro —
-# por isso não serve como indicador de instalação completa.
-RUNNER_ALREADY_INSTALLED=false
-if [ -f "${RUNNER_DIR}/.runner" ]; then
-    RUNNER_ALREADY_INSTALLED=true
-    ok "Runner já registrado em ${RUNNER_DIR}"
+# O runner pode estar em 4 estados ao re-executar o script:
+#   1. Nada instalado          → download + registro + serviço
+#   2. Binários extraídos      → pular download, fazer registro + serviço
+#   3. Registrado, sem serviço → pular download e registro, instalar serviço
+#   4. Tudo completo           → verificar status do serviço
+#
+# Indicadores:
+#   config.sh  — existe após extração do tarball (estado ≥ 2)
+#   .runner    — existe após config.sh --url/--token bem-sucedido (estado ≥ 3)
+#   svc.sh + systemd ativo — serviço instalado e rodando (estado 4)
+
+# ── Estado 1: download necessário ─────────────────────────────────────────
+if [ ! -f "${RUNNER_DIR}/config.sh" ]; then
+    printf "  ${WHITE}Download do runner${NC}\n\n"
+
+    # Detectar arquitetura
+    ARCH=$(uname -m)
+    case "${ARCH}" in
+        x86_64)  RUNNER_ARCH="x64" ;;
+        aarch64) RUNNER_ARCH="arm64" ;;
+        *) fail "Arquitetura não suportada pelo runner: ${ARCH}" ;;
+    esac
+    info "Arquitetura: ${ARCH} → linux-${RUNNER_ARCH}"
+
+    # Obter versão mais recente
+    info "Consultando versão mais recente do runner..."
+    RUNNER_VERSION=$(curl -fsSL \
+        "https://api.github.com/repos/actions/runner/releases/latest" \
+        | grep '"tag_name"' \
+        | sed 's/.*"v\([^"]*\)".*/\1/' \
+        | head -1)
+
+    if [ -z "${RUNNER_VERSION}" ]; then
+        fail "Não foi possível obter a versão do runner. Verifique a conectividade com github.com."
+    fi
+    info "Versão: ${RUNNER_VERSION}"
+
+    RUNNER_TARBALL_URL="https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz"
+
+    # Baixar e extrair
+    mkdir -p "${RUNNER_DIR}"
+    TARBALL="${RUNNER_DIR}/actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz"
+
+    info "Baixando runner em ${TARBALL}..."
+    if ! curl -fsSL --progress-bar -o "${TARBALL}" "${RUNNER_TARBALL_URL}"; then
+        rm -f "${TARBALL}"
+        fail "Falha ao baixar o runner. Verifique a conectividade."
+    fi
+
+    info "Extraindo em ${RUNNER_DIR}..."
+    tar xzf "${TARBALL}" -C "${RUNNER_DIR}"
+    rm -f "${TARBALL}"
+    ok "Runner extraído"
+else
+    ok "Binários do runner já extraídos em ${RUNNER_DIR}"
 fi
 
-if ${RUNNER_ALREADY_INSTALLED}; then
-    # Verificar status do serviço
-    RUNNER_SVC_STATUS=$(sudo "${RUNNER_DIR}/svc.sh" status 2>/dev/null || true)
-    if echo "${RUNNER_SVC_STATUS}" | grep -qi "active\|running"; then
-        ok "Serviço do runner: ativo"
-    else
-        warn "Serviço do runner pode não estar ativo. Verifique com:"
-        printf "  ${GRAY}sudo %s/svc.sh status${NC}\n" "${RUNNER_DIR}"
-        printf "  ${GRAY}sudo %s/svc.sh start${NC}\n" "${RUNNER_DIR}"
-    fi
-else
-    # Pular download se o binário já foi extraído (ex: registro falhou na execução anterior)
-    if [ -f "${RUNNER_DIR}/config.sh" ]; then
-        ok "Binários do runner já extraídos em ${RUNNER_DIR} — pulando download"
-    else
-        printf "  ${WHITE}Download do runner${NC}\n\n"
-
-        # Detectar arquitetura
-        ARCH=$(uname -m)
-        case "${ARCH}" in
-            x86_64)  RUNNER_ARCH="x64" ;;
-            aarch64) RUNNER_ARCH="arm64" ;;
-            *) fail "Arquitetura não suportada pelo runner: ${ARCH}" ;;
-        esac
-        info "Arquitetura: ${ARCH} → linux-${RUNNER_ARCH}"
-
-        # Obter versão mais recente
-        info "Consultando versão mais recente do runner..."
-        RUNNER_VERSION=$(curl -fsSL \
-            "https://api.github.com/repos/actions/runner/releases/latest" \
-            | grep '"tag_name"' \
-            | sed 's/.*"v\([^"]*\)".*/\1/' \
-            | head -1)
-
-        if [ -z "${RUNNER_VERSION}" ]; then
-            fail "Não foi possível obter a versão do runner. Verifique a conectividade com github.com."
-        fi
-        info "Versão: ${RUNNER_VERSION}"
-
-        RUNNER_TARBALL_URL="https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz"
-
-        # Baixar e extrair
-        mkdir -p "${RUNNER_DIR}"
-        TARBALL="${RUNNER_DIR}/actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz"
-
-        info "Baixando runner em ${TARBALL}..."
-        if ! curl -fsSL --progress-bar -o "${TARBALL}" "${RUNNER_TARBALL_URL}"; then
-            rm -f "${TARBALL}"
-            fail "Falha ao baixar o runner. Verifique a conectividade."
-        fi
-
-        info "Extraindo em ${RUNNER_DIR}..."
-        tar xzf "${TARBALL}" -C "${RUNNER_DIR}"
-        rm -f "${TARBALL}"
-        ok "Runner extraído"
-    fi
-
-    # Registro
+# ── Estado 2: registro necessário ─────────────────────────────────────────
+if [ ! -f "${RUNNER_DIR}/.runner" ]; then
     printf "\n${WHITE}  Registro do runner no repositório GitHub${NC}\n\n"
     printf "  O token de registro é gerado em:\n"
     printf "  ${CYAN}Settings → Actions → Runners → New self-hosted runner${NC}\n\n"
@@ -730,13 +722,19 @@ else
         fail "Falha ao registrar o runner. Verifique a URL e o token (tokens expiram após alguns minutos)."
     fi
     ok "Runner registrado: ${RUNNER_NAME} [${RUNNER_LABEL}]"
+else
+    ok "Runner já registrado em ${RUNNER_DIR}"
+fi
 
-    # Instalar e iniciar como serviço systemd
-    # sudo não preserva o diretório de trabalho — passar via bash -c para garantir
+# ── Estado 3: serviço systemd necessário ──────────────────────────────────
+RUNNER_SVC_STATUS=$(sudo "${RUNNER_DIR}/svc.sh" status 2>/dev/null || true)
+if echo "${RUNNER_SVC_STATUS}" | grep -qi "active\|running"; then
+    ok "Serviço do runner: ativo"
+else
+    # Serviço não ativo — instalar (se necessário) e iniciar
     info "Instalando runner como serviço systemd (usuário: ${CURRENT_USER})..."
-    if ! sudo bash -c "cd '${RUNNER_DIR}' && ./svc.sh install '${CURRENT_USER}'"; then
-        fail "Falha ao instalar o serviço systemd do runner."
-    fi
+    # svc.sh install é idempotente — se já instalado, apenas avisa
+    sudo bash -c "cd '${RUNNER_DIR}' && ./svc.sh install '${CURRENT_USER}'" 2>/dev/null || true
 
     if ! sudo bash -c "cd '${RUNNER_DIR}' && ./svc.sh start"; then
         fail "Falha ao iniciar o serviço do runner."
