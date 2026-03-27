@@ -516,7 +516,7 @@ Na VM do RPA (VM 1):
 
 ```bash
 cd /app/assistente-siscan-rpa
-bash scripts/backup_manager.sh
+bash scripts/clients/backup_manager.sh
 ```
 
 O menu lista as opções disponíveis (backup, restauração, listar backups). Os dumps são salvos em `backups/` no diretório da stack.
