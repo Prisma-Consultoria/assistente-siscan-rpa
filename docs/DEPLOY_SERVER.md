@@ -286,7 +286,7 @@ O script lê os caminhos definidos nas variáveis `HOST_*_DIR` do `.env` e execu
 
 ### Fase 7 — GitHub Actions Runner
 
-Esta fase instala e registra o GitHub Actions runner que receberá os deploys automáticos via CI/CD. Se o runner já estiver instalado (detecta `config.sh` no diretório do runner), o script apenas verifica o status do serviço systemd e prossegue.
+Esta fase instala e registra o GitHub Actions runner que receberá os deploys automáticos via CI/CD. Se o runner já estiver registrado (detecta o arquivo `.runner` no diretório do runner), o script apenas verifica o status do serviço systemd e prossegue. Se os binários foram extraídos mas o registro não foi concluído (ex: token expirado na execução anterior), o script pula o download e retoma a partir do registro.
 
 Se o runner não estiver instalado, o fluxo completo é:
 

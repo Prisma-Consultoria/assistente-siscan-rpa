@@ -636,10 +636,13 @@ ensure_host_paths "${ENV_FILE}"
 step "FASE 7 — GitHub Actions Runner"
 # ════════════════════════════════════════════════════════════════════════════
 
+# .runner só existe após config.sh --url/--token bem-sucedido.
+# config.sh existe logo após a extração do tarball, antes do registro —
+# por isso não serve como indicador de instalação completa.
 RUNNER_ALREADY_INSTALLED=false
-if [ -f "${RUNNER_DIR}/config.sh" ]; then
+if [ -f "${RUNNER_DIR}/.runner" ]; then
     RUNNER_ALREADY_INSTALLED=true
-    ok "Runner já instalado em ${RUNNER_DIR}"
+    ok "Runner já registrado em ${RUNNER_DIR}"
 fi
 
 if ${RUNNER_ALREADY_INSTALLED}; then
@@ -653,46 +656,51 @@ if ${RUNNER_ALREADY_INSTALLED}; then
         printf "  ${GRAY}sudo %s/svc.sh start${NC}\n" "${RUNNER_DIR}"
     fi
 else
-    printf "  ${WHITE}Download e registro do runner${NC}\n\n"
+    # Pular download se o binário já foi extraído (ex: registro falhou na execução anterior)
+    if [ -f "${RUNNER_DIR}/config.sh" ]; then
+        ok "Binários do runner já extraídos em ${RUNNER_DIR} — pulando download"
+    else
+        printf "  ${WHITE}Download do runner${NC}\n\n"
 
-    # Detectar arquitetura
-    ARCH=$(uname -m)
-    case "${ARCH}" in
-        x86_64)  RUNNER_ARCH="x64" ;;
-        aarch64) RUNNER_ARCH="arm64" ;;
-        *) fail "Arquitetura não suportada pelo runner: ${ARCH}" ;;
-    esac
-    info "Arquitetura: ${ARCH} → linux-${RUNNER_ARCH}"
+        # Detectar arquitetura
+        ARCH=$(uname -m)
+        case "${ARCH}" in
+            x86_64)  RUNNER_ARCH="x64" ;;
+            aarch64) RUNNER_ARCH="arm64" ;;
+            *) fail "Arquitetura não suportada pelo runner: ${ARCH}" ;;
+        esac
+        info "Arquitetura: ${ARCH} → linux-${RUNNER_ARCH}"
 
-    # Obter versão mais recente
-    info "Consultando versão mais recente do runner..."
-    RUNNER_VERSION=$(curl -fsSL \
-        "https://api.github.com/repos/actions/runner/releases/latest" \
-        | grep '"tag_name"' \
-        | sed 's/.*"v\([^"]*\)".*/\1/' \
-        | head -1)
+        # Obter versão mais recente
+        info "Consultando versão mais recente do runner..."
+        RUNNER_VERSION=$(curl -fsSL \
+            "https://api.github.com/repos/actions/runner/releases/latest" \
+            | grep '"tag_name"' \
+            | sed 's/.*"v\([^"]*\)".*/\1/' \
+            | head -1)
 
-    if [ -z "${RUNNER_VERSION}" ]; then
-        fail "Não foi possível obter a versão do runner. Verifique a conectividade com github.com."
-    fi
-    info "Versão: ${RUNNER_VERSION}"
+        if [ -z "${RUNNER_VERSION}" ]; then
+            fail "Não foi possível obter a versão do runner. Verifique a conectividade com github.com."
+        fi
+        info "Versão: ${RUNNER_VERSION}"
 
-    RUNNER_TARBALL_URL="https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz"
+        RUNNER_TARBALL_URL="https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz"
 
-    # Baixar e extrair
-    mkdir -p "${RUNNER_DIR}"
-    TARBALL="${RUNNER_DIR}/actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz"
+        # Baixar e extrair
+        mkdir -p "${RUNNER_DIR}"
+        TARBALL="${RUNNER_DIR}/actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz"
 
-    info "Baixando runner em ${TARBALL}..."
-    if ! curl -fsSL --progress-bar -o "${TARBALL}" "${RUNNER_TARBALL_URL}"; then
+        info "Baixando runner em ${TARBALL}..."
+        if ! curl -fsSL --progress-bar -o "${TARBALL}" "${RUNNER_TARBALL_URL}"; then
+            rm -f "${TARBALL}"
+            fail "Falha ao baixar o runner. Verifique a conectividade."
+        fi
+
+        info "Extraindo em ${RUNNER_DIR}..."
+        tar xzf "${TARBALL}" -C "${RUNNER_DIR}"
         rm -f "${TARBALL}"
-        fail "Falha ao baixar o runner. Verifique a conectividade."
+        ok "Runner extraído"
     fi
-
-    info "Extraindo em ${RUNNER_DIR}..."
-    tar xzf "${TARBALL}" -C "${RUNNER_DIR}"
-    rm -f "${TARBALL}"
-    ok "Runner extraído"
 
     # Registro
     printf "\n${WHITE}  Registro do runner no repositório GitHub${NC}\n\n"
