@@ -160,7 +160,7 @@ bash scripts/deploy_server/check-network.sh               # standalone
 
 > **Monitoramento contínuo (recomendação 12.8 do PDF de whitelist):** programe `siscan-server-doctor.sh --quiet` em cron a cada 5 minutos. Exit != 0 dispara alerta. Isso evita que uma nova expiração de regra de firewall — ou outras regressões — passem despercebidas por semanas, como aconteceu em 15/04/2026.
 
-Referência completa de cada specialist (opções, exit codes, schema, exemplos): [`scripts/deploy_server/`](scripts/deploy_server/).
+Referência completa do doctor + de cada specialist (opções, exit codes, schema, exemplos): [`siscan-server-doctor/`](siscan-server-doctor/index.md).
 
 ---
 

@@ -110,7 +110,8 @@ default_url=$(product_extra siscan_portal_url_default)
 
 ## Ver também
 
-- [`../../DEPLOY_SERVER.md`](../../DEPLOY_SERVER.md) — guia narrativo do deploy
-- [`check-network.md`](check-network.md) — primeiro specialist a usar manifesto (campo `siscan_portal_url_default`)
+- [`index.md`](index.md) — entry point da documentação do doctor
+- [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md) — guia narrativo do deploy
+- [`scripts/check-network.md`](scripts/check-network.md) — primeiro specialist a usar manifesto (campo `siscan_portal_url_default`)
 - [Feature #42](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/42) — abstração multi-produto completa (esta task é o subset 1)
 - [Task #45](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/45) — TSK00.02.01 que entregou esta estrutura
