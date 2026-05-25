@@ -511,14 +511,22 @@ bash siscan-server-doctor.sh
 
 #### Passo 4 — Se `check-runner` ou `check-stack` apontaram problema → recuperar runner
 
-Se o passo 3 mostrou problema em `check-runner` (auto-removido após 14 dias offline, ou regra dos 30 dias), rode:
+Se o passo 3 mostrou problema em `check-runner` (auto-removido após 14 dias offline, ou regra dos 30 dias), rode (a partir do `$COMPOSE_DIR`, que tem o `.env` com `SISCAN_PRODUCT` configurado):
 
 ```bash
 bash siscan-runner-recover.sh
 ```
 
+> **Caso `SISCAN_PRODUCT` não esteja no `.env`** (cenário de testes locais ou recuperação em diretório sem `.env`), o script aborta com `ERRO: SISCAN_PRODUCT não definido`. Nesse caso, passe o produto explicitamente — um destes três valores conforme o caso da VM:
+>
+> ```bash
+> bash siscan-runner-recover.sh --product rpa         # VM do RPA
+> bash siscan-runner-recover.sh --product dashboard   # VM do Dashboard
+> bash siscan-runner-recover.sh --product full        # VM que hospeda os dois
+> ```
+
 O script:
-- Detecta o produto via `.env` (`siscan-rpa` ou `siscan-dashboard`)
+- Detecta o produto via `.env` (ou aceita `--product` explícito quando `.env` não estiver disponível)
 - Faz pré-flight com o doctor (network + deps + docker + permissions)
 - Diagnostica o cenário (auto-removed ou stale 30d ou OK)
 - **Se for auto-removed**: pede um token novo de registro do runner e refaz o registro

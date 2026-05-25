@@ -22,12 +22,20 @@ Resolução: `sudo -u siscan ./run.sh --check` (**não** precisa token).
 ## Sinopse
 
 ```bash
-bash siscan-runner-recover.sh                       # detecta produto via .env
-bash siscan-runner-recover.sh --product rpa         # explícito
+bash siscan-runner-recover.sh                       # detecta produto via $COMPOSE_DIR/.env (SISCAN_PRODUCT)
+bash siscan-runner-recover.sh --product rpa         # explícito (sem .env ou .env sem SISCAN_PRODUCT)
 bash siscan-runner-recover.sh --product dashboard
+bash siscan-runner-recover.sh --product full        # VM que hospeda RPA + Dashboard
 bash siscan-runner-recover.sh --skip-doctor         # pula pré-flight (debug)
 bash siscan-runner-recover.sh --help
 ```
+
+> **Pré-requisito**: o script precisa saber o produto antes de qualquer ação. Resolução em ordem:
+> 1. `--product VALOR` explícito vence sempre.
+> 2. Senão, lê `SISCAN_PRODUCT` de `$COMPOSE_DIR/.env`.
+> 3. Se nenhum dos dois resolveu, aborta com `ERRO: SISCAN_PRODUCT não definido. Use --product rpa|dashboard|full ou preencha .env.`
+>
+> Operacionalmente isso significa que **na VM você pode rodar sem flag** (o `.env` já vem do `siscan-server-setup.sh`); fora da VM (ex.: testes locais, debug em dev box) você usa `--product`.
 
 ## Como o script decide o que fazer
 
