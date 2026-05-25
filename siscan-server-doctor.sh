@@ -4,7 +4,7 @@
 # -------------------------------------------
 # Arquivo: siscan-server-doctor.sh
 # Propósito: Orquestrar a execução de todos os specialists de diagnóstico em
-#            scripts/deploy_server/check-*.sh, agregando os resultados num único
+#            scripts/deploy_server/diagnostics/check-*.sh, agregando os resultados num único
 #            relatório consolidado.
 #
 # Cada specialist é callable standalone, mas o doctor é o entry point recomendado
@@ -39,11 +39,11 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SPECIALISTS_DIR="$SCRIPT_DIR/scripts/deploy_server"
+SPECIALISTS_DIR="$SCRIPT_DIR/scripts/deploy_server/diagnostics"
 SPECIALIST_NAME="doctor"
 
 # Source da biblioteca comum (cores, helpers, OUTPUT_MODE)
-# shellcheck source=scripts/deploy_server/_common.sh
+# shellcheck source=scripts/deploy_server/diagnostics/_common.sh
 source "$SPECIALISTS_DIR/_common.sh"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -143,22 +143,26 @@ SPECIALIST_OUTPUTS=()
 
 for name in "${TO_RUN[@]}"; do
     script="$SPECIALISTS_DIR/$name.sh"
+    rc=0
 
     case "$OUTPUT_MODE" in
         human)
             printf "\n${WHITE}▸ Specialist: %s${NC}\n" "$name"
             bash "$script"
+            rc=$?
             ;;
         quiet)
             bash "$script" --quiet
+            rc=$?
             ;;
         json)
             output="$(bash "$script" --json)"
+            rc=$?
             SPECIALIST_OUTPUTS+=("$output")
             ;;
     esac
 
-    SPECIALIST_EXIT_CODES+=("$?")
+    SPECIALIST_EXIT_CODES+=("$rc")
 done
 
 # ────────────────────────────────────────────────────────────────────────────

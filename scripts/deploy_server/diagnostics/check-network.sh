@@ -30,7 +30,7 @@ set -uo pipefail
 
 SPECIALIST_NAME="check-network"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 # ────────────────────────────────────────────────────────────────────────────
 # Source da biblioteca comum (cores, helpers, acumulador, renderização)
