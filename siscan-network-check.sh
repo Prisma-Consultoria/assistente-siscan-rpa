@@ -14,23 +14,26 @@
 # (requisição ICI 753315), seções 3 a 7.
 #
 # Uso:
-#   bash ./siscan-network-check.sh              # saída legível p/ humano
-#   bash ./siscan-network-check.sh --quiet      # imprime só linhas FAIL
-#   bash ./siscan-network-check.sh --json       # saída estruturada
-#   bash ./siscan-network-check.sh --timeout 15 # timeout por check (s)
+#   bash ./siscan-network-check.sh                       # saída legível p/ humano
+#   bash ./siscan-network-check.sh --quiet               # imprime só linhas FAIL
+#   bash ./siscan-network-check.sh --json                # saída estruturada
+#   bash ./siscan-network-check.sh --timeout 15          # timeout por check (s)
+#   bash ./siscan-network-check.sh --endpoints-file FILE # override do JSON de endpoints
 #   bash ./siscan-network-check.sh --help
 #
 # Exit code:
 #   0  todos os endpoints alcançáveis
 #   1  pelo menos um FAIL — consulte docs/TROUBLESHOOTING.md
-#   2  uso inválido
+#   2  uso inválido / dependência ausente / JSON inválido
 #
 # Critério de aceitação (PDF v2.0, seção 11.4):
-#   HTTPS — qualquer código 2xx/3xx/400/404 conta como sucesso (TLS subiu).
+#   HTTPS — qualquer código HTTP do servidor (!= 000) conta como sucesso (TLS subiu).
 #   HTTP/80 (OCSP/CRL) — conexão TCP suficiente.
 #
-# Sem dependências exóticas: curl, timeout, bash (/dev/tcp).
-# Não exige root.
+# Fonte de verdade dos FQDNs: scripts/data/network-endpoints.json
+#   Atualize esse arquivo para refletir mudanças no PDF ou na referência do GitHub.
+#
+# Dependências: curl, jq, timeout, bash (/dev/tcp). Não exige root.
 # -------------------------------------------
 
 set -uo pipefail
@@ -53,23 +56,26 @@ fi
 # ────────────────────────────────────────────────────────────────────────────
 # Parse de argumentos
 # ────────────────────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_MODE="human"   # human | quiet | json
 TIMEOUT_SEC=10
+ENDPOINTS_FILE="${SCRIPT_DIR}/scripts/data/network-endpoints.json"
 
 usage() {
     cat <<EOF
 Uso: bash $(basename "$0") [opções]
 
 Opções:
-  --quiet         Imprime somente linhas FAIL (útil em cron de monitoramento)
-  --json          Saída estruturada em JSON
-  --timeout SEC   Timeout por check em segundos (padrão: 10)
-  -h, --help      Exibe esta ajuda
+  --quiet                  Imprime somente linhas FAIL (útil em cron de monitoramento)
+  --json                   Saída estruturada em JSON
+  --timeout SEC            Timeout por check em segundos (padrão: 10)
+  --endpoints-file FILE    Override do JSON de endpoints (padrão: ${ENDPOINTS_FILE#$SCRIPT_DIR/})
+  -h, --help               Exibe esta ajuda
 
 Exit code:
   0 = todos os endpoints OK
   1 = pelo menos um FAIL
-  2 = uso inválido
+  2 = uso inválido / dependência ausente / JSON inválido
 EOF
 }
 
@@ -79,6 +85,8 @@ while [ $# -gt 0 ]; do
         --json)    OUTPUT_MODE="json"; shift ;;
         --timeout) TIMEOUT_SEC="${2:-10}"; shift 2 ;;
         --timeout=*) TIMEOUT_SEC="${1#*=}"; shift ;;
+        --endpoints-file) ENDPOINTS_FILE="${2:-}"; shift 2 ;;
+        --endpoints-file=*) ENDPOINTS_FILE="${1#*=}"; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "argumento desconhecido: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -90,65 +98,25 @@ if [ "$OUTPUT_MODE" != "human" ]; then
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Pré-requisito mínimo: curl disponível
+# Pré-requisitos: curl + jq + arquivo de endpoints
 # ────────────────────────────────────────────────────────────────────────────
 command -v curl >/dev/null 2>&1 || {
     echo "ERRO: curl não está instalado. Instale com: sudo apt install -y curl" >&2
     exit 2
 }
-
-# ────────────────────────────────────────────────────────────────────────────
-# Lista canônica de FQDNs por categoria
-# (PDF v2.0 — seções 3 a 7)
-#
-# Wildcards substituídos por um subdomínio real testável (firewall que cobre
-# o wildcard inteiro responde pra qualquer subdomínio; se o operador só
-# liberou o FQDN literal, o teste denuncia corretamente):
-#   *.actions.githubusercontent.com → pipelines.actions.githubusercontent.com
-#   *.blob.core.windows.net         → productionresultssa0.blob.core.windows.net
-#   *.pkg.github.com                → npm.pkg.github.com
-# ────────────────────────────────────────────────────────────────────────────
-CAT_RUNNER_ACTIONS="Runner ↔ GitHub Actions (HTTPS/443)"
-FQDN_RUNNER_ACTIONS=(
-    "github.com"
-    "api.github.com"
-    "codeload.github.com"
-    "pipelines.actions.githubusercontent.com"
-    "results-receiver.actions.githubusercontent.com"
-    "productionresultssa0.blob.core.windows.net"
-    "release-assets.githubusercontent.com"
-)
-
-CAT_SELF_UPDATE="Self-update do runner (HTTPS/443)"
-FQDN_SELF_UPDATE=(
-    "objects.githubusercontent.com"
-    "objects-origin.githubusercontent.com"
-    "github-releases.githubusercontent.com"
-    "github-registry-files.githubusercontent.com"
-)
-
-CAT_GHCR="GHCR — pull de imagem do projeto (HTTPS/443)"
-FQDN_GHCR=(
-    "ghcr.io"
-    "pkg-containers.githubusercontent.com"
-    "npm.pkg.github.com"
-)
-
-CAT_DOCKER_HUB="Docker Hub — pull do Redis (HTTPS/443)"
-FQDN_DOCKER_HUB=(
-    "registry-1.docker.io"
-    "auth.docker.io"
-    "production.cloudflare.docker.com"
-)
-
-CAT_OCSP_CRL="OCSP/CRL — validação de certificado (HTTP/80, TCP)"
-FQDN_OCSP_CRL=(
-    "crl3.digicert.com"
-    "crl4.digicert.com"
-    "ocsp.digicert.com"
-    "crl.sectigo.com"
-    "ocsp.sectigo.com"
-)
+command -v jq >/dev/null 2>&1 || {
+    echo "ERRO: jq não está instalado. Instale com: sudo apt install -y jq" >&2
+    exit 2
+}
+[ -f "$ENDPOINTS_FILE" ] || {
+    echo "ERRO: arquivo de endpoints não encontrado: $ENDPOINTS_FILE" >&2
+    echo "Use --endpoints-file para apontar para outro caminho." >&2
+    exit 2
+}
+jq -e . "$ENDPOINTS_FILE" >/dev/null 2>&1 || {
+    echo "ERRO: arquivo de endpoints não é um JSON válido: $ENDPOINTS_FILE" >&2
+    exit 2
+}
 
 # Códigos HTTP que indicam sucesso (TLS subiu e o servidor respondeu).
 # Critério: PDF v2.0, seção 11.4 — "qualquer resposta HTTP significa que o
@@ -169,37 +137,32 @@ TOTAL=0
 OK_COUNT=0
 FAIL_COUNT=0
 
-# check_https CATEGORY FQDN
+# _check_https CATEGORY FQDN PORT
 _check_https() {
-    local category="$1" fqdn="$2"
+    local category="$1" fqdn="$2" port="${3:-443}"
     TOTAL=$((TOTAL + 1))
 
-    # -s        silencia barra de progresso
-    # -o /dev/null
-    # -w        imprime código HTTP
-    # --max-time
     # -k        aceita certs sem validar (firewall pode reescrever cert) — irrelevante aqui,
     #           porque o objetivo é confirmar que TLS subiu, não validar cadeia
     local code
     code=$(curl -k -s -o /dev/null -w "%{http_code}" \
                 --max-time "$TIMEOUT_SEC" \
-                "https://${fqdn}/" 2>/dev/null) || code="000"
+                "https://${fqdn}:${port}/" 2>/dev/null) || code="000"
 
     if _http_code_is_ok "$code"; then
-        RESULTS+=("${category}|https|443|${fqdn}|ok|${code}")
+        RESULTS+=("${category}|https|${port}|${fqdn}|ok|${code}")
         OK_COUNT=$((OK_COUNT + 1))
     else
-        RESULTS+=("${category}|https|443|${fqdn}|fail|timeout/conexão recusada")
+        RESULTS+=("${category}|https|${port}|${fqdn}|fail|timeout/conexão recusada")
         FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
 }
 
-# check_tcp CATEGORY FQDN PORT
+# _check_tcp CATEGORY FQDN PORT
 _check_tcp() {
     local category="$1" fqdn="$2" port="$3"
     TOTAL=$((TOTAL + 1))
 
-    # Usa /dev/tcp em subshell com timeout. Sem fazer write — só abrir o socket.
     if timeout "$TIMEOUT_SEC" bash -c "exec 3<>/dev/tcp/${fqdn}/${port}" 2>/dev/null; then
         RESULTS+=("${category}|tcp|${port}|${fqdn}|ok|conectou")
         OK_COUNT=$((OK_COUNT + 1))
@@ -210,27 +173,16 @@ _check_tcp() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# Execução dos checks por categoria
+# Execução — itera categorias e endpoints do JSON
+# Stream: <category_label>\t<fqdn>\t<protocol>\t<port>
 # ────────────────────────────────────────────────────────────────────────────
-_run_https_group() {
-    local category="$1"; shift
-    for fqdn in "$@"; do
-        _check_https "$category" "$fqdn"
-    done
-}
-
-_run_tcp_group() {
-    local category="$1" port="$2"; shift 2
-    for fqdn in "$@"; do
-        _check_tcp "$category" "$fqdn" "$port"
-    done
-}
-
-_run_https_group "$CAT_RUNNER_ACTIONS" "${FQDN_RUNNER_ACTIONS[@]}"
-_run_https_group "$CAT_SELF_UPDATE"    "${FQDN_SELF_UPDATE[@]}"
-_run_https_group "$CAT_GHCR"           "${FQDN_GHCR[@]}"
-_run_https_group "$CAT_DOCKER_HUB"     "${FQDN_DOCKER_HUB[@]}"
-_run_tcp_group   "$CAT_OCSP_CRL" 80    "${FQDN_OCSP_CRL[@]}"
+while IFS=$'\t' read -r category fqdn protocol port; do
+    case "$protocol" in
+        https) _check_https "$category" "$fqdn" "$port" ;;
+        tcp)   _check_tcp   "$category" "$fqdn" "$port" ;;
+        *)     echo "AVISO: protocolo desconhecido '$protocol' para $fqdn — ignorado" >&2 ;;
+    esac
+done < <(jq -r '.categories[] as $c | $c.endpoints[] | [$c.label, .fqdn, .protocol, (.port|tostring)] | @tsv' "$ENDPOINTS_FILE")
 
 # ────────────────────────────────────────────────────────────────────────────
 # Renderização

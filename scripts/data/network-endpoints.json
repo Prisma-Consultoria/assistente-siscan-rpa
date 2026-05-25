@@ -1,0 +1,71 @@
+{
+  "version": "1.0",
+  "description": "Lista canônica de FQDNs externos exigidos pelas VMs do SISCAN (runner self-hosted, GHCR, Docker Hub, OCSP/CRL). Consumido por siscan-network-check.sh.",
+  "sources": [
+    "Reativação de whitelist - VMs siscan-dashboard e siscan-rpa v2.0 (requisição ICI 753315), seções 3 a 7",
+    "https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication"
+  ],
+  "out_of_scope": {
+    "section_8_conditional_features": "SMTP e Keycloak/OIDC só são acessados se as features estiverem ativas no .env (EMAIL_ENABLED=true, OIDC reativado).",
+    "section_9_internal_vlan": "Postgres 5432 (entre VMs do ICI) não é tráfego de internet — deve estar liberado na VLAN interna, não na regra de saída."
+  },
+  "categories": [
+    {
+      "id": "runner_actions",
+      "label": "Runner ↔ GitHub Actions (HTTPS/443)",
+      "pdf_sections": ["3.1", "3.2", "3.3", "3.4"],
+      "endpoints": [
+        {"fqdn": "github.com",                                       "protocol": "https", "port": 443, "purpose": "Login, registro do runner, clone HTTPS"},
+        {"fqdn": "api.github.com",                                   "protocol": "https", "port": 443, "purpose": "API REST do GitHub Actions"},
+        {"fqdn": "codeload.github.com",                              "protocol": "https", "port": 443, "purpose": "Download de tarballs do repositório e de actions referenciadas"},
+        {"fqdn": "pipelines.actions.githubusercontent.com",          "protocol": "https", "port": 443, "purpose": "Pickup de jobs, OIDC tokens, backend do Actions", "wildcard_for": "*.actions.githubusercontent.com"},
+        {"fqdn": "results-receiver.actions.githubusercontent.com",   "protocol": "https", "port": 443, "purpose": "Receiver de resultados do Actions"},
+        {"fqdn": "productionresultssa0.blob.core.windows.net",       "protocol": "https", "port": 443, "purpose": "Azure Blob Storage (cache do Actions, artifacts, logs, job summaries)", "wildcard_for": "*.blob.core.windows.net"},
+        {"fqdn": "release-assets.githubusercontent.com",             "protocol": "https", "port": 443, "purpose": "Download de assets vinculados a releases"}
+      ]
+    },
+    {
+      "id": "runner_self_update",
+      "label": "Self-update do runner (HTTPS/443)",
+      "pdf_sections": ["4"],
+      "endpoints": [
+        {"fqdn": "objects.githubusercontent.com",                    "protocol": "https", "port": 443, "purpose": "Download de blobs/binários do release do runner"},
+        {"fqdn": "objects-origin.githubusercontent.com",             "protocol": "https", "port": 443, "purpose": "Origem dos blobs do release do runner"},
+        {"fqdn": "github-releases.githubusercontent.com",            "protocol": "https", "port": 443, "purpose": "Download da nova versão do runner"},
+        {"fqdn": "github-registry-files.githubusercontent.com",      "protocol": "https", "port": 443, "purpose": "Download de pacotes do release"}
+      ]
+    },
+    {
+      "id": "ghcr",
+      "label": "GHCR — pull de imagem do projeto (HTTPS/443)",
+      "pdf_sections": ["5"],
+      "endpoints": [
+        {"fqdn": "ghcr.io",                                          "protocol": "https", "port": 443, "purpose": "Container registry do GitHub"},
+        {"fqdn": "pkg-containers.githubusercontent.com",             "protocol": "https", "port": 443, "purpose": "Storage backend do GHCR"},
+        {"fqdn": "npm.pkg.github.com",                               "protocol": "https", "port": 443, "purpose": "Cobertura ampla de GitHub Packages", "wildcard_for": "*.pkg.github.com"}
+      ]
+    },
+    {
+      "id": "docker_hub",
+      "label": "Docker Hub — pull do Redis (HTTPS/443)",
+      "pdf_sections": ["6"],
+      "endpoints": [
+        {"fqdn": "registry-1.docker.io",                             "protocol": "https", "port": 443, "purpose": "Docker Hub registry"},
+        {"fqdn": "auth.docker.io",                                   "protocol": "https", "port": 443, "purpose": "Auth do Docker Hub"},
+        {"fqdn": "production.cloudflare.docker.com",                 "protocol": "https", "port": 443, "purpose": "CDN do Docker Hub"}
+      ]
+    },
+    {
+      "id": "ocsp_crl",
+      "label": "OCSP/CRL — validação de certificado (HTTP/80, TCP)",
+      "pdf_sections": ["7"],
+      "endpoints": [
+        {"fqdn": "crl3.digicert.com",                                "protocol": "tcp",   "port": 80,  "purpose": "CRL DigiCert"},
+        {"fqdn": "crl4.digicert.com",                                "protocol": "tcp",   "port": 80,  "purpose": "CRL DigiCert"},
+        {"fqdn": "ocsp.digicert.com",                                "protocol": "tcp",   "port": 80,  "purpose": "OCSP DigiCert"},
+        {"fqdn": "crl.sectigo.com",                                  "protocol": "tcp",   "port": 80,  "purpose": "CRL Sectigo"},
+        {"fqdn": "ocsp.sectigo.com",                                 "protocol": "tcp",   "port": 80,  "purpose": "OCSP Sectigo"}
+      ]
+    }
+  ]
+}
