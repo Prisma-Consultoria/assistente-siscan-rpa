@@ -128,19 +128,39 @@ Cada VM precisa de um token de registro gerado no repositório correspondente ao
 
 ---
 
-## Validação de conectividade (`siscan-network-check.sh`)
+## Validação de saúde (`siscan-server-doctor.sh`)
 
-Antes de prosseguir com a instalação, valide se a VM alcança todos os endpoints externos exigidos (runner GitHub Actions, GHCR, Docker Hub, OCSP/CRL):
+Antes de prosseguir com a instalação — e sempre que o deploy quebrar — rode o doctor para um diagnóstico amplo da VM:
 
 ```bash
-bash ./siscan-network-check.sh
+bash ./siscan-server-doctor.sh
 ```
 
-Saída `22/22 OK` libera o próximo passo. Saída com `FAIL` indica firewall fechado — consulte [`TROUBLESHOOTING.md` → Problema D](TROUBLESHOOTING.md#problema-d--falha-no-pull-por-rede-instável--firewall) e abra requisição de reabertura com a equipe de infraestrutura (para VMs do ICI, referenciar requisição **753315**).
+O doctor orquestra os specialists em `scripts/deploy_server/check-*.sh`, cada um cobrindo uma dimensão da saúde da VM. Saída `N/N specialists OK` libera o próximo passo. Saída com `FAIL` em algum specialist aponta a causa-raiz — consulte [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) para a ação corretiva associada.
 
-> **Monitoramento contínuo (recomendação 12.8 do PDF de whitelist):** programe `siscan-network-check.sh --quiet` em cron a cada 5 minutos. Isso evita que uma nova expiração de regra de firewall passe despercebida por semanas, como aconteceu em 15/04/2026.
+Specialists planejados (status atual entre `[]`):
 
-Referência completa (todas as opções, exit codes, formato do JSON de endpoints, exemplos): [`scripts/siscan-network-check.md`](scripts/siscan-network-check.md).
+| Specialist | Verifica | Status |
+|---|---|---|
+| `check-network` | 22 FQDNs externos (runner, GHCR, Docker Hub, OCSP/CRL) | `[implementado]` |
+| `check-deps` | Docker, Compose, curl, sudo, jq, NTP | `[pendente]` |
+| `check-env` | `.env` preenchido, formato de `RPA_DATABASE_URL`, `APP_LOG_LEVEL` | `[pendente]` |
+| `check-docker` | Daemon ativo, pool de redes (`daemon.json`), grupo `docker` | `[pendente]` |
+| `check-runner` | `.runner` local, GitHub API, regra dos 30 dias | `[pendente]` |
+| `check-stack` | `docker compose ps`, port collision, restart loop | `[pendente]` |
+| `check-permissions` | Ownership do stack dir, git `safe.directory`, UID 1000 | `[pendente]` |
+| `check-db` | TCP/5432 + `pg_isready` para `DATABASE_HOST` (e `RPA_DATABASE_URL`) | `[pendente]` |
+
+Para rodar um specialist isoladamente:
+
+```bash
+bash siscan-server-doctor.sh --only check-network         # via doctor
+bash scripts/deploy_server/check-network.sh               # standalone
+```
+
+> **Monitoramento contínuo (recomendação 12.8 do PDF de whitelist):** programe `siscan-server-doctor.sh --quiet` em cron a cada 5 minutos. Exit != 0 dispara alerta. Isso evita que uma nova expiração de regra de firewall — ou outras regressões — passem despercebidas por semanas, como aconteceu em 15/04/2026.
+
+Referência completa de cada specialist (opções, exit codes, schema, exemplos): [`scripts/deploy_server/`](scripts/deploy_server/).
 
 ---
 

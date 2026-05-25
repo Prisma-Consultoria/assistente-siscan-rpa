@@ -93,7 +93,7 @@ Sintoma: `docker pull` falha intermitentemente, timeout, conexões TLS intercept
 
 | Passo | O que Fazer | Como Fazer |
 |---|---|---|
-| 1 | **Servidor Linux — validação canônica** | `bash siscan-network-check.sh` no diretório do assistente. Cobre os 22 endpoints externos exigidos (runner, GHCR, Docker Hub, OCSP/CRL). Exit 0 = OK, 1 = pelo menos um bloqueado. Referência completa em [`docs/scripts/siscan-network-check.md`](scripts/siscan-network-check.md) |
+| 1 | **Servidor Linux — validação canônica** | `bash siscan-server-doctor.sh --only check-network` (ou `bash scripts/deploy_server/check-network.sh` standalone). Cobre os 22 endpoints externos exigidos (runner, GHCR, Docker Hub, OCSP/CRL). Exit 0 = OK, 1 = pelo menos um bloqueado. Referência completa em [`docs/scripts/deploy_server/check-network.md`](scripts/deploy_server/check-network.md) |
 | 2 | Diagnóstico básico de rede | **Windows:** `Test-NetConnection ghcr.io -Port 443 -InformationLevel Detailed`. **Linux:** `curl -v https://ghcr.io/v2/` |
 | 3 | Traceroute para identificar hops problemáticos | **Windows:** `tracert ghcr.io`. **Linux:** `traceroute ghcr.io` |
 | 4 | Retry manual | **Windows:** `for ($i=0; $i -lt 3; $i++) { docker pull ghcr.io/prisma-consultoria/siscan-rpa-rpa:main; if ($?) { break }; Start-Sleep 30 }`. **Linux:** tentativas manuais com `docker pull` |
