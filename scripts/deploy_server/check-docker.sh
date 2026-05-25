@@ -157,11 +157,16 @@ done < <(docker network ls -q 2>/dev/null)
 # o cenário do chat ICI (docker network create teste falhando com address pool esgotado).
 print_category_header "$CAT_NETWORK" "Gold standard: cria e remove uma rede de teste. Se passar aqui, o pool funciona; se falhar, o erro real aparece embaixo."
 TEST_NET="siscan-check-$$"
-if docker network create "$TEST_NET" >/dev/null 2>&1; then
+# Captura stdout+stderr da PRIMEIRA tentativa pra evitar duplicar a operação
+# (rodar 'docker network create' duas vezes podia gerar mensagens distintas
+#  por contention/race no daemon).
+create_out=$(docker network create "$TEST_NET" 2>&1)
+create_rc=$?
+if [ "$create_rc" -eq 0 ]; then
     docker network rm "$TEST_NET" >/dev/null 2>&1 || warn "criou mas falhou ao remover $TEST_NET"
     add_ok "$CAT_NETWORK" net 0 "docker network create/rm" "OK"
 else
-    err_msg=$(docker network create "$TEST_NET" 2>&1 | tail -1 | head -c 120)
+    err_msg=$(echo "$create_out" | tail -1 | head -c 120)
     add_fail "$CAT_NETWORK" net 0 "docker network create/rm" "falhou: $err_msg"
 fi
 
