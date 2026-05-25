@@ -48,14 +48,36 @@ ONLY=""
 EXCEPT=""
 LIST_ONLY=false
 
+# Conjuntos pré-definidos de specialists pra cenários conhecidos.
+# Centralizar aqui evita o operador ter que lembrar quais specialists pular
+# em cada momento do ciclo de vida da VM.
+#
+#   --pre-setup  → pula 3 specialists que dependem de coisas que o setup
+#                  ainda vai instalar:
+#                    check-runner  (runner ainda não foi instalado)
+#                    check-stack   (containers ainda não foram subidos)
+#                    check-db      (.env final com DATABASE_HOST só sai
+#                                   da Fase 5 do setup)
+EXCEPT_PRE_SETUP="check-runner,check-stack,check-db"
+
 usage() {
     cat <<EOF
 Uso: bash $(basename "$0") [opções]
 
-Opções:
+Modos pré-definidos (mutuamente exclusivos):
+  (sem flag)        Roda TODOS os specialists — modo padrão (post-setup),
+                    validação completa após setup/deploy.
+  --pre-setup       Roda subset apropriado pra ANTES do setup completar:
+                    pula check-runner, check-stack e check-db (que
+                    dependem de coisas que o setup ainda vai criar).
+
+Filtros granulares:
   --only LIST       Roda só os specialists listados (separados por vírgula)
                     Ex: --only check-network,check-db
   --except LIST     Roda todos exceto os listados
+                    (--pre-setup é açúcar pra --except $EXCEPT_PRE_SETUP)
+
+Outras:
   --quiet           Suprime saída legível; imprime só linhas FAIL
   --json            Saída estruturada em JSON consolidado
   --list            Lista specialists disponíveis e sai
@@ -70,12 +92,13 @@ EOF
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --only)     ONLY="${2:-}"; shift 2 ;;
-        --only=*)   ONLY="${1#*=}"; shift ;;
-        --except)   EXCEPT="${2:-}"; shift 2 ;;
-        --except=*) EXCEPT="${1#*=}"; shift ;;
-        --list)     LIST_ONLY=true; shift ;;
-        -h|--help)  usage; exit 0 ;;
+        --only)       ONLY="${2:-}"; shift 2 ;;
+        --only=*)     ONLY="${1#*=}"; shift ;;
+        --except)     EXCEPT="${2:-}"; shift 2 ;;
+        --except=*)   EXCEPT="${1#*=}"; shift ;;
+        --pre-setup)  EXCEPT="$EXCEPT_PRE_SETUP"; shift ;;
+        --list)       LIST_ONLY=true; shift ;;
+        -h|--help)    usage; exit 0 ;;
         *)
             if common_parse_arg "$@"; then
                 shift "$shift_count"

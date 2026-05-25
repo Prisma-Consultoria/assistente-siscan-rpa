@@ -86,7 +86,7 @@ Antes de executar o setup, rode o doctor para validar **automaticamente** todos 
 ```bash
 git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git
 cd assistente-siscan-rpa
-bash siscan-server-doctor.sh --except check-runner,check-stack,check-db
+bash siscan-server-doctor.sh --pre-setup
 ```
 
 Saída esperada: `6/6 specialists OK` (os 3 specialists excluídos só fazem sentido **depois** do setup — runner ainda não foi instalado, stack não foi subida, `.env` ainda não tem DATABASE_HOST). Cada specialist FAIL traz mensagem com ação corretiva específica. Referência completa do que cada specialist verifica: [`siscan-server-doctor/index.md`](siscan-server-doctor/index.md).
@@ -470,7 +470,7 @@ Após a instalação inicial, o assistente não se atualiza sozinho. Há **dois 
 ```bash
 cd $COMPOSE_DIR   # tipicamente /app/assistente-siscan-rpa
 git pull origin main
-bash siscan-server-doctor.sh --except check-runner,check-stack,check-db
+bash siscan-server-doctor.sh --pre-setup
 ```
 
 A última linha valida que o ambiente continua íntegro após o pull. Saída esperada: `6/6 specialists OK`.

@@ -289,7 +289,7 @@ elif [ ! -f "${DOCTOR_SCRIPT}" ]; then
     warn "siscan-server-doctor.sh ausente — pulando Fase 0"
 else
     info "Rodando doctor em modo quiet (só FAIL apareceria abaixo)..."
-    if bash "${DOCTOR_SCRIPT}" --quiet --except check-runner,check-stack,check-db; then
+    if bash "${DOCTOR_SCRIPT}" --quiet --pre-setup; then
         ok "Doctor aprovou: VM atende aos pré-requisitos pré-setup"
     else
         printf "\n${RED}ERRO: o doctor reportou problemas nos pré-requisitos.${NC}\n\n" >&2
