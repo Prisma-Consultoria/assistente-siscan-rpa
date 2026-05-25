@@ -128,6 +128,37 @@ Cada VM precisa de um token de registro gerado no repositório correspondente ao
 
 ---
 
+## Validação de conectividade (`siscan-network-check.sh`)
+
+O script `siscan-network-check.sh` valida se a VM consegue alcançar todos os endpoints externos que o runner self-hosted, o pull da imagem do projeto (GHCR), o pull do Redis (Docker Hub) e a validação OCSP/CRL exigem. Rode-o antes da instalação inicial e sempre que houver suspeita de bloqueio de firewall (por exemplo, deploys que pararam de funcionar de uma hora para a outra).
+
+A lista canônica de FQDNs verificada pelo script segue o documento *Reativação de whitelist — VMs siscan-dashboard e siscan-rpa* v2.0 (requisição ICI 753315), seções 3 a 7. São 15 endpoints HTTPS/443 + 5 OCSP/CRL em TCP/80, totalizando 20 checks.
+
+```bash
+# Saída legível (padrão)
+bash ./siscan-network-check.sh
+
+# Apenas linhas FAIL — útil para cron de monitoramento
+bash ./siscan-network-check.sh --quiet
+
+# Saída JSON estruturada — útil para integração com ferramentas
+bash ./siscan-network-check.sh --json
+```
+
+Exit codes:
+
+| Code | Significado |
+|---|---|
+| `0` | Todos os endpoints alcançáveis |
+| `1` | Pelo menos um FAIL — consulte `docs/TROUBLESHOOTING.md` ou abra requisição de reabertura de firewall com a equipe de infraestrutura, anexando a lista de FAIL |
+| `2` | Uso inválido (argumento desconhecido, `curl` não instalado) |
+
+**Critério de aceitação** (seção 11.4 do PDF): qualquer resposta HTTP do servidor (200, 301, 302, 400, 403, 404, 405, ...) conta como sucesso — o que importa é o TLS ter subido. Resposta `000` ou timeout = bloqueio de firewall.
+
+> **Monitoramento contínuo (recomendação 12.8 do PDF):** programe `siscan-network-check.sh --quiet` em cron a cada 5 minutos e dispare alerta se o exit code for diferente de 0 por mais de 2 execuções consecutivas. Isso evita que uma nova expiração de regra de firewall passe despercebida por semanas, como aconteceu em 15/04/2026.
+
+---
+
 ## Instalação (`siscan-server-setup.sh`)
 
 O script `siscan-server-setup.sh` é o ponto de entrada para instalar o siscan-rpa e/ou o siscan-dashboard em servidores Ubuntu. Ele é executado **uma única vez** de forma interativa em cada VM. O flag `--product` seleciona qual aplicação será instalada naquela VM. O mesmo script e o mesmo repositório do assistente são usados para instalar qualquer um dos dois produtos — a diferença está no argumento passado.

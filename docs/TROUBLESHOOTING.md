@@ -89,15 +89,16 @@ Contexto: alto volume de logs após diagnóstico temporário.
 
 ### Problema D — Falha no pull por rede instável / firewall
 
-Sintoma: `docker pull` falha intermitentemente, timeout ou conexões TLS interceptadas.
+Sintoma: `docker pull` falha intermitentemente, timeout, conexões TLS interceptadas, runner offline, `SSL_ERROR_SYSCALL` no handshake contra `api.github.com`.
 
 | Passo | O que Fazer | Como Fazer |
 |---|---|---|
-| 1 | Diagnóstico básico de rede | **Windows:** `Test-NetConnection ghcr.io -Port 443 -InformationLevel Detailed`. **Linux:** `curl -v https://ghcr.io/v2/` |
-| 2 | Traceroute para identificar hops problemáticos | **Windows:** `tracert ghcr.io`. **Linux:** `traceroute ghcr.io` |
-| 3 | Retry manual | **Windows:** `for ($i=0; $i -lt 3; $i++) { docker pull ghcr.io/prisma-consultoria/siscan-rpa-rpa:main; if ($?) { break }; Start-Sleep 30 }`. **Linux:** tentativas manuais com `docker pull` |
-| 4 | Se houver proxy corporativo | Configurar proxy no Docker: editar `~/.docker/config.json` com `"proxies"` ou via Docker Desktop → Settings → Resources → Proxies |
-| 5 | Envolver TI da prefeitura | Fornecer saída do `tracert`/`traceroute` e `curl -v` solicitando liberação de `ghcr.io` porta 443 |
+| 1 | **Servidor Linux — validação canônica** | `bash siscan-network-check.sh` no diretório do assistente. Cobre os 20 endpoints externos exigidos (runner, GHCR, Docker Hub, OCSP/CRL). Exit 0 = OK, 1 = pelo menos um bloqueado. Detalhes em `docs/DEPLOY_SERVER.md` → seção *Validação de conectividade* |
+| 2 | Diagnóstico básico de rede | **Windows:** `Test-NetConnection ghcr.io -Port 443 -InformationLevel Detailed`. **Linux:** `curl -v https://ghcr.io/v2/` |
+| 3 | Traceroute para identificar hops problemáticos | **Windows:** `tracert ghcr.io`. **Linux:** `traceroute ghcr.io` |
+| 4 | Retry manual | **Windows:** `for ($i=0; $i -lt 3; $i++) { docker pull ghcr.io/prisma-consultoria/siscan-rpa-rpa:main; if ($?) { break }; Start-Sleep 30 }`. **Linux:** tentativas manuais com `docker pull` |
+| 5 | Se houver proxy corporativo | Configurar proxy no Docker: editar `~/.docker/config.json` com `"proxies"` ou via Docker Desktop → Settings → Resources → Proxies |
+| 6 | Envolver TI / equipe de infraestrutura | Fornecer saída do `siscan-network-check.sh` (ou `tracert`/`traceroute` + `curl -v`) solicitando reabertura da regra de firewall. Para as VMs do ICI, referenciar requisição **753315 — Liberação para o GITHUB - Servidores SISCAN** |
 
 ---
 
