@@ -25,15 +25,10 @@
 #   1  pelo menos um specialist falhou
 #   2  uso inválido
 #
-# Specialists planejados (status atual entre []):
-#   check-network    [✓ implementado]      ← rede, GHCR, Docker Hub, OCSP/CRL
-#   check-deps       [pendente — #28]      ← Docker, Compose, curl, sudo, jq, NTP
-#   check-env        [pendente — #28]      ← .env, RPA_DATABASE_URL, APP_LOG_LEVEL
-#   check-docker     [pendente — #28]      ← daemon, pool /24, grupo docker
-#   check-runner     [pendente — #28]      ← .runner local + API + regra dos 30 dias
-#   check-stack      [pendente — #28]      ← compose ps, port collision, restart loop
-#   check-permissions [pendente — #28]     ← ownership, git safe.directory, UID 1000
-#   check-db         [pendente — #28]      ← TCP/5432 + pg_isready
+# Specialists disponíveis: descobertos dinamicamente em scripts/deploy_server/
+# Source of truth: 'bash siscan-server-doctor.sh --list' (com Summary inline
+# do header de cada specialist). Não manter lista estática aqui — vira
+# desalinhamento toda vez que um specialist for criado/removido/renomeado.
 # -------------------------------------------
 
 set -uo pipefail
