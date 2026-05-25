@@ -36,7 +36,7 @@ flowchart TD
     end
 
     subgraph VM2["🗄️ VM 2 — Banco de dados"]
-        PG[("PostgreSQL\nsiscan_rpa + siscan_dashboard")]
+        PG[("PostgreSQL<br/>siscan_rpa + siscan_dashboard")]
     end
 
     subgraph VM3["🖥️ VM 3 — siscan-dashboard"]
@@ -45,7 +45,7 @@ flowchart TD
         subgraph DASH_CONTAINERS["Containers"]
             DA["app (5000)"]
             DS["sync (loop 30min)"]
-            REDIS[("Redis\ncache")]
+            REDIS[("Redis<br/>cache")]
         end
     end
 
@@ -54,7 +54,7 @@ flowchart TD
     RA -->|"TCP 5432"| PG
     RS -->|"TCP 5432"| PG
     DA -->|"TCP 5432"| PG
-    DS -->|"lê siscan_rpa\nescreve siscan_dashboard"| PG
+    DS -->|"lê siscan_rpa<br/>escreve siscan_dashboard"| PG
     DA --> REDIS
     DS --> REDIS
 
