@@ -219,6 +219,7 @@ PRODUCTS_FILE="${PRODUCTS_FILE:-}"
 #   conjunto conhecido. Falha (exit 2) caso contrário.
 product_validate() {
     [ -n "$PRODUCTS_FILE" ] || fail "PRODUCTS_FILE não foi definido pelo specialist (especialist mal configurado)"
+    command -v jq >/dev/null 2>&1 || fail "jq não está instalado — necessário pra parse do manifesto. Instale com: sudo apt install -y jq"
     [ -f "$PRODUCTS_FILE" ] || fail "manifesto de produtos não encontrado: $PRODUCTS_FILE"
     jq -e . "$PRODUCTS_FILE" >/dev/null 2>&1 || fail "manifesto de produtos não é JSON válido: $PRODUCTS_FILE"
     [ -n "${SISCAN_PRODUCT:-}" ] || fail "SISCAN_PRODUCT não definido no .env — rode check-env"
