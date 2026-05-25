@@ -1,0 +1,125 @@
+{
+  "version": "1.0",
+  "description": "Manifesto declarativo dos produtos que o assistente deploya. Cada specialist em scripts/deploy_server/check-*.sh lê dessa fonte em vez de hardcodar 'case \"$SISCAN_PRODUCT\"'.",
+  "schema": {
+    "label": "Nome amigável do produto",
+    "repo": "GitHub org/repo do código do produto",
+    "image": "Imagem GHCR publicada pelo workflow do produto",
+    "compose_file": "Arquivo docker-compose esperado no COMPOSE_DIR",
+    "env_sample": "Arquivo .env sample correspondente",
+    "runner_label": "Label do self-hosted runner registrado no GitHub",
+    "runner_name_suffix": "Sufixo no nome do runner: <hostname>-<suffix>",
+    "session_secret_var": "Nome da variável de sessão (SECRET_KEY ou SESSION_SECRET)",
+    "expected_services": "Serviços do compose que devem estar 'running' (migrate não conta)",
+    "expected_external_ports": "Portas externas publicadas no host (verificadas por collision)",
+    "required_env_vars": "Variáveis obrigatórias no .env (check-env valida não-vazias)",
+    "host_dir_vars": "Variáveis HOST_*_DIR que precisam existir + ser escrevíveis",
+    "default_passwords_to_detect": "Valores de DATABASE_PASSWORD que indicam senha não alterada",
+    "extras": "Flags booleanas + defaults consumidos por specialists específicos"
+  },
+  "products": {
+    "rpa": {
+      "label": "SISCAN RPA",
+      "repo": "Prisma-Consultoria/siscan-rpa",
+      "image": "ghcr.io/prisma-consultoria/siscan-rpa-rpa:main",
+      "compose_file": "docker-compose.prd.rpa.yml",
+      "env_sample": ".env.server-rpa.sample",
+      "runner_label": "producao-rpa",
+      "runner_name_suffix": "siscan-rpa",
+      "session_secret_var": "SECRET_KEY",
+      "expected_services": ["app", "rpa-scheduler"],
+      "expected_external_ports": [5001],
+      "required_env_vars": [
+        "SECRET_KEY",
+        "DATABASE_HOST",
+        "DATABASE_USER",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "HOST_APP_EXTERNAL_PORT"
+      ],
+      "host_dir_vars": [
+        "HOST_LOG_DIR",
+        "HOST_SISCAN_REPORTS_INPUT_DIR",
+        "HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR",
+        "HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR",
+        "HOST_CONFIG_DIR"
+      ],
+      "default_passwords_to_detect": ["siscan_rpa"],
+      "extras": {
+        "rsa_keys_required": true,
+        "host_secrets_dir_optional": true,
+        "host_backups_dir_optional": true,
+        "siscan_portal_url_default": "https://siscan.saude.gov.br/",
+        "excel_columns_mapping_required": true
+      }
+    },
+    "dashboard": {
+      "label": "SISCAN Dashboard",
+      "repo": "Prisma-Consultoria/siscan-dashboard",
+      "image": "ghcr.io/prisma-consultoria/siscan-dashboard:main",
+      "compose_file": "docker-compose.prd.dashboard.yml",
+      "env_sample": ".env.server-dashboard.sample",
+      "runner_label": "producao-dashboard",
+      "runner_name_suffix": "siscan-dashboard",
+      "session_secret_var": "SESSION_SECRET",
+      "expected_services": ["app", "sync", "redis"],
+      "expected_external_ports": [5000],
+      "required_env_vars": [
+        "SESSION_SECRET",
+        "DATABASE_HOST",
+        "DATABASE_USER",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "ADMIN_PASSWORD",
+        "RPA_DATABASE_URL",
+        "REDIS_HOST",
+        "REDIS_PORT",
+        "CACHE_TIMEOUT",
+        "CACHE_KEY_PREFIX",
+        "HOST_APP_EXTERNAL_PORT"
+      ],
+      "host_dir_vars": ["HOST_LOG_DIR"],
+      "default_passwords_to_detect": ["siscan_dashboard"],
+      "extras": {
+        "redis_required": true,
+        "rpa_database_url_required": true,
+        "sync_interval_default_seconds": 1800
+      }
+    },
+    "full": {
+      "label": "SISCAN Full (Host — todos juntos)",
+      "repo": "(local, sem repo único)",
+      "image": "(múltiplas — siscan-rpa-rpa + siscan-dashboard)",
+      "compose_file": "docker-compose.prd.host.yml",
+      "env_sample": ".env.host.sample",
+      "runner_label": "(modo HOST não usa runner)",
+      "runner_name_suffix": "siscan-full",
+      "session_secret_var": "SECRET_KEY",
+      "expected_services": ["db", "app", "rpa-scheduler"],
+      "expected_external_ports": [5000, 5001],
+      "required_env_vars": [
+        "SECRET_KEY",
+        "DATABASE_HOST",
+        "DATABASE_USER",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "HOST_APP_EXTERNAL_PORT"
+      ],
+      "host_dir_vars": [
+        "HOST_LOG_DIR",
+        "HOST_SISCAN_REPORTS_INPUT_DIR",
+        "HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR",
+        "HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR",
+        "HOST_CONFIG_DIR"
+      ],
+      "default_passwords_to_detect": ["siscan_rpa", "siscan_dashboard"],
+      "extras": {
+        "rsa_keys_required": true,
+        "host_secrets_dir_optional": true,
+        "host_backups_dir_optional": true,
+        "siscan_portal_url_default": "https://siscan.saude.gov.br/",
+        "excel_columns_mapping_required": true
+      }
+    }
+  }
+}

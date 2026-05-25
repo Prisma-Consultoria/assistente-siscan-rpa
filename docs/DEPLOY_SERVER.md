@@ -36,7 +36,7 @@ flowchart TD
     end
 
     subgraph VM2["🗄️ VM 2 — Banco de dados"]
-        PG[("PostgreSQL\nsiscan_rpa + siscan_dashboard")]
+        PG[("PostgreSQL<br/>siscan_rpa + siscan_dashboard")]
     end
 
     subgraph VM3["🖥️ VM 3 — siscan-dashboard"]
@@ -45,7 +45,7 @@ flowchart TD
         subgraph DASH_CONTAINERS["Containers"]
             DA["app (5000)"]
             DS["sync (loop 30min)"]
-            REDIS[("Redis\ncache")]
+            REDIS[("Redis<br/>cache")]
         end
     end
 
@@ -54,7 +54,7 @@ flowchart TD
     RA -->|"TCP 5432"| PG
     RS -->|"TCP 5432"| PG
     DA -->|"TCP 5432"| PG
-    DS -->|"lê siscan_rpa\nescreve siscan_dashboard"| PG
+    DS -->|"lê siscan_rpa<br/>escreve siscan_dashboard"| PG
     DA --> REDIS
     DS --> REDIS
 
@@ -81,39 +81,54 @@ O fluxo de deploy e a infraestrutura funcionam assim:
 
 ## Pré-requisitos
 
-Antes de executar o setup, verifique os pré-requisitos em cada VM conforme a tabela a seguir.
+Antes de executar o setup, rode o doctor para validar **automaticamente** todos os pré-requisitos da VM:
 
-### VM de aplicação (RPA ou Dashboard)
+```bash
+git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git
+cd assistente-siscan-rpa
+bash siscan-server-doctor.sh --pre-setup
+```
 
-| Requisito | Mínimo | Verificação |
+Saída esperada: `6/6 specialists OK` (os 3 specialists excluídos só fazem sentido **depois** do setup — runner ainda não foi instalado, stack não foi subida, `.env` ainda não tem DATABASE_HOST). Cada specialist FAIL traz mensagem com ação corretiva específica. Referência completa do que cada specialist verifica: [`siscan-server-doctor/index.md`](siscan-server-doctor/index.md).
+
+> A partir desta versão do assistente, o próprio `siscan-server-setup.sh` invoca o doctor como **Fase 0** (gate pré-flight) antes de executar qualquer ação destrutiva. Use `--skip-doctor` no setup para pular este gate em cenários de debugging.
+
+### Resumo dos checks (referência detalhada)
+
+A tabela a seguir é uma referência detalhada — o doctor cobre tudo dela automaticamente.
+
+#### VM de aplicação (RPA ou Dashboard)
+
+| Requisito | Mínimo | Specialist responsável |
 |---|---|---|
-| Sistema operacional | Ubuntu 24.04 LTS | `lsb_release -a` |
-| vCPUs | 4 | `nproc` |
-| Memória RAM | 8 GB | `free -h` |
-| Docker Engine | ≥ 28.x | `docker version` |
-| Docker Compose | ≥ 2.37 | `docker compose version` |
-| git | qualquer versão | `git --version` |
-| Conectividade HTTPS | `github.com` e `ghcr.io` porta 443 | `curl -Iv https://github.com` |
-| Docker network pool | Pool com subnets disponíveis | `docker network create teste && docker network rm teste` |
+| Sistema operacional | Ubuntu 24.04 LTS | `check-deps` |
+| vCPUs | 4 | `check-resources` |
+| Memória RAM | 8 GB | `check-resources` |
+| Disco livre em `$COMPOSE_DIR` | 20 GB | `check-resources` |
+| Docker Engine | ≥ 24 (recomendado 28+) | `check-deps` + `check-docker` |
+| Docker Compose | ≥ 2.37 | `check-deps` |
+| git, jq, openssl, curl, sudo, timeout | qualquer versão | `check-deps` |
+| Conectividade HTTPS | 22 endpoints (GitHub Actions, GHCR, Docker Hub, OCSP/CRL) | `check-network` |
+| Docker network pool com subnets disponíveis | — | `check-docker` (teste real `network create`) |
+| Usuário corrente não-root + no grupo `docker` | — | `check-docker` |
+| Stack dir com ownership correto + git safe.directory | — | `check-permissions` |
+| Chaves RSA em `HOST_SECRETS_DIR` (RPA) | persistidas | `check-permissions` |
+| `.env` preenchido com formato correto | — | `check-env` |
 
-> **Docker daemon.json:** se a equipe de infraestrutura configurou `/etc/docker/daemon.json` com `default-address-pools` restrito (ex: uma única subnet `/24`), o Docker não conseguirá criar redes para os compose projects. Verifique com `cat /etc/docker/daemon.json` e consulte o [Problema 1 do Troubleshooting](TROUBLESHOOTING.md#problema-1--pool-de-endereços-docker-esgotado-ao-criar-rede) para a solução.
+> **Docker daemon.json:** se a equipe de infraestrutura configurou `/etc/docker/daemon.json` com `default-address-pools` restrito (ex: uma única subnet `/24`), o Docker não conseguirá criar redes para os compose projects. O `check-docker` detecta isso automaticamente; consulte o [Problema 1 do Troubleshooting](TROUBLESHOOTING.md#problema-1--pool-de-endereços-docker-esgotado-ao-criar-rede) para a solução.
 
-### VM do banco de dados
+#### VM do banco de dados
 
-| Requisito | Mínimo |
-|---|---|
-| PostgreSQL | ≥ 16 |
-| Bancos criados | `siscan_rpa` + `siscan_dashboard` |
-| Conectividade TCP | Porta 5432 acessível por ambas as VMs de aplicação |
-| Senhas sem caracteres especiais | Evitar `@`, `%`, `/`, `#`, `:`, `\` nas senhas dos bancos |
+| Requisito | Mínimo | Specialist responsável |
+|---|---|---|
+| PostgreSQL | ≥ 16 | `check-db` (`SHOW server_version`) |
+| Bancos criados | `siscan_rpa` + `siscan_dashboard` | (operacional, não verificado) |
+| Conectividade TCP | Porta 5432 acessível por ambas as VMs de aplicação | `check-db` (TCP + `pg_isready`) |
+| Senhas sem caracteres especiais | Evitar `@`, `%`, `/`, `#`, `:`, `\` | `check-env` (regex de `RPA_DATABASE_URL`) |
 
 > **Senhas do banco:** o Docker Compose monta a `DATABASE_URL` por interpolação de variáveis. Caracteres como `@` na senha quebram o parsing da URL (o `@` é o separador entre credenciais e host). Use senhas alfanuméricas com símbolos seguros (`_`, `-`, `!`, `^`).
 
-Verificar conectividade antes de prosseguir:
-
-```bash
-psql -h <DATABASE_HOST> -U siscan_rpa -c "SELECT version();"
-```
+> O `check-db` só roda depois que o `.env` tem `DATABASE_HOST` preenchido (após Fase 5 do setup). Use `bash siscan-server-doctor.sh --only check-db` para validá-lo pontualmente após o setup.
 
 ### Token de registro do runner
 
@@ -125,6 +140,42 @@ Cada VM precisa de um token de registro gerado no repositório correspondente ao
 | `dashboard` | [siscan-dashboard → Settings → Actions → Runners → New](https://github.com/Prisma-Consultoria/siscan-dashboard/settings/actions/runners/new) |
 
 >  ⚠️  O token expira em poucos minutos. Gere-o imediatamente antes de executar o script.
+
+---
+
+## Validação de saúde (`siscan-server-doctor.sh`)
+
+Antes de prosseguir com a instalação — e sempre que o deploy quebrar — rode o doctor para um diagnóstico amplo da VM:
+
+```bash
+bash ./siscan-server-doctor.sh
+```
+
+O doctor orquestra os specialists em `scripts/deploy_server/check-*.sh`, cada um cobrindo uma dimensão da saúde da VM. Saída `N/N specialists OK` libera o próximo passo. Saída com `FAIL` em algum specialist aponta a causa-raiz — consulte [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) para a ação corretiva associada.
+
+Specialists planejados (status atual entre `[]`):
+
+| Specialist | Verifica | Status |
+|---|---|---|
+| `check-network` | 22 FQDNs externos (runner, GHCR, Docker Hub, OCSP/CRL) | `[implementado]` |
+| `check-deps` | Docker, Compose, curl, sudo, jq, NTP | `[implementado]` |
+| `check-env` | `.env` preenchido, formato de `RPA_DATABASE_URL`, `APP_LOG_LEVEL` | `[implementado]` |
+| `check-docker` | Daemon ativo, pool de redes (`daemon.json`), grupo `docker` | `[implementado]` |
+| `check-runner` | `.runner` local, GitHub API, regra dos 30 dias | `[implementado]` |
+| `check-stack` | `docker compose ps`, port collision, restart loop | `[implementado]` |
+| `check-permissions` | Ownership do stack dir, git `safe.directory`, UID 1000 | `[implementado]` |
+| `check-db` | TCP/5432 + `pg_isready` para `DATABASE_HOST` (e `RPA_DATABASE_URL`) | `[implementado]` |
+
+Para rodar um specialist isoladamente:
+
+```bash
+bash siscan-server-doctor.sh --only check-network         # via doctor
+bash scripts/deploy_server/check-network.sh               # standalone
+```
+
+> **Monitoramento contínuo (recomendação 12.8 do PDF de whitelist):** programe `siscan-server-doctor.sh --quiet` em cron a cada 5 minutos. Exit != 0 dispara alerta. Isso evita que uma nova expiração de regra de firewall — ou outras regressões — passem despercebidas por semanas, como aconteceu em 15/04/2026.
+
+Referência completa do doctor + de cada specialist (opções, exit codes, schema, exemplos): [`siscan-server-doctor/`](siscan-server-doctor/index.md).
 
 ---
 
@@ -405,22 +456,105 @@ O runner registrado na fase 7 receberá automaticamente os próximos deploys via
 
 ## Atualização do assistente
 
-Após a instalação inicial, o assistente não se atualiza sozinho. No entanto, os deploys automáticos via GitHub Actions já mantêm atualizados os arquivos mais importantes a cada deploy:
+Após a instalação inicial, o assistente não se atualiza sozinho. Há **dois mecanismos paralelos** de atualização:
 
-- **Imagens Docker** — o workflow faz pull da imagem mais recente do GHCR.
-- **Compose file** (`docker-compose.prd.*.yml`) — o workflow baixa a versão mais recente da branch `main` do assistente e sobrescreve o arquivo local no `COMPOSE_DIR`.
-- **`.env` sample** (`.env.server-*.sample`) — o workflow baixa o sample atualizado para o `COMPOSE_DIR`, servindo como referência para identificar novas variáveis.
+| Mecanismo | O que atualiza | Quando |
+|---|---|---|
+| **Workflow CD** (automático) | `docker-compose.prd.*.yml`, `.env.server-*.sample`, imagens Docker do GHCR | A cada merge em `main` dos repos `siscan-rpa` / `siscan-dashboard` |
+| **`git pull` manual** | Tudo o resto: `siscan-server-setup.sh`, `siscan-server-doctor.sh`, `siscan-runner-recover.sh`, `scripts/deploy_server/check-*.sh`, `scripts/data/*.json`, `docs/` | Quando o assistente ganha novas funcionalidades (specialists novos, manifesto, fixes, etc.) |
 
-Isso significa que, **no modo SERVER, o `git pull` é opcional**. Os arquivos operacionais (compose e imagens) já são atualizados automaticamente pelo CD. O `git pull` seria útil apenas para atualizar scripts do assistente (`siscan-server-setup.sh`) e documentação (`docs/`), que raramente mudam após a instalação.
+> **Importante:** o `git pull` **não é opcional** quando o repo do assistente ganha novos scripts (como aconteceu na entrega do `siscan-server-doctor` + specialists). O workflow CD só sincroniza compose + sample, não o resto do repo.
 
-Se ainda assim quiser atualizar o repositório completo:
+### Procedimento padrão de atualização
 
 ```bash
-cd /app/assistente-siscan-rpa   # ajuste conforme o caminho da sua instalação
+cd $COMPOSE_DIR   # tipicamente /app/assistente-siscan-rpa
+git pull origin main
+bash siscan-server-doctor.sh --pre-setup
+```
+
+A última linha valida que o ambiente continua íntegro após o pull. Saída esperada: `6/6 specialists OK`.
+
+### Playbook — primeira atualização para a versão com diagnóstico amplo
+
+Cenário: VM ainda está numa versão **anterior** à entrega do diagnóstico amplo (sem `siscan-server-doctor.sh`, sem `scripts/deploy_server/`), e o operador quer trazer todos os scripts novos + validar a saúde + (se necessário) recuperar o runner.
+
+Execute em ordem na VM (`/app/assistente-siscan-rpa` ou equivalente). Cada passo tem saída esperada — se divergir, pare e investigue antes de continuar.
+
+#### Passo 1 — Atualizar o repositório do assistente
+
+```bash
+cd $COMPOSE_DIR
 git pull origin main
 ```
 
-### Novas variáveis de ambiente
+**Esperado:** `Fast-forward` listando vários arquivos novos (siscan-server-doctor.sh, siscan-runner-recover.sh, scripts/deploy_server/, etc.). Se der "Already up to date", confirme que está na branch `main` (`git branch --show-current`).
+
+#### Passo 2 — Confirmar que os arquivos novos chegaram
+
+```bash
+ls -la siscan-server-doctor.sh siscan-runner-recover.sh scripts/deploy_server/
+ls -la scripts/data/products.json scripts/data/network-endpoints.json
+```
+
+**Esperado:** 9 arquivos `check-*.sh` em `scripts/deploy_server/`, mais `_common.sh`, os 3 scripts no root e os 2 JSON em `scripts/data/`.
+
+#### Passo 3 — Garantir bit executável
+
+```bash
+chmod +x siscan-server-doctor.sh siscan-runner-recover.sh
+chmod +x scripts/deploy_server/check-*.sh
+```
+
+Necessário porque alguns checkouts (especialmente download em zip ou git mais antigo) não preservam o bit `+x`.
+
+#### Passo 4 — Primeira foto da saúde da VM
+
+```bash
+bash siscan-server-doctor.sh
+```
+
+**Esperado:** resumo final do tipo `X/9 specialists OK · Y com FAIL`. É **normal** ver FAILs informativos nessa primeira execução (ex.: `check-runner` se runner está auto-removido, `check-stack` se a stack não está rodando). O que importa é entender **quais** dimensões falharam — cada specialist exibe a ação corretiva embaixo do bloco dele.
+
+#### Passo 5 — Se `check-runner` ou `check-stack` apontaram problema → recuperar runner
+
+Se o passo 4 mostrou problema em `check-runner` (auto-removido após 14 dias offline, ou regra dos 30 dias), rode:
+
+```bash
+bash siscan-runner-recover.sh
+```
+
+O script:
+- Detecta o produto via `.env` (`siscan-rpa` ou `siscan-dashboard`)
+- Faz pré-flight com o doctor (network + deps + docker + permissions)
+- Diagnostica o cenário (auto-removed ou stale 30d ou OK)
+- **Se for auto-removed**: pede token novo (gere em `https://github.com/Prisma-Consultoria/<repo>/settings/actions/runners/new`) e refaz o registro
+- **Se for stale 30d**: roda `run.sh --check` (não precisa token)
+- Valida ao fim chamando `check-runner` novamente
+
+#### Passo 6 — Validação final completa
+
+```bash
+bash siscan-server-doctor.sh
+```
+
+**Esperado agora:** `9/9 specialists OK`. Se ainda restarem FAILs (ex.: `check-stack` se o deploy automático ainda não rodou após a recuperação), acompanhe os logs do runner:
+
+```bash
+sudo journalctl -u 'actions.runner.*' -f | grep -E "Listening|Running|error"
+```
+
+Ou aguarde o próximo deploy automático (workflow CD da branch `main` do produto correspondente) — depois disso a stack sobe e `check-stack` passa também.
+
+#### Passo 7 (opcional) — Inventário do que o assistente entrega agora
+
+```bash
+bash siscan-server-doctor.sh --list
+```
+
+Mostra os 9 specialists com descrição inline. Útil pra entender o que pode ser invocado pontualmente via `--only check-X` quando precisar diagnosticar uma dimensão específica.
+
+### Quando há novas variáveis de ambiente
 
 Quando uma nova versão do assistente introduz variáveis de ambiente novas (como foi o caso da adição do Redis com `REDIS_HOST`, `REDIS_PORT`, `CACHE_TIMEOUT`), o `.env` sample atualizado já estará disponível no servidor após o próximo deploy automático. Para identificar as variáveis novas, compare o sample com o `.env` em uso:
 

@@ -10,7 +10,13 @@
 #   bash ./siscan-server-setup.sh --product rpa        # VM do RPA
 #   bash ./siscan-server-setup.sh --product dashboard   # VM do Dashboard
 #   bash ./siscan-server-setup.sh --product full        # Host (tudo junto)
+#   bash ./siscan-server-setup.sh --skip-doctor [...]   # pula a Fase 0 (gate doctor)
 #   bash ./siscan-server-setup.sh                       # pergunta interativamente
+#
+# Pré-flight automático:
+#   A Fase 0 invoca siscan-server-doctor.sh (subconjunto sem check-runner,
+#   check-stack, check-db) e aborta se algum problema for detectado.
+#   Use --skip-doctor pra pular esse gate em cenários de debugging.
 #
 # Variáveis de ambiente opcionais:
 #   RUNNER_DIR     Diretório de instalação do runner (padrão: ~/actions-runner)
@@ -43,10 +49,12 @@ NC='\033[0m'
 # Parse de argumentos
 # ────────────────────────────────────────────────────────────────────────────
 SISCAN_PRODUCT=""
+SKIP_DOCTOR=false
 while [[ $# -gt 0 ]]; do
     case "${1}" in
         --product) SISCAN_PRODUCT="${2:-}"; shift 2 ;;
         --product=*) SISCAN_PRODUCT="${1#*=}"; shift ;;
+        --skip-doctor) SKIP_DOCTOR=true; shift ;;
         *) shift ;;
     esac
 done
@@ -259,6 +267,37 @@ printf "  ${GRAY}Diretório da stack : %s${NC}\n" "${COMPOSE_DIR}"
 printf "  ${GRAY}Diretório do runner: %s${NC}\n" "${RUNNER_DIR}"
 printf "  ${GRAY}Usuário atual      : %s${NC}\n" "${CURRENT_USER}"
 printf "  ${GRAY}Label do runner    : %s${NC}\n" "${RUNNER_LABEL}"
+
+# ════════════════════════════════════════════════════════════════════════════
+step "FASE 0 — Pré-flight via siscan-server-doctor"
+# ════════════════════════════════════════════════════════════════════════════
+# Gate diagnóstico ANTES de qualquer ação destrutiva. Aproveita os specialists
+# em scripts/deploy_server/ pra detectar Docker/Compose/curl/jq ausentes, OS
+# incompatível, recursos sub-dimensionados, firewall fechado, etc.
+#
+# Excluímos 3 specialists que só fazem sentido APÓS o setup completar:
+#   - check-runner  (runner ainda será instalado nesta execução)
+#   - check-stack   (stack ainda não foi subida)
+#   - check-db      (.env final com DATABASE_HOST só sai depois da Fase 5)
+#
+# Use --skip-doctor pra pular este gate (debugging em ambientes anômalos).
+
+DOCTOR_SCRIPT="${SCRIPT_DIR}/siscan-server-doctor.sh"
+if [ "${SKIP_DOCTOR}" = "true" ]; then
+    warn "Fase 0 pulada por --skip-doctor (não recomendado em produção)"
+elif [ ! -f "${DOCTOR_SCRIPT}" ]; then
+    warn "siscan-server-doctor.sh ausente — pulando Fase 0"
+else
+    info "Rodando doctor em modo quiet (só FAIL apareceria abaixo)..."
+    if bash "${DOCTOR_SCRIPT}" --quiet --pre-setup; then
+        ok "Doctor aprovou: VM atende aos pré-requisitos pré-setup"
+    else
+        printf "\n${RED}ERRO: o doctor reportou problemas nos pré-requisitos.${NC}\n\n" >&2
+        printf "${WHITE}Detalhes:${NC} rode ${CYAN}bash ${DOCTOR_SCRIPT}${NC} (modo legível)\n" >&2
+        printf "${WHITE}Skip:${NC}     rode ${CYAN}bash ${BASH_SOURCE[0]} --skip-doctor [...]${NC} (não recomendado)\n\n" >&2
+        exit 2
+    fi
+fi
 
 # ════════════════════════════════════════════════════════════════════════════
 step "FASE 1 — Verificação de pré-requisitos"
