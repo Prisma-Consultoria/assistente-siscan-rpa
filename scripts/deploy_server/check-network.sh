@@ -94,46 +94,87 @@ jq -e . "$ENDPOINTS_FILE" >/dev/null 2>&1 || fail "arquivo de endpoints não é 
 # ────────────────────────────────────────────────────────────────────────────
 # Checks específicos deste specialist
 # ────────────────────────────────────────────────────────────────────────────
-# _check_https CATEGORY FQDN PORT
+# _check_https CATEGORY FQDN PORT EXPECTED_TEXT
+#   EXPECTED_TEXT: do JSON, formato "200 — descrição" (opcional).
 _check_https() {
-    local category="$1" fqdn="$2" port="${3:-443}"
+    local category="$1" fqdn="$2" port="${3:-443}" expected="${4:-}"
     local code
     code=$(curl -k -s -o /dev/null -w "%{http_code}" \
                 --max-time "$TIMEOUT_SEC" \
                 "https://${fqdn}:${port}/" 2>/dev/null) || code="000"
 
     # Critério (PDF v2.0, seção 11.4): qualquer resposta HTTP != 000 indica TLS subiu.
-    if [ -n "$code" ] && [ "$code" != "000" ]; then
-        add_ok "$category" https "$port" "$fqdn" "$code"
-    else
+    if [ -z "$code" ] || [ "$code" = "000" ]; then
         add_fail "$category" https "$port" "$fqdn" "timeout/conexão recusada"
+        return
     fi
+
+    # Formatar detalhe: se houver expected do JSON ("CODE — texto"), comparar
+    # com observado. Match → exibe só o texto. Diferente → exibe ambos.
+    local detail="$code"
+    if [ -n "$expected" ]; then
+        local exp_code="${expected%% — *}"
+        local exp_text="${expected#*— }"
+        if [ "$code" = "$exp_code" ]; then
+            detail="$code  $exp_text"
+        else
+            detail="$code  (esperado $exp_code: $exp_text)"
+        fi
+    fi
+    add_ok "$category" https "$port" "$fqdn" "$detail"
 }
 
-# _check_tcp CATEGORY FQDN PORT
+# _check_tcp CATEGORY FQDN PORT EXPECTED_TEXT
 _check_tcp() {
-    local category="$1" fqdn="$2" port="$3"
-    if timeout "$TIMEOUT_SEC" bash -c "exec 3<>/dev/tcp/${fqdn}/${port}" 2>/dev/null; then
-        add_ok "$category" tcp "$port" "$fqdn" "conectou"
-    else
+    local category="$1" fqdn="$2" port="$3" expected="${4:-}"
+    if ! timeout "$TIMEOUT_SEC" bash -c "exec 3<>/dev/tcp/${fqdn}/${port}" 2>/dev/null; then
         add_fail "$category" tcp "$port" "$fqdn" "timeout/conexão recusada"
+        return
     fi
+    # Strip leading "TCP/<port> aberto — " do expected pra evitar duplicar.
+    local detail="conectou"
+    if [ -n "$expected" ]; then
+        local clean="${expected#TCP/${port} aberto — }"
+        [ "$clean" = "$expected" ] && detail="conectou  $expected" || detail="conectou  $clean"
+    fi
+    add_ok "$category" tcp "$port" "$fqdn" "$detail"
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# Iteração: categorias e endpoints do JSON
-# Stream tab-separado: <category_label>\t<fqdn>\t<protocol>\t<port>
+# Iteração: categoria por categoria
+#   - Antes de cada categoria: print_category_header com label + description
+#     (orientação fica no JSON, não no código).
+#   - Para cada endpoint da categoria: dispara o check correspondente.
 # ────────────────────────────────────────────────────────────────────────────
-while IFS=$'\t' read -r category fqdn protocol port; do
-    case "$protocol" in
-        https) _check_https "$category" "$fqdn" "$port" ;;
-        tcp)   _check_tcp   "$category" "$fqdn" "$port" ;;
-        *)     warn "protocolo desconhecido '$protocol' para $fqdn — ignorado" ;;
-    esac
-done < <(jq -r '.categories[] as $c | $c.endpoints[] | [$c.label, .fqdn, .protocol, (.port|tostring)] | @tsv' "$ENDPOINTS_FILE")
+cat_count=$(jq '.categories | length' "$ENDPOINTS_FILE")
+for i in $(seq 0 $((cat_count - 1))); do
+    cat_label=$(jq -r ".categories[$i].label" "$ENDPOINTS_FILE")
+    cat_desc=$(jq -r ".categories[$i].description // \"\"" "$ENDPOINTS_FILE")
+    on_ok=$(jq -r   ".categories[$i].guidance.on_all_ok // \"\"" "$ENDPOINTS_FILE")
+    on_fail=$(jq -r ".categories[$i].guidance.on_any_fail // \"\"" "$ENDPOINTS_FILE")
+
+    print_category_header "$cat_label" "$cat_desc"
+
+    fail_before=$FAIL_COUNT
+
+    while IFS=$'\t' read -r fqdn protocol port expected; do
+        case "$protocol" in
+            https) _check_https "$cat_label" "$fqdn" "$port" "$expected" ;;
+            tcp)   _check_tcp   "$cat_label" "$fqdn" "$port" "$expected" ;;
+            *)     warn "protocolo desconhecido '$protocol' para $fqdn — ignorado" ;;
+        esac
+    done < <(jq -r ".categories[$i].endpoints[] | [.fqdn, .protocol, (.port|tostring), (.expected // \"\")] | @tsv" "$ENDPOINTS_FILE")
+
+    # Veredito da categoria + ação correspondente, AO VIVO (logo após os checks).
+    if [ "$FAIL_COUNT" -eq "$fail_before" ]; then
+        print_category_guidance ok "$on_ok"
+    else
+        print_category_guidance fail "$on_fail"
+    fi
+done
 
 # ────────────────────────────────────────────────────────────────────────────
-# Renderização e exit
+# Renderização final (resumo + interpretação) e exit
 # ────────────────────────────────────────────────────────────────────────────
 render_results
 finalize_exit

@@ -1,70 +1,107 @@
 {
-  "version": "1.0",
-  "description": "Lista canônica de FQDNs externos exigidos pelas VMs do SISCAN (runner self-hosted, GHCR, Docker Hub, OCSP/CRL). Consumido por siscan-network-check.sh.",
+  "version": "1.1",
+  "description": "Lista canônica de FQDNs externos exigidos pelas VMs do SISCAN (runner self-hosted, GHCR, Docker Hub, OCSP/CRL). Consumido por scripts/deploy_server/check-network.sh.",
   "sources": [
     "Reativação de whitelist - VMs siscan-dashboard e siscan-rpa v2.0 (requisição ICI 753315), seções 3 a 7",
     "https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication"
   ],
   "out_of_scope": {
     "section_8_conditional_features": "SMTP e Keycloak/OIDC só são acessados se as features estiverem ativas no .env (EMAIL_ENABLED=true, OIDC reativado).",
-    "section_9_internal_vlan": "Postgres 5432 (entre VMs do ICI) não é tráfego de internet — deve estar liberado na VLAN interna, não na regra de saída."
+    "section_9_internal_vlan": "Postgres 5432 (entre VMs do ICI) não é tráfego de internet — verificado pelo specialist check-db, não check-network."
+  },
+  "interpretation": {
+    "criteria": "Critério (PDF v2.0, seção 11.4): qualquer resposta HTTP do servidor (200, 301, 400, 404, 405, ...) confirma que o TLS subiu. Não importa o código específico.",
+    "what_is_failure": "Apenas '000' (sem resposta — curl não conseguiu nem abrir o socket TLS) ou timeout indicam bloqueio real de firewall.",
+    "common_codes": [
+      "200 — endpoint principal respondeu normalmente",
+      "301/302 — redirect (TLS subiu, servidor pediu pra ir a outra URL)",
+      "400 — servidor rejeitou GET no /, mas a conexão funcionou (esperado em CDNs/storage)",
+      "403 — endpoint requer autenticação (esperado em release storage e Docker Hub)",
+      "404 — / não tem conteúdo nesse host (esperado em backends de blob/registry)",
+      "405 — método GET não permitido aqui (esperado em endpoints que só aceitam POST)"
+    ]
   },
   "categories": [
     {
       "id": "runner_actions",
       "label": "Runner ↔ GitHub Actions (HTTPS/443)",
+      "description": "Endpoints obrigatórios para o runner self-hosted comunicar com o GitHub: registro, polling de jobs, OIDC tokens, upload de logs e artifacts. Sem isso, o runner não pega jobs.",
+      "guidance": {
+        "on_all_ok": "Runner consegue se comunicar com o GitHub. Próximo passo: rode siscan-server-setup.sh (instalação nova) ou siscan-runner-recover.sh (recuperação de runner já instalado).",
+        "on_any_fail": "O firewall NÃO está deixando o runner falar com o GitHub. Sem isso, o runner fica offline; em 14 dias o GitHub o remove (auto-removal). AÇÃO: abrir requisição de reabertura da whitelist citando o doc 'Reativação de whitelist v2.0' (req ICI 753315), incluindo a lista de FAILs acima."
+      },
       "pdf_sections": ["3.1", "3.2", "3.3", "3.4"],
       "endpoints": [
-        {"fqdn": "github.com",                                       "protocol": "https", "port": 443, "purpose": "Login, registro do runner, clone HTTPS"},
-        {"fqdn": "api.github.com",                                   "protocol": "https", "port": 443, "purpose": "API REST do GitHub Actions"},
-        {"fqdn": "codeload.github.com",                              "protocol": "https", "port": 443, "purpose": "Download de tarballs do repositório e de actions referenciadas"},
-        {"fqdn": "pipelines.actions.githubusercontent.com",          "protocol": "https", "port": 443, "purpose": "Pickup de jobs, OIDC tokens, backend do Actions", "wildcard_for": "*.actions.githubusercontent.com"},
-        {"fqdn": "results-receiver.actions.githubusercontent.com",   "protocol": "https", "port": 443, "purpose": "Receiver de resultados do Actions"},
-        {"fqdn": "productionresultssa0.blob.core.windows.net",       "protocol": "https", "port": 443, "purpose": "Azure Blob Storage (cache do Actions, artifacts, logs, job summaries)", "wildcard_for": "*.blob.core.windows.net"},
-        {"fqdn": "release-assets.githubusercontent.com",             "protocol": "https", "port": 443, "purpose": "Download de assets vinculados a releases"}
+        {"fqdn": "github.com",                                       "protocol": "https", "port": 443, "purpose": "Login, registro do runner, clone HTTPS",                                       "expected": "200 — homepage responde; login e clone funcionam"},
+        {"fqdn": "api.github.com",                                   "protocol": "https", "port": 443, "purpose": "API REST do GitHub Actions",                                                    "expected": "200 — API REST responde no root; runner consegue chamar polling de jobs"},
+        {"fqdn": "codeload.github.com",                              "protocol": "https", "port": 443, "purpose": "Download de tarballs do repositório e de actions referenciadas",                "expected": "301 — sem path, redireciona pra github.com (esperado)"},
+        {"fqdn": "pipelines.actions.githubusercontent.com",          "protocol": "https", "port": 443, "purpose": "Pickup de jobs, OIDC tokens, backend do Actions",                              "expected": "404 — backend de jobs/OIDC: / não tem homepage, Actions usa paths específicos",   "wildcard_for": "*.actions.githubusercontent.com"},
+        {"fqdn": "results-receiver.actions.githubusercontent.com",   "protocol": "https", "port": 443, "purpose": "Receiver de resultados do Actions",                                            "expected": "404 — receiver só aceita POST/PUT em paths específicos do Actions"},
+        {"fqdn": "productionresultssa0.blob.core.windows.net",       "protocol": "https", "port": 443, "purpose": "Azure Blob Storage (cache do Actions, artifacts, logs, job summaries)",        "expected": "400 — Azure Blob rejeita GET vazio; só responde a /<container>/<blob>",            "wildcard_for": "*.blob.core.windows.net"},
+        {"fqdn": "release-assets.githubusercontent.com",             "protocol": "https", "port": 443, "purpose": "Download de assets vinculados a releases",                                     "expected": "404 — / sem conteúdo; runner baixa assets via GET /<id>/<asset>"}
       ]
     },
     {
       "id": "runner_self_update",
       "label": "Self-update do runner (HTTPS/443)",
+      "description": "Endpoints para o runner baixar atualizações da sua própria versão. Sem isso, runner fica >30 dias desatualizado e o GitHub para de enviar jobs (regra dos 30 dias).",
+      "guidance": {
+        "on_all_ok": "Runner consegue se auto-atualizar. Sem isso, em 30 dias o GitHub para de enviar jobs (sintoma: 'Waiting for a runner' indefinido). Próximo passo: nada — comportamento esperado.",
+        "on_any_fail": "Runner não consegue se auto-atualizar. Em até 30 dias, o GitHub vai parar de enviar jobs (regra dos 30 dias) — o sintoma é confuso: runner online + jobs em fila não atendidos. AÇÃO: liberar os endpoints listados acima no firewall. Se já passou >30 dias, depois da liberação rode 'siscan-runner-recover.sh' (que força um 'run.sh --check' para re-atualizar agora)."
+      },
       "pdf_sections": ["4"],
       "endpoints": [
-        {"fqdn": "objects.githubusercontent.com",                    "protocol": "https", "port": 443, "purpose": "Download de blobs/binários do release do runner"},
-        {"fqdn": "objects-origin.githubusercontent.com",             "protocol": "https", "port": 443, "purpose": "Origem dos blobs do release do runner"},
-        {"fqdn": "github-releases.githubusercontent.com",            "protocol": "https", "port": 443, "purpose": "Download da nova versão do runner"},
-        {"fqdn": "github-registry-files.githubusercontent.com",      "protocol": "https", "port": 443, "purpose": "Download de pacotes do release"}
+        {"fqdn": "objects.githubusercontent.com",                    "protocol": "https", "port": 443, "purpose": "Download de blobs/binários do release do runner",                              "expected": "404 — / sem conteúdo; runner baixa blobs específicos via hash"},
+        {"fqdn": "objects-origin.githubusercontent.com",             "protocol": "https", "port": 443, "purpose": "Origem dos blobs do release do runner",                                        "expected": "405 — método GET não permitido em /; só HEAD ou paths específicos"},
+        {"fqdn": "github-releases.githubusercontent.com",            "protocol": "https", "port": 443, "purpose": "Download da nova versão do runner",                                            "expected": "403 — release storage requer URL pre-signed com token"},
+        {"fqdn": "github-registry-files.githubusercontent.com",      "protocol": "https", "port": 443, "purpose": "Download de pacotes do release",                                               "expected": "403 — pacotes de release requerem URL pre-signed com token"}
       ]
     },
     {
       "id": "ghcr",
       "label": "GHCR — pull de imagem do projeto (HTTPS/443)",
+      "description": "Endpoints do GitHub Container Registry. Sem isso, o 'docker pull' da imagem siscan-rpa/siscan-dashboard falha no momento do deploy.",
+      "guidance": {
+        "on_all_ok": "Pull da imagem ghcr.io/prisma-consultoria/siscan-* funciona. Próximo passo: nada — deploy automático consegue baixar a imagem.",
+        "on_any_fail": "Deploy vai falhar no 'docker compose pull' com erro do tipo 'denied' ou 'connection refused'. AÇÃO: liberar todos os 3 endpoints acima no firewall (ghcr.io + pkg-containers.githubusercontent.com + *.pkg.github.com). Os 3 trabalham em conjunto."
+      },
       "pdf_sections": ["5"],
       "endpoints": [
-        {"fqdn": "ghcr.io",                                          "protocol": "https", "port": 443, "purpose": "Container registry do GitHub"},
-        {"fqdn": "pkg-containers.githubusercontent.com",             "protocol": "https", "port": 443, "purpose": "Storage backend do GHCR"},
-        {"fqdn": "npm.pkg.github.com",                               "protocol": "https", "port": 443, "purpose": "Cobertura ampla de GitHub Packages", "wildcard_for": "*.pkg.github.com"}
+        {"fqdn": "ghcr.io",                                          "protocol": "https", "port": 443, "purpose": "Container registry do GitHub",                                                  "expected": "301 — redireciona pra /v2/ ou endpoint de token (esperado)"},
+        {"fqdn": "pkg-containers.githubusercontent.com",             "protocol": "https", "port": 443, "purpose": "Storage backend do GHCR",                                                      "expected": "400 — GET vazio inválido; precisa /v2/<imagem>/blobs/<digest>"},
+        {"fqdn": "npm.pkg.github.com",                               "protocol": "https", "port": 443, "purpose": "Cobertura ampla de GitHub Packages",                                            "expected": "301 — redirect pra docs (esperado)",                                              "wildcard_for": "*.pkg.github.com"}
       ]
     },
     {
       "id": "docker_hub",
       "label": "Docker Hub — pull do Redis (HTTPS/443)",
+      "description": "Endpoints do Docker Hub, usados apenas para pull do redis:7-alpine (siscan-dashboard). Após o primeiro pull, a imagem fica em cache local — falha aqui só impede o PRIMEIRO deploy de uma VM nova.",
+      "guidance": {
+        "on_all_ok": "Pull do redis:7-alpine funciona. Próximo passo: nada — primeiro deploy do dashboard vai conseguir subir o Redis.",
+        "on_any_fail": "Pull do Redis (Docker Hub) bloqueado, MAS o impacto é limitado: só importa no PRIMEIRO deploy de uma VM nova. Verifique se a imagem já está em cache local com 'docker images | grep redis:7-alpine' — se aparecer, pode ignorar e seguir. AÇÃO se for VM nova sem cache: liberar registry-1.docker.io e auth.docker.io no firewall, OU puxar a imagem em outra rede ('docker save redis:7-alpine | ...' / 'docker load')."
+      },
       "pdf_sections": ["6"],
       "endpoints": [
-        {"fqdn": "registry-1.docker.io",                             "protocol": "https", "port": 443, "purpose": "Docker Hub registry"},
-        {"fqdn": "auth.docker.io",                                   "protocol": "https", "port": 443, "purpose": "Auth do Docker Hub"},
-        {"fqdn": "production.cloudflare.docker.com",                 "protocol": "https", "port": 443, "purpose": "CDN do Docker Hub"}
+        {"fqdn": "registry-1.docker.io",                             "protocol": "https", "port": 443, "purpose": "Docker Hub registry",                                                          "expected": "404 — / sem rota, mas /v2/ funciona com auth (esperado)"},
+        {"fqdn": "auth.docker.io",                                   "protocol": "https", "port": 443, "purpose": "Auth do Docker Hub",                                                            "expected": "404 — / sem rota, /token funciona com auth (esperado)"},
+        {"fqdn": "production.cloudflare.docker.com",                 "protocol": "https", "port": 443, "purpose": "CDN do Docker Hub",                                                             "expected": "403 — CDN bloqueia GET direto, serve via URLs assinadas"}
       ]
     },
     {
       "id": "ocsp_crl",
       "label": "OCSP/CRL — validação de certificado (HTTP/80, TCP)",
+      "description": "Endpoints HTTP/80 (não 443!) usados pelo runtime .NET do runner para validar revogação de certificados. Se a regra só liberar 443, validação intermitente falha e gera sintomas confusos.",
+      "guidance": {
+        "on_all_ok": "Runner consegue validar revogação de certificados online. Próximo passo: nada — comportamento esperado.",
+        "on_any_fail": "Validação OCSP/CRL pode falhar intermitente — o sintoma é confuso porque parece bug aleatório do runner: ora deploy passa, ora dá erro de TLS. AÇÃO: verificar se a regra do firewall liberou PORTA 80 (não só 443) para esses domínios. OCSP/CRL roda sempre em HTTP/80 por design do PKIX — esquecer disso é o erro #1 em whitelist."
+      },
       "pdf_sections": ["7"],
       "endpoints": [
-        {"fqdn": "crl3.digicert.com",                                "protocol": "tcp",   "port": 80,  "purpose": "CRL DigiCert"},
-        {"fqdn": "crl4.digicert.com",                                "protocol": "tcp",   "port": 80,  "purpose": "CRL DigiCert"},
-        {"fqdn": "ocsp.digicert.com",                                "protocol": "tcp",   "port": 80,  "purpose": "OCSP DigiCert"},
-        {"fqdn": "crl.sectigo.com",                                  "protocol": "tcp",   "port": 80,  "purpose": "CRL Sectigo"},
-        {"fqdn": "ocsp.sectigo.com",                                 "protocol": "tcp",   "port": 80,  "purpose": "OCSP Sectigo"}
+        {"fqdn": "crl3.digicert.com",                                "protocol": "tcp",   "port": 80,  "purpose": "CRL DigiCert",                                                                  "expected": "TCP/80 aberto — runner consulta lista de revogação DigiCert"},
+        {"fqdn": "crl4.digicert.com",                                "protocol": "tcp",   "port": 80,  "purpose": "CRL DigiCert",                                                                  "expected": "TCP/80 aberto — fallback/balance da CRL DigiCert"},
+        {"fqdn": "ocsp.digicert.com",                                "protocol": "tcp",   "port": 80,  "purpose": "OCSP DigiCert",                                                                 "expected": "TCP/80 aberto — query online de revogação (preferível à CRL)"},
+        {"fqdn": "crl.sectigo.com",                                  "protocol": "tcp",   "port": 80,  "purpose": "CRL Sectigo",                                                                   "expected": "TCP/80 aberto — CRL Sectigo (alternativo, usado por alguns certs)"},
+        {"fqdn": "ocsp.sectigo.com",                                 "protocol": "tcp",   "port": 80,  "purpose": "OCSP Sectigo",                                                                  "expected": "TCP/80 aberto — OCSP Sectigo (alternativo, query online)"}
       ]
     }
   ]
