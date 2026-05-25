@@ -82,8 +82,18 @@ else
     add_fail "$CAT_PERMS" socket 0 "/var/run/docker.sock" "ausente — daemon não foi iniciado"
 fi
 
-# Grupo docker
+# Usuário NÃO-root (Fase 2 do siscan-server-setup.sh + restrição do runner GitHub Actions)
+# O config.sh do runner recusa instalação como root. Specialists e doctor devem
+# rodar como o mesmo usuário não-root (siscan, por convenção do setup).
 current_user="$(whoami)"
+current_uid=$(id -u)
+if [ "$current_uid" -eq 0 ]; then
+    add_fail "$CAT_PERMS" user 0 "user atual" "root (uid=0) — GitHub Actions runner recusa rodar como root; faça setup como usuário dedicado (ex: 'siscan')"
+else
+    add_ok "$CAT_PERMS" user 0 "user atual" "$current_user (uid=$current_uid, não-root)"
+fi
+
+# Grupo docker
 if id -nG "$current_user" 2>/dev/null | grep -qw docker; then
     add_ok "$CAT_PERMS" group 0 "grupo docker (user $current_user)" "membro"
 else

@@ -228,7 +228,10 @@ if product_has_extra excel_columns_mapping_required; then
     cfg_dir=$(_read_env HOST_CONFIG_DIR)
     cfg_dir="${cfg_dir:-$COMPOSE_DIR/config}"
 
-    if [ -f "$cfg_dir/excel_columns_mapping.json" ]; then
+    # Fase 4 do setup: verifica que o diretório config/ existe (não só o arquivo dentro)
+    if [ ! -d "$cfg_dir" ]; then
+        add_fail "$CAT_CONFIG" fs 0 "$cfg_dir/" "diretório NÃO existe — mkdir -p '$cfg_dir' (Fase 4 do setup)"
+    elif [ -f "$cfg_dir/excel_columns_mapping.json" ]; then
         add_ok "$CAT_CONFIG" fs 0 "excel_columns_mapping.json" "presente em $cfg_dir/"
     else
         add_fail "$CAT_CONFIG" fs 0 "excel_columns_mapping.json" "ausente em $cfg_dir/ — RPA vai falhar ao iniciar coleta"
