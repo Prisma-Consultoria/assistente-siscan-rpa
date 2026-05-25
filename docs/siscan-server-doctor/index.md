@@ -2,6 +2,10 @@
 
 Entry point recomendado para o operador validar a saúde da VM antes/depois de deploys, troubleshooting, ou em cron de monitoramento contínuo.
 
+**Scripts relacionados** (todos no root do repositório):
+- [`siscan-server-setup.sh`](../../siscan-server-setup.sh) — instalação inicial; invoca o doctor como gate (Fase 0)
+- [`siscan-runner-recover.sh`](scripts/siscan-runner-recover.md) — recuperação cirúrgica do runner (auto-removal 14d, regra dos 30d)
+
 ```bash
 bash siscan-server-doctor.sh                          # roda todos os specialists
 bash siscan-server-doctor.sh --only check-network     # subset
