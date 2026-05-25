@@ -165,6 +165,17 @@ fi
 SPECIALIST_EXIT_CODES=()
 SPECIALIST_OUTPUTS=()
 
+# Tempfile único reutilizado pra capturar stderr de cada specialist no modo --json.
+# Cleanup garantido por trap (EXIT cobre exits normais; INT/TERM cobre Ctrl+C
+# entre iterações). mktemp com fallback pra /dev/null: se /tmp estiver
+# corrompido/cheio, ainda rodamos — só perdemos a captura da stderr (sem
+# regressão funcional comparado ao comportamento original 2>/dev/null).
+STDERR_BUFFER=""
+if [ "$OUTPUT_MODE" = "json" ]; then
+    STDERR_BUFFER=$(mktemp 2>/dev/null) || STDERR_BUFFER=""
+    [ -n "$STDERR_BUFFER" ] && trap 'rm -f "$STDERR_BUFFER"' EXIT INT TERM
+fi
+
 # tty detection: emite progresso em --json e --quiet se stderr é tty
 # (em --json não polui o stdout do JSON; em --quiet evita sensação de hang
 #  quando todos os specialists passam silenciosamente sem FAIL).
@@ -213,41 +224,42 @@ for name in "${TO_RUN[@]}"; do
             if [ "$PROGRESS_ENABLED" = true ]; then
                 printf "  ⟳ [%d/%d] %s... " "$idx" "$total_specs" "$name" >&2
             fi
-            # Captura stderr separadamente. Quando o specialist pre-falha (fail()
-            # em _common.sh escreve em stderr e sai com 2), a stderr é a única
-            # pista do erro real. Antes era descartada via 2>/dev/null e o
-            # diagnóstico do operador ficava "voando às cegas".
-            stderr_file=$(mktemp)
-            output="$(bash "$script" --json 2>"$stderr_file")"
-            rc=$?
+            # Captura stderr no STDERR_BUFFER (alocado antes do loop, cleanup via trap).
+            # Quando o specialist pre-falha (fail() em _common.sh escreve em stderr e
+            # sai com 2), a stderr é a única pista do erro real — antes era descartada
+            # via 2>/dev/null e o diagnóstico do operador ficava "voando às cegas".
+            #
+            # Se STDERR_BUFFER ficou vazio (mktemp falhou), cai no fallback 2>/dev/null
+            # — perdemos a captura mas não regredimos vs comportamento original.
+            if [ -n "$STDERR_BUFFER" ]; then
+                : > "$STDERR_BUFFER"  # trunca antes da próxima captura
+                output="$(bash "$script" --json 2>"$STDERR_BUFFER")"
+                rc=$?
+            else
+                output="$(bash "$script" --json 2>/dev/null)"
+                rc=$?
+            fi
             # Specialist que pre-falha (exit 2, ex: .env ausente) sai com stdout vazio.
             # Substitui por envelope de erro pra não quebrar o JSON final do doctor.
             if [ -z "$output" ] || ! echo "$output" | jq -e . >/dev/null 2>&1; then
                 # Cauda da stderr (últimos 500 chars) — captura ERROR: ...
                 # do fail() + qualquer ruído de set -u/pipefail antes do abort.
-                stderr_tail=$(tail -c 500 "$stderr_file" 2>/dev/null)
+                if [ -n "$STDERR_BUFFER" ]; then
+                    stderr_tail=$(tail -c 500 "$STDERR_BUFFER" 2>/dev/null)
+                else
+                    stderr_tail="(captura de stderr indisponível — mktemp falhou)"
+                fi
                 [ -z "$stderr_tail" ] && stderr_tail="(stderr vazio)"
-                # Monta envelope usando jq pra escapar aspas/quebras de linha
-                # corretamente — printf com sed era frágil pra mensagens
-                # multi-linha de fail().
-                output=$(jq -nc \
-                    --arg name "$name" \
-                    --arg rc "$rc" \
-                    --arg stderr "$stderr_tail" \
-                    '{
-                        specialist: $name,
-                        summary: {total: 1, ok: 0, fail: 1},
-                        checks: [{
-                            category: "Pré-requisito do specialist",
-                            target: $name,
-                            protocol: "err",
-                            port: 0,
-                            status: "fail",
-                            detail: ("specialist saiu com exit=" + $rc + " sem JSON válido. stderr: " + $stderr)
-                        }]
-                    }')
+                # IMPORTANTE: não usar jq aqui — jq pode ser exatamente o binário
+                # ausente que causou o pre-fail do specialist. Usamos _json_escape
+                # (em _common.sh) que faz escape em bash puro. Sem essa precaução,
+                # ambiente sem jq teria stdout vazio e o doctor cuspiria JSON
+                # consolidado quebrado (regressão diagnosticada pelo Copilot).
+                stderr_escaped=$(_json_escape "$stderr_tail")
+                name_escaped=$(_json_escape "$name")
+                output=$(printf '{"specialist": "%s", "summary": {"total": 1, "ok": 0, "fail": 1}, "checks": [{"category": "Pré-requisito do specialist", "target": "%s", "protocol": "err", "port": 0, "status": "fail", "detail": "specialist saiu com exit=%s sem JSON válido. stderr: %s"}]}' \
+                    "$name_escaped" "$name_escaped" "$rc" "$stderr_escaped")
             fi
-            rm -f "$stderr_file"
             SPECIALIST_OUTPUTS+=("$output")
             # Resumo da execução no stderr (OK/FAIL + totais quando jq disponível)
             if [ "$PROGRESS_ENABLED" = true ]; then

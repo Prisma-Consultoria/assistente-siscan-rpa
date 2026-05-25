@@ -71,6 +71,30 @@ info() { [ "$OUTPUT_MODE" = "human" ] && printf "  ${GRAY}→${NC}  %s\n" "$1"; 
 warn() { [ "$OUTPUT_MODE" = "human" ] && printf "  ${YELLOW}⚠${NC}  %s\n" "$1" >&2; return 0; }
 fail() { printf "\n${RED}ERRO: %s${NC}\n\n" "$1" >&2; exit 2; }
 
+# _json_escape STRING
+#   Escapa uma string arbitrária pra interior de um valor JSON usando só
+#   primitivas de bash + tr (sem jq, sem python). Saída vai pra stdout sem
+#   aspas envolventes — o caller adiciona "...".
+#
+#   Por que sem jq: callers que precisam disso são fallbacks pra cenários
+#   onde jq pode estar ausente (ex: envelope sintético de erro no doctor).
+#
+#   Cobre o subset que aparece em stderr de fail() / set -u / pipefail:
+#   backslash, aspas duplas, \n \r \t. Outros control chars (0x00-0x1F)
+#   são removidos — JSON estrito exigiria \uXXXX, mas tr -d é seguro pro
+#   nosso uso (não estamos serializando dados binários).
+_json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"           # \  → \\   (PRIMEIRO — evita escape duplo)
+    s="${s//\"/\\\"}"           # "  → \"
+    s="${s//$'\n'/\\n}"         # LF → \n
+    s="${s//$'\r'/\\r}"         # CR → \r
+    s="${s//$'\t'/\\t}"         # TAB → \t
+    # Remove control chars restantes (0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F)
+    s=$(printf '%s' "$s" | tr -d '\000-\010\013\014\016-\037')
+    printf '%s' "$s"
+}
+
 # ────────────────────────────────────────────────────────────────────────────
 # Renderização live
 # ────────────────────────────────────────────────────────────────────────────
