@@ -101,8 +101,12 @@ command -v curl >/dev/null 2>&1 || {
 # Lista canônica de FQDNs por categoria
 # (PDF v2.0 — seções 3 a 7)
 #
-# Wildcards substituídos por um subdomínio real testável:
+# Wildcards substituídos por um subdomínio real testável (firewall que cobre
+# o wildcard inteiro responde pra qualquer subdomínio; se o operador só
+# liberou o FQDN literal, o teste denuncia corretamente):
 #   *.actions.githubusercontent.com → pipelines.actions.githubusercontent.com
+#   *.blob.core.windows.net         → productionresultssa0.blob.core.windows.net
+#   *.pkg.github.com                → npm.pkg.github.com
 # ────────────────────────────────────────────────────────────────────────────
 CAT_RUNNER_ACTIONS="Runner ↔ GitHub Actions (HTTPS/443)"
 FQDN_RUNNER_ACTIONS=(
@@ -111,6 +115,7 @@ FQDN_RUNNER_ACTIONS=(
     "codeload.github.com"
     "pipelines.actions.githubusercontent.com"
     "results-receiver.actions.githubusercontent.com"
+    "productionresultssa0.blob.core.windows.net"
     "release-assets.githubusercontent.com"
 )
 
@@ -126,6 +131,7 @@ CAT_GHCR="GHCR — pull de imagem do projeto (HTTPS/443)"
 FQDN_GHCR=(
     "ghcr.io"
     "pkg-containers.githubusercontent.com"
+    "npm.pkg.github.com"
 )
 
 CAT_DOCKER_HUB="Docker Hub — pull do Redis (HTTPS/443)"

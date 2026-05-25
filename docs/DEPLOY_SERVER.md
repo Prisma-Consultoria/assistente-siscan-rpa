@@ -132,7 +132,7 @@ Cada VM precisa de um token de registro gerado no repositório correspondente ao
 
 O script `siscan-network-check.sh` valida se a VM consegue alcançar todos os endpoints externos que o runner self-hosted, o pull da imagem do projeto (GHCR), o pull do Redis (Docker Hub) e a validação OCSP/CRL exigem. Rode-o antes da instalação inicial e sempre que houver suspeita de bloqueio de firewall (por exemplo, deploys que pararam de funcionar de uma hora para a outra).
 
-A lista canônica de FQDNs verificada pelo script segue o documento *Reativação de whitelist — VMs siscan-dashboard e siscan-rpa* v2.0 (requisição ICI 753315), seções 3 a 7. São 15 endpoints HTTPS/443 + 5 OCSP/CRL em TCP/80, totalizando 20 checks.
+A lista canônica de FQDNs verificada pelo script combina o documento *Reativação de whitelist — VMs siscan-dashboard e siscan-rpa* v2.0 (requisição ICI 753315), seções 3 a 7, com a [referência oficial atual do GitHub](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication). São 17 endpoints HTTPS/443 + 5 OCSP/CRL em TCP/80, totalizando 22 checks. Wildcards (`*.actions.githubusercontent.com`, `*.blob.core.windows.net`, `*.pkg.github.com`) são representados por um subdomínio real testável — se o firewall liberou o wildcard, qualquer subdomínio responde; se liberou só FQDNs literais, o teste denuncia o gap.
 
 ```bash
 # Saída legível (padrão)
