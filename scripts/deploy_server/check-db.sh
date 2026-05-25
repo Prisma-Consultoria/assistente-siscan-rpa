@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # -------------------------------------------
 # Specialist: check-db
+# Summary: Conectividade TCP + pg_isready com PostgreSQL externo (VLAN interna ICI)
 # -------------------------------------------
 # Valida conectividade da VM da aplicação com o(s) PostgreSQL externo(s):
 #   - RPA / Full: DATABASE_HOST:DATABASE_PORT (TCP + pg_isready)

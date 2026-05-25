@@ -126,7 +126,13 @@ done
 if [ "$LIST_ONLY" = true ]; then
     printf "${CYAN}Specialists disponíveis em %s/${NC}\n" "${SPECIALISTS_DIR#$SCRIPT_DIR/}"
     for name in "${AVAILABLE[@]}"; do
-        echo "  - $name"
+        # Extrai metadado "# Summary: <texto>" do header do specialist
+        summary=$(grep -m1 -E '^# Summary:' "$SPECIALISTS_DIR/$name.sh" 2>/dev/null | sed -E 's/^# Summary:[[:space:]]*//')
+        if [ -n "$summary" ]; then
+            printf "  ${WHITE}%-20s${NC} %s\n" "$name" "$summary"
+        else
+            printf "  ${WHITE}%-20s${NC} ${YELLOW}(sem descrição — adicione '# Summary:' no header)${NC}\n" "$name"
+        fi
     done
     exit 0
 fi
@@ -141,7 +147,19 @@ fi
 SPECIALIST_EXIT_CODES=()
 SPECIALIST_OUTPUTS=()
 
+# tty detection: emite progresso em --json e --quiet se stderr é tty
+# (em --json não polui o stdout do JSON; em --quiet evita sensação de hang
+#  quando todos os specialists passam silenciosamente sem FAIL).
+# Em CI (stderr não-tty) fica desligado — não polui logs.
+PROGRESS_ENABLED=false
+case "$OUTPUT_MODE" in
+    json|quiet) [ -t 2 ] && PROGRESS_ENABLED=true ;;
+esac
+
+total_specs=${#TO_RUN[@]}
+idx=0
 for name in "${TO_RUN[@]}"; do
+    idx=$((idx + 1))
     script="$SPECIALISTS_DIR/$name.sh"
     rc=0
 
@@ -152,24 +170,59 @@ for name in "${TO_RUN[@]}"; do
             rc=$?
             ;;
         quiet)
+            if [ "$PROGRESS_ENABLED" = true ]; then
+                printf "  ⟳ [%d/%d] %s... " "$idx" "$total_specs" "$name" >&2
+            fi
             bash "$script" --quiet
             rc=$?
+            if [ "$PROGRESS_ENABLED" = true ]; then
+                if [ "$rc" -eq 0 ]; then
+                    printf "${GREEN}✓${NC} OK\n" >&2
+                else
+                    printf "${RED}✗${NC} FAIL (exit=%d)\n" "$rc" >&2
+                fi
+            fi
             ;;
         json)
+            # Progresso no stderr — não polui o JSON do stdout
+            if [ "$PROGRESS_ENABLED" = true ]; then
+                printf "  ⟳ [%d/%d] %s... " "$idx" "$total_specs" "$name" >&2
+            fi
             output="$(bash "$script" --json 2>/dev/null)"
             rc=$?
             # Specialist que pre-falha (exit 2, ex: .env ausente) sai com stdout vazio.
             # Substitui por envelope de erro pra não quebrar o JSON final do doctor.
             if [ -z "$output" ] || ! echo "$output" | jq -e . >/dev/null 2>&1; then
                 # shellcheck disable=SC2016
-                output=$(printf '{"specialist": "%s", "summary": {"total": 0, "ok": 0, "fail": 1}, "checks": [{"category": "Pré-requisito do specialist", "target": "%s", "protocol": "err", "port": 0, "status": "fail", "detail": "specialist saiu com exit=%s sem JSON válido (provável .env/PRODUCTS_FILE ausente)"}]}' "$name" "$name" "$rc")
+                output=$(printf '{"specialist": "%s", "summary": {"total": 1, "ok": 0, "fail": 1}, "checks": [{"category": "Pré-requisito do specialist", "target": "%s", "protocol": "err", "port": 0, "status": "fail", "detail": "specialist saiu com exit=%s sem JSON válido (provável .env/PRODUCTS_FILE ausente)"}]}' "$name" "$name" "$rc")
             fi
             SPECIALIST_OUTPUTS+=("$output")
+            # Resumo da execução no stderr (OK/FAIL + totais quando jq disponível)
+            if [ "$PROGRESS_ENABLED" = true ]; then
+                if [ "$rc" -eq 0 ]; then
+                    totals=$(echo "$output" | jq -r '"\(.summary.ok)/\(.summary.total)"' 2>/dev/null || echo "")
+                    if [ -n "$totals" ]; then
+                        printf "${GREEN}✓${NC} %s OK\n" "$totals" >&2
+                    else
+                        printf "${GREEN}✓${NC} OK\n" >&2
+                    fi
+                else
+                    totals=$(echo "$output" | jq -r '"\(.summary.ok)/\(.summary.total)"' 2>/dev/null || echo "")
+                    if [ -n "$totals" ]; then
+                        printf "${RED}✗${NC} %s OK (FAIL)\n" "$totals" >&2
+                    else
+                        printf "${RED}✗${NC} FAIL (exit=%d)\n" "$rc" >&2
+                    fi
+                fi
+            fi
             ;;
     esac
 
     SPECIALIST_EXIT_CODES+=("$rc")
 done
+
+# Linha em branco no stderr separando progresso do JSON final
+[ "$PROGRESS_ENABLED" = true ] && printf "\n" >&2
 
 # ────────────────────────────────────────────────────────────────────────────
 # Resumo final

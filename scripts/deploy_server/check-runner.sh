@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # -------------------------------------------
 # Specialist: check-runner
+# Summary: Runner local + systemd + registro GitHub + idade (regras 14d/30d)
 # -------------------------------------------
 # Cobre estado completo do GitHub Actions self-hosted runner:
 #   1. Instalação local (config.sh, .runner, _diag)

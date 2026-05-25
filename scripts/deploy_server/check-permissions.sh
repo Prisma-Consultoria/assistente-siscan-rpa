@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # -------------------------------------------
 # Specialist: check-permissions
+# Summary: Ownership de diretórios, git safe.directory, UID 1000, chaves RSA persistidas
 # -------------------------------------------
 # Cobre 5 problemas reais do chat ICI relacionados a permissão + RSA keys:
 #   - /app/siscan-rpa criado como root (19/03, 20/03) → bind mount falha

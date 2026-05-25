@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # -------------------------------------------
 # Specialist: check-docker
+# Summary: Daemon Docker, grupo, pool de redes + teste real network create/rm
 # -------------------------------------------
 # Valida saúde do Docker daemon e capacidade de criar redes — cobre o problema
 # mais recorrente do chat ICI (apareceu em 2 VMs distintas, 19/03 e 27/03):

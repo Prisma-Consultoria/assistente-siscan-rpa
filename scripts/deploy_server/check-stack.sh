@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # -------------------------------------------
 # Specialist: check-stack
+# Summary: Compose file, imagens, serviços, restart loops, healthchecks, portas externas
 # -------------------------------------------
 # Verifica saúde da stack Docker (todos os parâmetros vêm do manifesto):
 #   - Compose file correto presente (products.json: compose_file)

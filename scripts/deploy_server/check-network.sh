@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # -------------------------------------------
 # Specialist: check-network
+# Summary: Endpoints HTTPS/TCP do GitHub Actions, GHCR, Docker Hub e OCSP/CRL
 # -------------------------------------------
 # Arquivo: scripts/deploy_server/check-network.sh
 # Propósito: Validar a liberação de saída no firewall para os endpoints

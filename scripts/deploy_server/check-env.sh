@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # -------------------------------------------
 # Specialist: check-env
+# Summary: Valida .env contra manifesto products.json (variáveis, defaults, formatos)
 # -------------------------------------------
 # Valida o .env do COMPOSE_DIR/CWD:
 #   - SISCAN_PRODUCT definido e conhecido no products.json

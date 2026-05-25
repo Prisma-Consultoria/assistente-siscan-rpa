@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # -------------------------------------------
 # Specialist: check-deps
+# Summary: Versões de Docker, Compose, curl, jq, sudo, timeout, getent + NTP
 # -------------------------------------------
 # Verifica que todas as ferramentas locais necessárias estão instaladas e
 # em versão compatível. Read-only — não modifica nada.
