@@ -168,6 +168,13 @@ for name in "${TO_RUN[@]}"; do
             printf "\n${WHITE}▸ Specialist: %s${NC}\n" "$name"
             bash "$script"
             rc=$?
+            # Specialists com exit=2 fizeram pre-fail (ex: .env ausente) — saem
+            # via fail() antes do render_results, então não há '=== Resumo ===' pra
+            # esse specialist. Sintetiza um marker visível pra alinhar com o
+            # envelope JSON (que tem entrada {total:1,ok:0,fail:1} pro pre-fail).
+            if [ "$rc" -eq 2 ]; then
+                printf "\n  ${RED}✘${NC} ${RED}%s pré-falhou (exit=2) — conta como 1 FAIL no consolidado${NC}\n" "$name"
+            fi
             ;;
         quiet)
             if [ "$PROGRESS_ENABLED" = true ]; then
