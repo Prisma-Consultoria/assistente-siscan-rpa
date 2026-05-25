@@ -22,12 +22,57 @@ Resolução: `sudo -u siscan ./run.sh --check` (**não** precisa token).
 ## Sinopse
 
 ```bash
-bash siscan-runner-recover.sh                       # detecta produto via .env
-bash siscan-runner-recover.sh --product rpa         # explícito
+bash siscan-runner-recover.sh                              # detecta produto via $COMPOSE_DIR/.env (SISCAN_PRODUCT)
+bash siscan-runner-recover.sh --product rpa                # explícito (sem .env ou .env sem SISCAN_PRODUCT)
 bash siscan-runner-recover.sh --product dashboard
-bash siscan-runner-recover.sh --skip-doctor         # pula pré-flight (debug)
+bash siscan-runner-recover.sh --product full               # VM que hospeda RPA + Dashboard
+bash siscan-runner-recover.sh --env-file /path/to/.env     # apontar pra um .env em outro caminho
+bash siscan-runner-recover.sh --skip-doctor                # pula pré-flight (debug)
 bash siscan-runner-recover.sh --help
 ```
+
+> **Pré-requisito**: o script precisa saber o produto antes de qualquer ação. Resolução em ordem:
+> 1. `--product VALOR` explícito vence sempre.
+> 2. Senão, lê `SISCAN_PRODUCT` do **`ENV_FILE` efetivo**:
+>    - default: `$COMPOSE_DIR/.env` (ou `$PWD/.env` se `COMPOSE_DIR` não estiver exportada)
+>    - override: `--env-file /caminho/para/.env` na CLI
+> 3. Se nenhum dos dois resolveu, aborta com `ERRO: SISCAN_PRODUCT não definido. Use --product rpa|dashboard|full ou preencha .env.`
+>
+> Operacionalmente isso significa que **na VM você pode rodar sem flag** (o `.env` já vem do `siscan-server-setup.sh`); fora da VM (ex.: testes locais, debug em dev box) você usa `--product` ou `--env-file` apontando pra um `.env` válido.
+
+## Detecção de SISCAN_PRODUCT a partir do `.env`
+
+Quando você roda sem `--product`, o script tenta inferir o produto do `.env` da VM. **Não há "magia": é grep simples sobre arquivo de dados.**
+
+```bash
+# COMPOSE_DIR cai pra $(pwd) se não exportado;
+# --env-file VALOR no CLI sobrescreve este default (ver --help do script).
+ENV_FILE="${COMPOSE_DIR}/.env"
+
+_read_env_var() {
+    # Pipeline em uma linha — copy-paste seguro (sem trailing spaces após \).
+    # 1. grep   → linhas começando com 'SISCAN_PRODUCT='
+    # 2. tail   → última atribuição vence (override permitido)
+    # 3. cut    → pega tudo após o primeiro '='
+    # 4. sed    → remove aspas envolventes ("..." ou '...')
+    grep -E "^SISCAN_PRODUCT=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/^["'\'']\(.*\)["'\'']$/\1/'
+}
+```
+
+Características desse mecanismo:
+
+- **Lê como dados, não como código**: NÃO usa `source .env` nem `eval`. Isso evita que chars especiais no valor (`$`, `` ` ``, aspas mal-fechadas) sejam interpretados como bash — proteção contra command injection.
+- **Última atribuição vence** (`tail -1`): se o `.env` tiver `SISCAN_PRODUCT=` duas vezes, prevalece a de baixo (consistente com o comportamento de `docker compose` e `dotenv`).
+- **Aspas envolventes são strippadas**: aceita `SISCAN_PRODUCT=rpa`, `SISCAN_PRODUCT="rpa"` ou `SISCAN_PRODUCT='rpa'` indistintamente.
+- **Mesmo padrão dos demais specialists**: `check-env`, `check-permissions`, `check-db`, `check-runner` usam função idêntica — qualquer mudança aqui precisa ser propagada (ou extraída pra `_common.sh`).
+
+**Pré-requisitos pra detecção via `.env` funcionar:**
+
+1. `ENV_FILE` aponta pra um caminho legível. Default = `$COMPOSE_DIR/.env` (ou `$PWD/.env` se `COMPOSE_DIR` não estiver exportada); pode ser sobrescrito por `--env-file VALOR` na CLI.
+2. O arquivo apontado por `ENV_FILE` existe e é legível pelo usuário corrente.
+3. Esse arquivo tem uma linha `SISCAN_PRODUCT=<rpa|dashboard|full>`.
+
+Se qualquer um dos 3 falhar, a saída é o erro documentado em "Pré-requisito" acima — soluções: passar `--product VALOR` na CLI, `--env-file /caminho/.env` apontando pra um `.env` válido em outro lugar, ou ajustar o `.env` do default.
 
 ## Como o script decide o que fazer
 
