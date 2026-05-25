@@ -456,22 +456,52 @@ O runner registrado na fase 7 receberá automaticamente os próximos deploys via
 
 ## Atualização do assistente
 
-Após a instalação inicial, o assistente não se atualiza sozinho. No entanto, os deploys automáticos via GitHub Actions já mantêm atualizados os arquivos mais importantes a cada deploy:
+Após a instalação inicial, o assistente não se atualiza sozinho. Há **dois mecanismos paralelos** de atualização:
 
-- **Imagens Docker** — o workflow faz pull da imagem mais recente do GHCR.
-- **Compose file** (`docker-compose.prd.*.yml`) — o workflow baixa a versão mais recente da branch `main` do assistente e sobrescreve o arquivo local no `COMPOSE_DIR`.
-- **`.env` sample** (`.env.server-*.sample`) — o workflow baixa o sample atualizado para o `COMPOSE_DIR`, servindo como referência para identificar novas variáveis.
+| Mecanismo | O que atualiza | Quando |
+|---|---|---|
+| **Workflow CD** (automático) | `docker-compose.prd.*.yml`, `.env.server-*.sample`, imagens Docker do GHCR | A cada merge em `main` dos repos `siscan-rpa` / `siscan-dashboard` |
+| **`git pull` manual** | Tudo o resto: `siscan-server-setup.sh`, `siscan-server-doctor.sh`, `siscan-runner-recover.sh`, `scripts/deploy_server/check-*.sh`, `scripts/data/*.json`, `docs/` | Quando o assistente ganha novas funcionalidades (specialists novos, manifesto, fixes, etc.) |
 
-Isso significa que, **no modo SERVER, o `git pull` é opcional**. Os arquivos operacionais (compose e imagens) já são atualizados automaticamente pelo CD. O `git pull` seria útil apenas para atualizar scripts do assistente (`siscan-server-setup.sh`) e documentação (`docs/`), que raramente mudam após a instalação.
+> **Importante:** o `git pull` **não é opcional** quando o repo do assistente ganha novos scripts (como aconteceu na entrega do `siscan-server-doctor` + specialists). O workflow CD só sincroniza compose + sample, não o resto do repo.
 
-Se ainda assim quiser atualizar o repositório completo:
+### Procedimento padrão de atualização
 
 ```bash
-cd /app/assistente-siscan-rpa   # ajuste conforme o caminho da sua instalação
+cd $COMPOSE_DIR   # tipicamente /app/assistente-siscan-rpa
 git pull origin main
+bash siscan-server-doctor.sh --except check-runner,check-stack,check-db
 ```
 
-### Novas variáveis de ambiente
+A última linha valida que o ambiente continua íntegro após o pull. Saída esperada: `6/6 specialists OK`.
+
+### Quando esta versão do assistente é nova na VM (primeira atualização para `doctor + specialists`)
+
+Se a VM ainda está numa versão **anterior** à entrega do diagnóstico amplo (sem `siscan-server-doctor.sh`, sem `scripts/deploy_server/`), siga este procedimento exato:
+
+```bash
+# 1. Atualizar o repositório do assistente
+cd $COMPOSE_DIR
+git pull origin main
+
+# 2. Confirmar que os arquivos novos chegaram
+ls -la siscan-server-doctor.sh siscan-runner-recover.sh scripts/deploy_server/
+ls -la scripts/data/products.json scripts/data/network-endpoints.json
+
+# 3. Garantir bit executável (alguns checkouts não preservam)
+chmod +x siscan-server-doctor.sh siscan-runner-recover.sh
+chmod +x scripts/deploy_server/check-*.sh
+
+# 4. Rodar diagnóstico amplo — primeira leitura da saúde da VM
+bash siscan-server-doctor.sh
+
+# 5. Conferir lista de specialists disponíveis
+bash siscan-server-doctor.sh --list
+```
+
+O passo 4 é a **primeira foto da saúde da VM** com a cobertura nova (9 specialists). Espera-se ver alguns FAILs informativos (ex.: `check-stack` pode falhar se a stack não está rodando no momento — normal) e o resumo `X/9 specialists OK · Y com FAIL`. Use `bash siscan-server-doctor.sh --only check-network` (ou outro subset) para focar numa dimensão específica.
+
+### Quando há novas variáveis de ambiente
 
 Quando uma nova versão do assistente introduz variáveis de ambiente novas (como foi o caso da adição do Redis com `REDIS_HOST`, `REDIS_PORT`, `CACHE_TIMEOUT`), o `.env` sample atualizado já estará disponível no servidor após o próximo deploy automático. Para identificar as variáveis novas, compare o sample com o `.env` em uso:
 
