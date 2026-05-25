@@ -4,6 +4,23 @@ Valida a conectividade de saída de uma VM com todos os endpoints externos exigi
 
 Para entender **quando** rodar este script no ciclo de vida de uma VM, consulte o guia narrativo em [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md). Este documento é a referência precisa: opções, exit codes, formato de entrada e saída.
 
+## Histórico de mudanças
+
+| Versão | Data | Mudança |
+|---|---|---|
+| 1.0 | 2026-05-25 | Versão inicial — 22 endpoints (req ICI 753315 v2.0 + GitHub docs *self-hosted-runners#communication*). Automatiza o item *Conectividade HTTPS* da tabela de pré-requisitos do `DEPLOY_SERVER.md`, que antes era um `curl -Iv https://github.com` manual. |
+
+## Origem e relação com outros scripts
+
+Este script **não é uma refatoração de código** do `siscan-server-setup.sh` — nenhuma das 10 fases do setup tinha verificação de rede. O que se migrou foi o item *Conectividade HTTPS* da **tabela de pré-requisitos** em [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md), que era um comando manual (`curl -Iv https://github.com`, cobrindo 1 endpoint) — agora se torna um script automatizado cobrindo 22 endpoints, categorizados por finalidade, com saída estruturada e exit codes para uso em cron.
+
+A relação com os outros scripts da feature [#28](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/28) é de **complementaridade**, não de extração:
+
+| Script | Quando entra | Relação com o network-check |
+|---|---|---|
+| `siscan-server-setup.sh` | Instalação inicial de uma VM | A Fase 1 atual valida binários locais (Docker, Compose, curl, sudo) mas **não** testa rede. O issue [#30](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/30) prevê que a Fase 1 passe a invocar este script. |
+| `siscan-runner-recover.sh` | Recuperação de runner auto-removido | Vai chamar este script como pré-condição antes de tentar re-registrar (issue [#31](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/31)). |
+
 ## Sinopse
 
 ```bash
@@ -175,12 +192,6 @@ FAIL https/443 objects-origin.githubusercontent.com: timeout/conexão recusada
   ]
 }
 ```
-
-## Histórico de mudanças
-
-| Versão | Data | Mudança |
-|---|---|---|
-| 1.0 | 2026-05-25 | Versão inicial — 22 endpoints (req ICI 753315 v2.0 + GitHub docs) |
 
 ## Ver também
 
