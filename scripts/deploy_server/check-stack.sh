@@ -2,29 +2,35 @@
 # -------------------------------------------
 # Specialist: check-stack
 # -------------------------------------------
-# Verifica saúde da stack Docker:
-#   - Compose file correto presente para o produto
-#   - Serviços esperados rodando (docker compose ps)
-#   - Nenhum container em "Restarting (n)" loop (problema do chat ICI 20/03)
+# Verifica saúde da stack Docker (todos os parâmetros vêm do manifesto):
+#   - Compose file correto presente (products.json: compose_file)
+#   - docker compose config valida (parsing OK)
+#   - Imagem esperada disponível localmente (products.json: image)
+#   - Serviços esperados rodando (products.json: expected_services)
+#   - Nenhum container em "Restarting (n)" loop (chat ICI 20/03)
 #   - Containers com healthcheck reportam "healthy"
-#   - Portas externas livres (sem conflito com nginx/processo local)
+#   - Portas externas livres (products.json: expected_external_ports)
 # -------------------------------------------
 
 set -uo pipefail
 
 SPECIALIST_NAME="check-stack"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # shellcheck source=./_common.sh
 source "$SCRIPT_DIR/_common.sh"
 
 ENV_FILE="${COMPOSE_DIR:-$(pwd)}/.env"
+PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
 
 usage() {
     cat <<EOF
 Uso: bash $(basename "$0") [--env-file FILE] [--quiet | --json] [--help]
 
-Verifica saúde da stack Docker atualmente em execução.
+Verifica saúde da stack Docker conforme o manifesto products.json:
+compose file presente + parse OK, imagem disponível, serviços esperados
+rodando sem restart loop, portas externas livres.
 
 Exit code: 0 = OK · 1 = FAIL · 2 = uso inválido
 EOF
@@ -44,68 +50,79 @@ done
 
 command -v docker >/dev/null 2>&1 || fail "docker não está instalado (rode check-deps primeiro)"
 
-# Detectar produto via .env
+# Detectar produto + validar manifesto
 SISCAN_PRODUCT=""
 if [ -f "$ENV_FILE" ]; then
     SISCAN_PRODUCT=$(grep -E '^SISCAN_PRODUCT=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2-)
 fi
+[ -n "$SISCAN_PRODUCT" ] || fail "SISCAN_PRODUCT não definido em $ENV_FILE — rode check-env"
+product_validate
+
+COMPOSE_FILE="${COMPOSE_DIR:-$(pwd)}/$(product_get compose_file)"
+EXPECTED_IMAGE=$(product_get image)
+mapfile -t EXPECTED_SERVICES < <(product_get_array expected_services)
+mapfile -t EXTERNAL_PORTS < <(product_get_array expected_external_ports)
 
 CAT_COMPOSE="Compose file"
+CAT_CONFIG="Compose config (parsing)"
+CAT_IMAGE="Imagem do produto"
 CAT_CONTAINERS="Containers esperados"
 CAT_HEALTH="Saúde dos containers"
 CAT_PORTS="Portas externas"
 
 # ────────────────────────────────────────────────────────────────────────────
-# Compose file por produto
+# 1. Compose file presente
 # ────────────────────────────────────────────────────────────────────────────
-print_category_header "$CAT_COMPOSE" "Compose file correspondente ao SISCAN_PRODUCT do .env (rpa, dashboard ou full)."
-
-case "$SISCAN_PRODUCT" in
-    rpa)
-        COMPOSE_FILE="docker-compose.prd.rpa.yml"
-        EXPECTED_SERVICES=("app" "rpa-scheduler")
-        EXTERNAL_PORTS=(5001)
-        ;;
-    dashboard)
-        COMPOSE_FILE="docker-compose.prd.dashboard.yml"
-        EXPECTED_SERVICES=("app" "sync" "redis")
-        EXTERNAL_PORTS=(5000)
-        ;;
-    full)
-        COMPOSE_FILE="docker-compose.prd.host.yml"
-        EXPECTED_SERVICES=("db" "app" "rpa-scheduler")
-        EXTERNAL_PORTS=(5000 5001)
-        ;;
-    *)
-        add_fail "$CAT_COMPOSE" env 0 "SISCAN_PRODUCT" "não definido ou inválido ($SISCAN_PRODUCT) — rode check-env"
-        render_results
-        finalize_exit
-        ;;
-esac
+print_category_header "$CAT_COMPOSE" "Compose file declarado no manifesto deve existir no COMPOSE_DIR."
 
 if [ -f "$COMPOSE_FILE" ]; then
-    add_ok "$CAT_COMPOSE" file 0 "$COMPOSE_FILE" "presente"
+    add_ok "$CAT_COMPOSE" file 0 "$(basename "$COMPOSE_FILE")" "presente"
 else
-    add_fail "$CAT_COMPOSE" file 0 "$COMPOSE_FILE" "ausente — esperado na raiz do assistente"
+    add_fail "$CAT_COMPOSE" file 0 "$(basename "$COMPOSE_FILE")" "ausente em $(dirname "$COMPOSE_FILE")"
     render_results
     finalize_exit
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Containers esperados rodando
+# 2. docker compose config valida (P2: novo check)
 # ────────────────────────────────────────────────────────────────────────────
-print_category_header "$CAT_CONTAINERS" "Cada serviço de '$COMPOSE_FILE' deve estar em execução (exceto 'migrate', que sai com 0 ao completar)."
+print_category_header "$CAT_CONFIG" "Valida que o compose file parseia e que 'networks:' resolve (catch para erros de YAML/interpolação)."
 
-# docker compose ps com --format json (suportado em Compose v2.20+)
-ps_output=$(docker compose -f "$COMPOSE_FILE" ps --all --format json 2>/dev/null || echo "")
+if (cd "$(dirname "$COMPOSE_FILE")" && docker compose -f "$(basename "$COMPOSE_FILE")" config >/dev/null 2>&1); then
+    add_ok "$CAT_CONFIG" compose 0 "docker compose config" "parse OK"
+else
+    err=$(cd "$(dirname "$COMPOSE_FILE")" && docker compose -f "$(basename "$COMPOSE_FILE")" config 2>&1 | tail -1 | head -c 120)
+    add_fail "$CAT_CONFIG" compose 0 "docker compose config" "parse falhou: $err"
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+# 3. Imagem disponível localmente (P2: novo check)
+# ────────────────────────────────────────────────────────────────────────────
+print_category_header "$CAT_IMAGE" "Imagem esperada (manifesto) precisa estar em cache local OU pull tem que funcionar."
+
+if [ -n "$EXPECTED_IMAGE" ] && [ "$EXPECTED_IMAGE" != "(múltiplas — siscan-rpa-rpa + siscan-dashboard)" ]; then
+    if docker image inspect "$EXPECTED_IMAGE" >/dev/null 2>&1; then
+        size=$(docker image inspect "$EXPECTED_IMAGE" --format '{{.Size}}' 2>/dev/null | numfmt --to=iec --suffix=B 2>/dev/null || echo "?")
+        add_ok "$CAT_IMAGE" image 0 "$EXPECTED_IMAGE" "presente localmente ($size)"
+    else
+        add_fail "$CAT_IMAGE" image 0 "$EXPECTED_IMAGE" "ausente — 'docker compose -f $(basename "$COMPOSE_FILE") pull' ou aguarde o CD"
+    fi
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+# 4. Containers esperados rodando
+# ────────────────────────────────────────────────────────────────────────────
+print_category_header "$CAT_CONTAINERS" "Cada serviço de '$(basename "$COMPOSE_FILE")' (expected_services no manifesto) deve estar 'running'."
+
+ps_output=$(cd "$(dirname "$COMPOSE_FILE")" && docker compose -f "$(basename "$COMPOSE_FILE")" ps --all --format json 2>/dev/null || echo "")
 
 if [ -z "$ps_output" ]; then
-    add_fail "$CAT_CONTAINERS" compose 0 "$COMPOSE_FILE" "docker compose ps não retornou output — stack não foi inicializada (docker compose up)?"
+    add_fail "$CAT_CONTAINERS" compose 0 "$(basename "$COMPOSE_FILE")" "docker compose ps não retornou output — stack não foi inicializada (docker compose up)?"
     render_results
     finalize_exit
 fi
 
-# Normalizar: pode ser um JSON array (v2.21+) ou linhas separadas (v2.20)
+# Normalizar — Compose v2.21+ retorna array, v2.20 retorna linhas separadas
 if echo "$ps_output" | head -c1 | grep -q '\['; then
     services_json="$ps_output"
 else
@@ -115,7 +132,7 @@ fi
 for svc in "${EXPECTED_SERVICES[@]}"; do
     state=$(echo "$services_json" | jq -r ".[] | select(.Service == \"$svc\") | .State" 2>/dev/null | head -1)
     if [ -z "$state" ]; then
-        add_fail "$CAT_CONTAINERS" svc 0 "service $svc" "container ausente — docker compose -f $COMPOSE_FILE up -d"
+        add_fail "$CAT_CONTAINERS" svc 0 "service $svc" "container ausente — docker compose -f $(basename "$COMPOSE_FILE") up -d"
     elif [ "$state" = "running" ]; then
         add_ok "$CAT_CONTAINERS" svc 0 "service $svc" "running"
     else
@@ -124,11 +141,10 @@ for svc in "${EXPECTED_SERVICES[@]}"; do
 done
 
 # ────────────────────────────────────────────────────────────────────────────
-# Restart loop e healthchecks
+# 5. Restart loop + healthcheck
 # ────────────────────────────────────────────────────────────────────────────
 print_category_header "$CAT_HEALTH" "Detecta containers em 'Restarting (n)' loop (chat ICI 20/03 — jinja2 ausente) e healthchecks unhealthy."
 
-# Para todos os containers (incl. nomeados pelo compose)
 restart_count=$(echo "$services_json" | jq '[.[] | select(.State == "restarting")] | length' 2>/dev/null || echo "0")
 if [ "$restart_count" -gt 0 ]; then
     restarting=$(echo "$services_json" | jq -r '.[] | select(.State == "restarting") | .Name' 2>/dev/null | paste -sd, -)
@@ -137,7 +153,6 @@ else
     add_ok "$CAT_HEALTH" loop 0 "restart loop" "nenhum container em loop"
 fi
 
-# Healthchecks unhealthy
 unhealthy_count=$(echo "$services_json" | jq '[.[] | select(.Health == "unhealthy")] | length' 2>/dev/null || echo "0")
 if [ "$unhealthy_count" -gt 0 ]; then
     unhealthy=$(echo "$services_json" | jq -r '.[] | select(.Health == "unhealthy") | .Name' 2>/dev/null | paste -sd, -)
@@ -147,12 +162,11 @@ else
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Port collision
+# 6. Port collision
 # ────────────────────────────────────────────────────────────────────────────
-print_category_header "$CAT_PORTS" "Portas externas do produto não devem estar ocupadas por outro processo (chat ICI 27/03 — porta 80 em uso)."
+print_category_header "$CAT_PORTS" "Portas externas do produto (expected_external_ports no manifesto) não devem estar ocupadas por outro processo (chat ICI 27/03)."
 
 for port in "${EXTERNAL_PORTS[@]}"; do
-    # Verifica se a porta está LISTEN — exclui processos do Docker (que SÃO o stack)
     if command -v ss >/dev/null 2>&1; then
         listeners=$(ss -tlnp 2>/dev/null | awk -v p=":$port " '$4 ~ p {print $7}' | head -1)
     elif command -v netstat >/dev/null 2>&1; then

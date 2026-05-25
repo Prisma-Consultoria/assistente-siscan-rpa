@@ -19,11 +19,13 @@ set -uo pipefail
 
 SPECIALIST_NAME="check-runner"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # shellcheck source=./_common.sh
 source "$SCRIPT_DIR/_common.sh"
 
 ENV_FILE="${COMPOSE_DIR:-$(pwd)}/.env"
+PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
 RUNNER_DIR="${RUNNER_DIR:-${HOME}/actions-runner}"
 
 usage() {
@@ -61,15 +63,19 @@ _read_env() {
 
 SISCAN_PRODUCT=""
 [ -f "$ENV_FILE" ] && SISCAN_PRODUCT=$(_read_env SISCAN_PRODUCT)
-REPO_OWNER="Prisma-Consultoria"
-REPO_NAME=""
-case "$SISCAN_PRODUCT" in
-    rpa)        REPO_NAME="siscan-rpa" ;;
-    dashboard)  REPO_NAME="siscan-dashboard" ;;
-    *)          REPO_NAME="" ;;  # ambíguo
-esac
 
-EXPECTED_NAME="$(hostname)-siscan-${SISCAN_PRODUCT:-?}"
+# Dados do produto vêm do manifesto (substitui case hardcoded)
+REPO_OWNER=""
+REPO_NAME=""
+EXPECTED_NAME=""
+if [ -n "$SISCAN_PRODUCT" ]; then
+    product_validate
+    repo_full=$(product_get repo)
+    REPO_OWNER="${repo_full%%/*}"
+    REPO_NAME="${repo_full##*/}"
+    suffix=$(product_get runner_name_suffix)
+    EXPECTED_NAME="$(hostname)-${suffix}"
+fi
 
 CAT_LOCAL="Instalação local do runner"
 CAT_SERVICE="Serviço systemd"

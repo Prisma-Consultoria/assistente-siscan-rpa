@@ -200,6 +200,72 @@ finalize_exit() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
+# Manifesto de produtos (scripts/data/products.json)
+#
+# Specialists que precisam diferenciar produto (rpa/dashboard/full) leem
+# do manifesto em vez de hardcodar 'case "$SISCAN_PRODUCT"'. Use:
+#
+#   PRODUCTS_FILE=/path/to/products.json   # geralmente $REPO_ROOT/scripts/data/products.json
+#   SISCAN_PRODUCT=$(read_env SISCAN_PRODUCT)
+#   product_validate                       # falha se PRODUCTS_FILE ou produto inválido
+#   compose=$(product_get compose_file)
+#   services=( $(product_get_array expected_services) )
+#   product_has_extra rsa_keys_required && check_rsa_keys
+# ────────────────────────────────────────────────────────────────────────────
+PRODUCTS_FILE="${PRODUCTS_FILE:-}"
+
+# product_validate
+#   Confere que PRODUCTS_FILE existe, é JSON válido, e SISCAN_PRODUCT está no
+#   conjunto conhecido. Falha (exit 2) caso contrário.
+product_validate() {
+    [ -n "$PRODUCTS_FILE" ] || fail "PRODUCTS_FILE não foi definido pelo specialist (especialist mal configurado)"
+    [ -f "$PRODUCTS_FILE" ] || fail "manifesto de produtos não encontrado: $PRODUCTS_FILE"
+    jq -e . "$PRODUCTS_FILE" >/dev/null 2>&1 || fail "manifesto de produtos não é JSON válido: $PRODUCTS_FILE"
+    [ -n "${SISCAN_PRODUCT:-}" ] || fail "SISCAN_PRODUCT não definido no .env — rode check-env"
+    local known
+    known=$(jq -r ".products | has(\"$SISCAN_PRODUCT\")" "$PRODUCTS_FILE")
+    if [ "$known" != "true" ]; then
+        local list
+        list=$(jq -r '.products | keys | join(", ")' "$PRODUCTS_FILE")
+        fail "SISCAN_PRODUCT='$SISCAN_PRODUCT' não existe em $PRODUCTS_FILE. Conhecidos: $list"
+    fi
+}
+
+# product_get FIELD [DEFAULT]
+#   Lê um campo string do produto atual. Retorna DEFAULT se ausente/null.
+product_get() {
+    local field="$1" default="${2:-}"
+    local val
+    val=$(jq -r ".products.\"$SISCAN_PRODUCT\".$field // empty" "$PRODUCTS_FILE" 2>/dev/null)
+    echo "${val:-$default}"
+}
+
+# product_get_array FIELD
+#   Emite cada elemento do array em linha separada (use com mapfile/<<<).
+product_get_array() {
+    local field="$1"
+    jq -r ".products.\"$SISCAN_PRODUCT\".$field[]?" "$PRODUCTS_FILE" 2>/dev/null
+}
+
+# product_has_extra KEY
+#   Retorna 0 se extras.KEY == true, 1 caso contrário.
+product_has_extra() {
+    local key="$1"
+    local val
+    val=$(jq -r ".products.\"$SISCAN_PRODUCT\".extras.\"$key\" // false" "$PRODUCTS_FILE" 2>/dev/null)
+    [ "$val" = "true" ]
+}
+
+# product_extra KEY [DEFAULT]
+#   Lê extras.KEY (string ou número). DEFAULT se ausente.
+product_extra() {
+    local key="$1" default="${2:-}"
+    local val
+    val=$(jq -r ".products.\"$SISCAN_PRODUCT\".extras.\"$key\" // empty" "$PRODUCTS_FILE" 2>/dev/null)
+    echo "${val:-$default}"
+}
+
+# ────────────────────────────────────────────────────────────────────────────
 # Parsing de flags comuns
 # common_parse_arg "$@" — retorna 0 se consumiu, 1 se não
 # Ajusta $shift_count (1 ou 2) conforme o tipo do arg.

@@ -156,8 +156,14 @@ for name in "${TO_RUN[@]}"; do
             rc=$?
             ;;
         json)
-            output="$(bash "$script" --json)"
+            output="$(bash "$script" --json 2>/dev/null)"
             rc=$?
+            # Specialist que pre-falha (exit 2, ex: .env ausente) sai com stdout vazio.
+            # Substitui por envelope de erro pra não quebrar o JSON final do doctor.
+            if [ -z "$output" ] || ! echo "$output" | jq -e . >/dev/null 2>&1; then
+                # shellcheck disable=SC2016
+                output=$(printf '{"specialist": "%s", "summary": {"total": 0, "ok": 0, "fail": 1}, "checks": [{"category": "Pré-requisito do specialist", "target": "%s", "protocol": "err", "port": 0, "status": "fail", "detail": "specialist saiu com exit=%s sem JSON válido (provável .env/PRODUCTS_FILE ausente)"}]}' "$name" "$name" "$rc")
+            fi
             SPECIALIST_OUTPUTS+=("$output")
             ;;
     esac

@@ -2,7 +2,7 @@
 
 Specialist do `siscan-server-doctor.sh` responsável por validar a conectividade de saída de uma VM com todos os endpoints externos exigidos pelos runners self-hosted do GitHub Actions, pelo pull de imagens (GHCR), pelo pull do Redis (Docker Hub) e pela validação OCSP/CRL dos certificados.
 
-Para entender **quando** rodar diagnósticos no ciclo de vida de uma VM, consulte o guia narrativo em [`../../DEPLOY_SERVER.md`](../../DEPLOY_SERVER.md). Este documento é a referência precisa do specialist `check-network`: opções, exit codes, formato de entrada e saída.
+Para entender **quando** rodar diagnósticos no ciclo de vida de uma VM, consulte o guia narrativo em [`../../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md). Este documento é a referência precisa do specialist `check-network`: opções, exit codes, formato de entrada e saída.
 
 ## Histórico de mudanças
 
@@ -14,7 +14,7 @@ Para entender **quando** rodar diagnósticos no ciclo de vida de uma VM, consult
 
 ## Origem e relação com outros scripts
 
-Este specialist **não é uma refatoração de código** do `siscan-server-setup.sh` — nenhuma das 10 fases do setup tinha verificação de rede. O que se migrou foi o item *Conectividade HTTPS* da **tabela de pré-requisitos** em [`../../DEPLOY_SERVER.md`](../../DEPLOY_SERVER.md), que era um comando manual (`curl -Iv https://github.com`, cobrindo 1 endpoint) — agora se torna um specialist automatizado cobrindo 22 endpoints, categorizados por finalidade, com saída estruturada e exit codes para uso em cron.
+Este specialist **não é uma refatoração de código** do `siscan-server-setup.sh` — nenhuma das 10 fases do setup tinha verificação de rede. O que se migrou foi o item *Conectividade HTTPS* da **tabela de pré-requisitos** em [`../../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md), que era um comando manual (`curl -Iv https://github.com`, cobrindo 1 endpoint) — agora se torna um specialist automatizado cobrindo 22 endpoints, categorizados por finalidade, com saída estruturada e exit codes para uso em cron.
 
 A relação com os outros scripts da feature [#28](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/28) é de **complementaridade**, não de extração:
 
@@ -50,7 +50,7 @@ bash siscan-server-doctor.sh --only check-network
 | Código | Significado | Ação sugerida |
 |---|---|---|
 | `0` | Todos os endpoints alcançáveis | Prosseguir com setup / deploy |
-| `1` | Pelo menos um FAIL | Consulte [`../../TROUBLESHOOTING.md`](../../TROUBLESHOOTING.md#problema-d--falha-no-pull-por-rede-instável--firewall) ou abra requisição de reabertura de firewall (para VMs do ICI, referenciar requisição **753315**) |
+| `1` | Pelo menos um FAIL | Consulte [`../../TROUBLESHOOTING.md`](../TROUBLESHOOTING.md#problema-d--falha-no-pull-por-rede-instável--firewall) ou abra requisição de reabertura de firewall (para VMs do ICI, referenciar requisição **753315**) |
 | `2` | Uso inválido, dependência ausente ou JSON inválido | Verificar mensagem de erro no stderr |
 
 ## Critério de aceitação
@@ -76,7 +76,7 @@ Não exige root.
 
 ## Fonte de verdade dos FQDNs
 
-A lista verificada vive em [`../../../scripts/data/network-endpoints.json`](../../../scripts/data/network-endpoints.json) e combina duas fontes:
+A lista verificada vive em [`../../../scripts/data/network-endpoints.json`](../../scripts/data/network-endpoints.json) e combina duas fontes:
 
 1. Documento **Reativação de whitelist — VMs siscan-dashboard e siscan-rpa v2.0** (requisição ICI 753315), seções 3 a 7.
 2. [Referência oficial atual do GitHub](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication) — seção *Communication*.
@@ -210,7 +210,7 @@ FAIL [check-network] https/443 objects-origin.githubusercontent.com: timeout/con
 
 ## Ver também
 
-- [`../../DEPLOY_SERVER.md`](../../DEPLOY_SERVER.md) — guia narrativo de deploy completo
-- [`../../TROUBLESHOOTING.md`](../../TROUBLESHOOTING.md) — Problema D (rede / firewall)
-- [`../../../scripts/data/network-endpoints.json`](../../../scripts/data/network-endpoints.json) — fonte de verdade dos FQDNs
+- [`../../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md) — guia narrativo de deploy completo
+- [`../../TROUBLESHOOTING.md`](../TROUBLESHOOTING.md) — Problema D (rede / firewall)
+- [`../../../scripts/data/network-endpoints.json`](../../scripts/data/network-endpoints.json) — fonte de verdade dos FQDNs
 - [`../../../scripts/deploy_server/_common.sh`](../../../scripts/deploy_server/_common.sh) — biblioteca compartilhada (cores, helpers, renderização)

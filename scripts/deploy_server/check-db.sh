@@ -15,10 +15,13 @@ set -uo pipefail
 SPECIALIST_NAME="check-db"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 # shellcheck source=./_common.sh
 source "$SCRIPT_DIR/_common.sh"
 
 ENV_FILE="${COMPOSE_DIR:-$(pwd)}/.env"
+PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
 TIMEOUT_SEC=5
 
 usage() {
@@ -106,10 +109,11 @@ else
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Banco do RPA visto pelo dashboard (só se SISCAN_PRODUCT=dashboard ou full)
+# Banco do RPA visto pelo dashboard (só se produto exigir RPA_DATABASE_URL)
+# Antes: case "$SISCAN_PRODUCT" in dashboard|full)
+# Agora: extras.rpa_database_url_required do manifesto
 # ────────────────────────────────────────────────────────────────────────────
-case "$SISCAN_PRODUCT" in
-    dashboard|full)
+if [ -n "$SISCAN_PRODUCT" ] && product_validate >/dev/null 2>&1 && product_has_extra rpa_database_url_required; then
         print_category_header "$CAT_RPA_DB" "RPA_DATABASE_URL — o container 'sync' do dashboard lê o banco do RPA pra importar exames. Sem isso, sync_exames não funciona."
 
         rpa_url=$(_read_env RPA_DATABASE_URL)
@@ -137,8 +141,7 @@ case "$SISCAN_PRODUCT" in
         else
             print_category_guidance ok "Dashboard consegue ler dados do RPA. Próximo passo: sync_exames vai funcionar (re-rode 'docker compose exec app python -m src.commands.sync_exames --full' após restauração de backup)."
         fi
-        ;;
-esac
+fi
 
 render_results
 finalize_exit

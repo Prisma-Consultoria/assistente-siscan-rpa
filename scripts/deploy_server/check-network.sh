@@ -43,6 +43,8 @@ source "$SCRIPT_DIR/_common.sh"
 # ────────────────────────────────────────────────────────────────────────────
 TIMEOUT_SEC=10
 ENDPOINTS_FILE="${REPO_ROOT}/scripts/data/network-endpoints.json"
+PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
+ENV_FILE="${COMPOSE_DIR:-$(pwd)}/.env"
 
 usage() {
     cat <<EOF
@@ -70,6 +72,8 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --endpoints-file)   ENDPOINTS_FILE="${2:-}"; shift 2 ;;
         --endpoints-file=*) ENDPOINTS_FILE="${1#*=}"; shift ;;
+        --env-file)         ENV_FILE="${2:-}"; shift 2 ;;
+        --env-file=*)       ENV_FILE="${1#*=}"; shift ;;
         -h|--help)          usage; exit 0 ;;
         *)
             if common_parse_arg "$@"; then
@@ -192,6 +196,46 @@ for i in $(seq 0 $((cat_count - 1))); do
         print_category_guidance fail "$on_fail"
     fi
 done
+
+# ────────────────────────────────────────────────────────────────────────────
+# Categoria condicional: SISCAN portal (P2)
+# Só ativa quando SISCAN_PRODUCT define siscan_portal_url_default no manifesto
+# (atualmente apenas rpa e full). URL pode ser sobrescrita via .env: SISCAN_URL.
+# ────────────────────────────────────────────────────────────────────────────
+if [ -f "$ENV_FILE" ] && [ -f "$PRODUCTS_FILE" ]; then
+    siscan_product_local=$(grep -E '^SISCAN_PRODUCT=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2-)
+    if [ -n "$siscan_product_local" ]; then
+        SISCAN_PRODUCT="$siscan_product_local"
+        if product_validate >/dev/null 2>&1; then
+            siscan_default=$(product_extra siscan_portal_url_default)
+            if [ -n "$siscan_default" ]; then
+                # Lê SISCAN_URL do .env ou cai no default do manifesto
+                siscan_url=$(grep -E '^SISCAN_URL=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/^["'\'']\(.*\)["'\'']$/\1/')
+                siscan_url="${siscan_url:-$siscan_default}"
+                # Extrair só o host pra exibir
+                siscan_host=$(echo "$siscan_url" | sed -E 's|^https?://||;s|/.*||')
+
+                print_category_header "Portal SISCAN ($SISCAN_PRODUCT — opcional)" "URL do portal SISCAN configurada pra este produto (do .env ou default do manifesto). RPA não autentica sem isso."
+
+                fail_before=$FAIL_COUNT
+                code=$(curl -k -s -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT_SEC" "$siscan_url" 2>/dev/null) || code="000"
+                if [ -z "$code" ] || [ "$code" = "000" ]; then
+                    add_fail "Portal SISCAN ($SISCAN_PRODUCT — opcional)" https 443 "$siscan_host" "firewall bloqueou — sem resposta (TCP/TLS não completou)"
+                elif [ "$code" -ge 200 ] && [ "$code" -lt 400 ]; then
+                    add_ok "Portal SISCAN ($SISCAN_PRODUCT — opcional)" https 443 "$siscan_host" "$code esperado · portal acessível"
+                else
+                    add_ok "Portal SISCAN ($SISCAN_PRODUCT — opcional)" https 443 "$siscan_host" "$code · TLS OK, portal pode estar fora do ar (verificar manualmente)"
+                fi
+
+                if [ "$FAIL_COUNT" -eq "$fail_before" ]; then
+                    print_category_guidance ok "Servidor consegue alcançar o portal SISCAN. Próximo passo: RPA poderá autenticar (precisará de credenciais cadastradas em /admin/siscan-credentials)."
+                else
+                    print_category_guidance fail "Servidor NÃO alcança o portal SISCAN — RPA não vai conseguir autenticar nem baixar PDFs. AÇÃO: verificar firewall/proxy/DNS pro endereço $siscan_url; o destino é externo (internet pública), não VLAN interna do ICI."
+                fi
+            fi
+        fi
+    fi
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Renderização final (resumo + interpretação) e exit

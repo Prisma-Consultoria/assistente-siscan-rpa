@@ -121,6 +121,27 @@ else
     add_ok "$CAT_POOL" config 0 "daemon.json" "não configurado (padrão Docker)"
 fi
 
+# Listar redes Docker existentes + subnets (P2)
+# Útil pra diagnosticar conflitos de pool (sub-rede já em uso) antes do
+# 'network create' falhar.
+print_category_header "Redes Docker existentes" "Inventário de redes e sub-redes em uso — diagnóstico complementar pra conflitos de pool."
+
+CAT_NETLIST="Redes Docker existentes"
+net_count=0
+while IFS= read -r net_id; do
+    [ -z "$net_id" ] && continue
+    net_name=$(docker network inspect "$net_id" --format '{{.Name}}' 2>/dev/null)
+    net_subnet=$(docker network inspect "$net_id" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null | xargs)
+    if [ -n "$net_subnet" ]; then
+        add_ok "$CAT_NETLIST" net 0 "$net_name" "subnet: $net_subnet"
+    else
+        add_ok "$CAT_NETLIST" net 0 "$net_name" "(sem IPAM config — provavelmente bridge default ou none)"
+    fi
+    net_count=$((net_count + 1))
+done < <(docker network ls -q 2>/dev/null)
+
+[ "$net_count" -eq 0 ] && add_ok "$CAT_NETLIST" net 0 "(nenhuma)" "nenhuma rede encontrada"
+
 # TESTE REAL: criar e remover network. Esse é o gold standard — passa exatamente
 # o cenário do chat ICI (docker network create teste falhando com address pool esgotado).
 print_category_header "$CAT_NETWORK" "Gold standard: cria e remove uma rede de teste. Se passar aqui, o pool funciona; se falhar, o erro real aparece embaixo."
