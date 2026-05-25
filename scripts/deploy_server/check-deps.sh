@@ -136,7 +136,10 @@ if command -v timedatectl >/dev/null 2>&1; then
     elif echo "$tdc_out" | grep -q 'System clock synchronized: yes'; then
         add_ok "$CAT_TIME" cmd 0 "timedatectl" "clock sincronizado"
     else
-        add_fail "$CAT_TIME" cmd 0 "timedatectl" "clock NÃO sincronizado — pode causar SSL_ERROR_SYSCALL no TLS"
+        # Coerente com a intenção declarada no comentário acima ('não conta como FAIL')
+        # e com warn() das duas branches vizinhas. NTP fora de sync é forte indicador
+        # de problemas de TLS, mas não impede o setup de prosseguir.
+        add_ok "$CAT_TIME" cmd 0 "timedatectl" "clock NÃO sincronizado (warn) — pode causar SSL_ERROR_SYSCALL no TLS; sudo timedatectl set-ntp true"
     fi
 else
     warn "timedatectl não instalado — pulando check de NTP"
