@@ -28,13 +28,14 @@ Cada specialist é responsável por uma dimensão da saúde da VM. Todos podem s
 | Specialist | Dimensão | Referência |
 |---|---|---|
 | `check-network` | 22 endpoints externos (runner GitHub Actions, GHCR, Docker Hub, OCSP/CRL) — validação de firewall | [scripts/check-network.md](scripts/check-network.md) |
-| `check-deps` | Binários locais (docker, compose, curl, jq, sudo) + sincronização NTP | (a documentar) |
+| `check-deps` | Binários locais (docker, compose, curl, jq, sudo, git) + sincronização NTP + OS (Ubuntu 24.04) | (a documentar) |
+| `check-resources` | vCPUs (≥4), RAM (≥8GB), disco livre (≥20GB) em `$COMPOSE_DIR` conforme DEPLOY_SERVER.md | (a documentar) |
 | `check-env` | `.env` preenchido conforme manifesto, formato de `RPA_DATABASE_URL`, defaults de senha, port validity | (a documentar) |
 | `check-docker` | Docker daemon ativo, grupo, daemon.json pool, teste real de network create | (a documentar) |
-| `check-stack` | Compose file presente + parse OK, imagem disponível, containers running sem restart loop, port collision | (a documentar) |
+| `check-stack` | Compose file + parse OK, imagem local + GHCR remoto, containers running sem restart loop, port collision | (a documentar) |
 | `check-permissions` | Ownership do COMPOSE_DIR, git safe.directory, HOST_*_DIR escrevíveis, chaves RSA, UID 1000 em data/.artifacts | (a documentar) |
 | `check-runner` | Runner GitHub Actions: instalação local + serviço systemd + registro remoto + regra dos 30 dias | (a documentar) |
-| `check-db` | TCP/5432 + pg_isready para DATABASE_HOST e RPA_DATABASE_URL (dashboard) | (a documentar) |
+| `check-db` | TCP/5432 + pg_isready + versão PostgreSQL (≥16) para DATABASE_HOST e RPA_DATABASE_URL (dashboard) | (a documentar) |
 
 ## Manifesto de produtos
 

@@ -95,6 +95,34 @@ print_category_header "$CAT_SYSTEM" "Comandos básicos usados pelo siscan-server
 _check_bin "$CAT_SYSTEM" sudo    "sudo --version | head -1 | awk '{print \$3}'"
 _check_bin "$CAT_SYSTEM" timeout "timeout --version | head -1 | awk '{print \$NF}'"
 _check_bin "$CAT_SYSTEM" getent  ""
+_check_bin "$CAT_SYSTEM" git     "git --version | awk '{print \$3}'"
+
+# Sistema operacional (DEPLOY_SERVER.md pré-req: Ubuntu 24.04 LTS)
+CAT_OS="Sistema operacional"
+print_category_header "$CAT_OS" "Ubuntu 24.04 LTS é o alvo testado no DEPLOY_SERVER.md — versões mais antigas podem ter Docker/Compose desatualizados."
+os_id=""
+os_ver=""
+if [ -f /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    os_id=$(grep -E '^ID=' /etc/os-release | head -1 | cut -d= -f2 | tr -d '"')
+    os_ver=$(grep -E '^VERSION_ID=' /etc/os-release | head -1 | cut -d= -f2 | tr -d '"')
+fi
+
+if [ -z "$os_id" ]; then
+    add_fail "$CAT_OS" os 0 "OS" "/etc/os-release ausente — não dá pra identificar a distro"
+elif [ "$os_id" = "ubuntu" ]; then
+    # Compara major version (24, 22, 20...)
+    os_major="${os_ver%%.*}"
+    if [ "$os_major" -ge 24 ] 2>/dev/null; then
+        add_ok "$CAT_OS" os 0 "Ubuntu $os_ver" "alvo do DEPLOY_SERVER.md"
+    elif [ "$os_major" -ge 22 ] 2>/dev/null; then
+        add_ok "$CAT_OS" os 0 "Ubuntu $os_ver" "anterior ao alvo (24.04) mas suportado — pode ter Docker/Compose desatualizados"
+    else
+        add_fail "$CAT_OS" os 0 "Ubuntu $os_ver" "muito antiga — DEPLOY_SERVER.md exige 24.04 LTS"
+    fi
+else
+    add_fail "$CAT_OS" os 0 "$os_id $os_ver" "distro não testada — DEPLOY_SERVER.md exige Ubuntu 24.04 LTS"
+fi
 
 # Sincronização de tempo
 print_category_header "$CAT_TIME" "Clock dessincronizado causa SSL_ERROR_SYSCALL no TLS — sintoma típico relatado no chat ICI em 06/05."

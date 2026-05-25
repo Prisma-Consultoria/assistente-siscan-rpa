@@ -61,7 +61,7 @@ command -v pg_isready >/dev/null 2>&1 && HAS_PG_ISREADY=true
 # _check_db_target CATEGORY HOST PORT [USER] [DB_NAME]
 #   Faz TCP/5432 e, se pg_isready disponível, valida o protocolo Postgres.
 _check_db_target() {
-    local category="$1" host="$2" port="${3:-5432}" user="${4:-}" db="${5:-}"
+    local category="$1" host="$2" port="${3:-5432}" user="${4:-}" db="${5:-}" password="${6:-}"
 
     # TCP
     if timeout "$TIMEOUT_SEC" bash -c "exec 3<>/dev/tcp/${host}/${port}" 2>/dev/null; then
@@ -81,6 +81,27 @@ _check_db_target() {
     elif ! $HAS_PG_ISREADY; then
         info "pg_isready ausente (apt install postgresql-client) — validação restrita a TCP/$port"
     fi
+
+    # Versão do PostgreSQL (DEPLOY_SERVER.md pré-req: >= 16). Requer psql + senha.
+    # Skip controlado se psql ausente ou senha vazia.
+    if command -v psql >/dev/null 2>&1 && [ -n "$password" ] && [ -n "$user" ] && [ -n "$db" ]; then
+        ver_raw=$(PGPASSWORD="$password" psql -h "$host" -p "$port" -U "$user" -d "$db" \
+                    -tAc "SHOW server_version" 2>/dev/null | head -1)
+        if [ -n "$ver_raw" ]; then
+            ver_major=$(echo "$ver_raw" | cut -d. -f1)
+            if [ "$ver_major" -ge 16 ] 2>/dev/null; then
+                add_ok "$category" pg "$port" "${host}/${db}" "PostgreSQL $ver_raw (>= 16)"
+            elif [ "$ver_major" -ge 14 ] 2>/dev/null; then
+                add_ok "$category" pg "$port" "${host}/${db}" "PostgreSQL $ver_raw (anterior ao alvo 16 mas funcional)"
+            else
+                add_fail "$category" pg "$port" "${host}/${db}" "PostgreSQL $ver_raw muito antigo — DEPLOY_SERVER.md exige >= 16"
+            fi
+        else
+            info "psql disponível mas SHOW server_version falhou (auth/network?) — versão não verificada"
+        fi
+    elif ! command -v psql >/dev/null 2>&1; then
+        info "psql ausente (apt install postgresql-client) — versão do PostgreSQL não verificada"
+    fi
 }
 
 CAT_LOCAL_DB="Banco principal do produto"
@@ -96,11 +117,12 @@ db_port=$(_read_env DATABASE_PORT)
 db_port="${db_port:-5432}"
 db_user=$(_read_env DATABASE_USER)
 db_name=$(_read_env DATABASE_NAME)
+db_pass=$(_read_env DATABASE_PASSWORD)
 
 if [ -z "$db_host" ] || [ "$db_host" = "db" ]; then
     add_fail "$CAT_LOCAL_DB" env 0 "DATABASE_HOST" "vazio ou inválido ('$db_host') — rode check-env"
 else
-    _check_db_target "$CAT_LOCAL_DB" "$db_host" "$db_port" "$db_user" "$db_name"
+    _check_db_target "$CAT_LOCAL_DB" "$db_host" "$db_port" "$db_user" "$db_name" "$db_pass"
 fi
 
 if [ "$FAIL_COUNT" -eq 0 ] && [ -n "$db_host" ]; then
@@ -126,6 +148,8 @@ if [ -n "$SISCAN_PRODUCT" ] && product_validate >/dev/null 2>&1 && product_has_e
             # Parse: postgresql://USER:PASS@HOST:PORT/DB
             rpa_user="${rpa_url#postgresql://}"
             rpa_user="${rpa_user%%:*}"
+            rpa_pass="${rpa_url#postgresql://*:}"
+            rpa_pass="${rpa_pass%%@*}"
             rpa_rest="${rpa_url#postgresql://*:*@}"
             rpa_host="${rpa_rest%%:*}"
             rpa_rest="${rpa_rest#*:}"
@@ -133,7 +157,7 @@ if [ -n "$SISCAN_PRODUCT" ] && product_validate >/dev/null 2>&1 && product_has_e
             rpa_db="${rpa_rest#*/}"
             rpa_db="${rpa_db%%\?*}"
 
-            _check_db_target "$CAT_RPA_DB" "$rpa_host" "$rpa_port" "$rpa_user" "$rpa_db"
+            _check_db_target "$CAT_RPA_DB" "$rpa_host" "$rpa_port" "$rpa_user" "$rpa_db" "$rpa_pass"
         fi
 
         # Veredito específico desta categoria

@@ -102,11 +102,29 @@ fi
 print_category_header "$CAT_IMAGE" "Imagem esperada (manifesto) precisa estar em cache local OU pull tem que funcionar."
 
 if [ -n "$EXPECTED_IMAGE" ] && [ "$EXPECTED_IMAGE" != "(múltiplas — siscan-rpa-rpa + siscan-dashboard)" ]; then
+    # 3a — Cache local (rápido, sem rede)
     if docker image inspect "$EXPECTED_IMAGE" >/dev/null 2>&1; then
         size=$(docker image inspect "$EXPECTED_IMAGE" --format '{{.Size}}' 2>/dev/null | numfmt --to=iec --suffix=B 2>/dev/null || echo "?")
-        add_ok "$CAT_IMAGE" image 0 "$EXPECTED_IMAGE" "presente localmente ($size)"
+        add_ok "$CAT_IMAGE" image 0 "$EXPECTED_IMAGE" "presente em cache local ($size)"
     else
-        add_fail "$CAT_IMAGE" image 0 "$EXPECTED_IMAGE" "ausente — 'docker compose -f $(basename "$COMPOSE_FILE") pull' ou aguarde o CD"
+        add_fail "$CAT_IMAGE" image 0 "$EXPECTED_IMAGE" "ausente em cache local — 'docker compose -f $(basename "$COMPOSE_FILE") pull' ou aguarde o CD"
+    fi
+
+    # 3b — GHCR remoto (catch caso build falhou ou tag nunca foi publicada)
+    # Usa 'docker manifest inspect' que aproveita docker login se já feito.
+    # Não exige imagem em cache local — vai direto no registry.
+    if docker manifest inspect "$EXPECTED_IMAGE" >/dev/null 2>&1; then
+        digest=$(docker manifest inspect "$EXPECTED_IMAGE" 2>/dev/null | jq -r '.config.digest // .manifests[0].digest // "?"' 2>/dev/null | head -c 19)
+        add_ok "$CAT_IMAGE" image 0 "$EXPECTED_IMAGE (remote)" "tag publicada no GHCR (digest ${digest}...)"
+    else
+        err=$(docker manifest inspect "$EXPECTED_IMAGE" 2>&1 | tail -1 | head -c 100)
+        if echo "$err" | grep -qiE "unauthorized|denied"; then
+            info "docker manifest inspect: precisa de 'docker login ghcr.io' (pull funciona via CD com GITHUB_TOKEN)"
+        elif echo "$err" | grep -qiE "manifest unknown|not found"; then
+            add_fail "$CAT_IMAGE" image 0 "$EXPECTED_IMAGE (remote)" "TAG NÃO EXISTE no GHCR — build workflow falhou ou imagem nunca foi publicada"
+        else
+            info "docker manifest inspect inconclusivo: $err"
+        fi
     fi
 fi
 
