@@ -4,7 +4,7 @@
 # -------------------------------------------
 # Arquivo: siscan-server-doctor.sh
 # Propósito: Orquestrar a execução de todos os specialists de diagnóstico em
-#            scripts/deploy_server/diagnostics/check-*.sh, agregando os resultados num único
+#            scripts/deploy_server/check-*.sh, agregando os resultados num único
 #            relatório consolidado.
 #
 # Cada specialist é callable standalone, mas o doctor é o entry point recomendado
@@ -39,11 +39,11 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SPECIALISTS_DIR="$SCRIPT_DIR/scripts/deploy_server/diagnostics"
+SPECIALISTS_DIR="$SCRIPT_DIR/scripts/deploy_server"
 SPECIALIST_NAME="doctor"
 
 # Source da biblioteca comum (cores, helpers, OUTPUT_MODE)
-# shellcheck source=scripts/deploy_server/diagnostics/_common.sh
+# shellcheck source=scripts/deploy_server/_common.sh
 source "$SPECIALISTS_DIR/_common.sh"
 
 # ────────────────────────────────────────────────────────────────────────────

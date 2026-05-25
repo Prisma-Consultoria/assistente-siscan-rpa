@@ -136,7 +136,7 @@ Antes de prosseguir com a instalação — e sempre que o deploy quebrar — rod
 bash ./siscan-server-doctor.sh
 ```
 
-O doctor orquestra os specialists em `scripts/deploy_server/diagnostics/check-*.sh`, cada um cobrindo uma dimensão da saúde da VM. Saída `N/N specialists OK` libera o próximo passo. Saída com `FAIL` em algum specialist aponta a causa-raiz — consulte [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) para a ação corretiva associada.
+O doctor orquestra os specialists em `scripts/deploy_server/check-*.sh`, cada um cobrindo uma dimensão da saúde da VM. Saída `N/N specialists OK` libera o próximo passo. Saída com `FAIL` em algum specialist aponta a causa-raiz — consulte [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) para a ação corretiva associada.
 
 Specialists planejados (status atual entre `[]`):
 
@@ -155,7 +155,7 @@ Para rodar um specialist isoladamente:
 
 ```bash
 bash siscan-server-doctor.sh --only check-network         # via doctor
-bash scripts/deploy_server/diagnostics/check-network.sh   # standalone
+bash scripts/deploy_server/check-network.sh               # standalone
 ```
 
 > **Monitoramento contínuo (recomendação 12.8 do PDF de whitelist):** programe `siscan-server-doctor.sh --quiet` em cron a cada 5 minutos. Exit != 0 dispara alerta. Isso evita que uma nova expiração de regra de firewall — ou outras regressões — passem despercebidas por semanas, como aconteceu em 15/04/2026.

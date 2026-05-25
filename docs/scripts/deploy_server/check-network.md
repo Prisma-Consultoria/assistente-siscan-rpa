@@ -8,7 +8,7 @@ Para entender **quando** rodar diagnósticos no ciclo de vida de uma VM, consult
 
 | Versão | Data | Mudança |
 |---|---|---|
-| 1.2 | 2026-05-25 | Movido para `scripts/deploy_server/diagnostics/check-network.sh` (subpasta dedicada a specialists de diagnóstico — abre espaço pra outros tipos de scripts em `scripts/deploy_server/` no futuro). UX: header explicativo de escopo (validação de firewall) + reescrita por linha como "código esperado · porquê". |
+| 1.2 | 2026-05-25 | UX: header explicativo de escopo (validação de firewall) + reescrita por linha como "código esperado · porquê" + guidance por categoria com próximo passo concreto. |
 | 1.1 | 2026-05-25 | Refatorado para usar `_common.sh` (cores, helpers, renderização compartilhados entre specialists). Mesma cobertura (22 endpoints). |
 | 1.0 | 2026-05-25 | Versão inicial — 22 endpoints (req ICI 753315 v2.0 + GitHub docs *self-hosted-runners#communication*). Automatiza o item *Conectividade HTTPS* da tabela de pré-requisitos do `DEPLOY_SERVER.md`, que antes era um `curl -Iv https://github.com` manual. |
 
@@ -28,8 +28,8 @@ A relação com os outros scripts da feature [#28](https://github.com/Prisma-Con
 
 ```bash
 # Standalone
-bash scripts/deploy_server/diagnostics/check-network.sh [--quiet | --json] [--timeout SEC] [--endpoints-file FILE]
-bash scripts/deploy_server/diagnostics/check-network.sh --help
+bash scripts/deploy_server/check-network.sh [--quiet | --json] [--timeout SEC] [--endpoints-file FILE]
+bash scripts/deploy_server/check-network.sh --help
 
 # Via orquestrador (recomendado para diagnóstico amplo)
 bash siscan-server-doctor.sh --only check-network
@@ -137,7 +137,7 @@ A seção 8 do PDF (SMTP e Keycloak/OIDC) e a seção 9 (Postgres 5432 via VLAN 
 ### Validação pré-deploy
 
 ```bash
-bash scripts/deploy_server/diagnostics/check-network.sh && echo "Rede OK, posso rodar siscan-server-setup.sh"
+bash scripts/deploy_server/check-network.sh && echo "Rede OK, posso rodar siscan-server-setup.sh"
 ```
 
 ### Diagnóstico amplo via doctor
@@ -153,7 +153,7 @@ Conforme recomendação 12.8 do PDF. Em `/etc/cron.d/siscan-network-check`:
 
 ```
 */5 * * * * siscan cd /opt/siscan/assistente-siscan-rpa && \
-            bash scripts/deploy_server/diagnostics/check-network.sh --quiet >> /var/log/siscan-network-check.log 2>&1 || \
+            bash scripts/deploy_server/check-network.sh --quiet >> /var/log/siscan-network-check.log 2>&1 || \
             logger -t siscan-network-check "FAIL: $(date)"
 ```
 
@@ -162,13 +162,13 @@ A primeira execução com FAIL aparece em `journalctl -t siscan-network-check`; 
 ### Integração com ferramenta externa via JSON
 
 ```bash
-bash scripts/deploy_server/diagnostics/check-network.sh --json | jq '.checks[] | select(.status == "fail")'
+bash scripts/deploy_server/check-network.sh --json | jq '.checks[] | select(.status == "fail")'
 ```
 
 ### Lista customizada para teste
 
 ```bash
-bash scripts/deploy_server/diagnostics/check-network.sh \
+bash scripts/deploy_server/check-network.sh \
     --endpoints-file /tmp/extra-endpoints.json \
     --timeout 20
 ```
@@ -213,4 +213,4 @@ FAIL [check-network] https/443 objects-origin.githubusercontent.com: timeout/con
 - [`../../DEPLOY_SERVER.md`](../../DEPLOY_SERVER.md) — guia narrativo de deploy completo
 - [`../../TROUBLESHOOTING.md`](../../TROUBLESHOOTING.md) — Problema D (rede / firewall)
 - [`../../../scripts/data/network-endpoints.json`](../../../scripts/data/network-endpoints.json) — fonte de verdade dos FQDNs
-- [`../../../scripts/deploy_server/diagnostics/_common.sh`](../../../scripts/deploy_server/diagnostics/_common.sh) — biblioteca compartilhada (cores, helpers, renderização)
+- [`../../../scripts/deploy_server/_common.sh`](../../../scripts/deploy_server/_common.sh) — biblioteca compartilhada (cores, helpers, renderização)
