@@ -48,6 +48,9 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# timeout (coreutils) é usado pra TCP check com bind do file descriptor
+require_commands timeout
+
 _read_env() {
     grep -E "^${1}=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/^["'\'']\(.*\)["'\'']$/\1/'
 }

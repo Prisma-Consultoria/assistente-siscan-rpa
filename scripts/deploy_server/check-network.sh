@@ -91,9 +91,7 @@ done
 # ────────────────────────────────────────────────────────────────────────────
 # Pré-requisitos
 # ────────────────────────────────────────────────────────────────────────────
-command -v curl    >/dev/null 2>&1 || fail "curl não está instalado. Instale com: sudo apt install -y curl"
-command -v jq      >/dev/null 2>&1 || fail "jq não está instalado. Instale com: sudo apt install -y jq"
-command -v timeout >/dev/null 2>&1 || fail "timeout não está instalado (parte do coreutils). Instale com: sudo apt install -y coreutils"
+require_commands curl jq timeout
 [ -f "$ENDPOINTS_FILE" ] || fail "arquivo de endpoints não encontrado: $ENDPOINTS_FILE"
 jq -e . "$ENDPOINTS_FILE" >/dev/null 2>&1 || fail "arquivo de endpoints não é um JSON válido: $ENDPOINTS_FILE"
 

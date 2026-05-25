@@ -158,6 +158,19 @@ fi
 [ ${#TO_RUN[@]} -gt 0 ] || fail "nenhum specialist a rodar (--only/--except não casou com nada)"
 
 # ────────────────────────────────────────────────────────────────────────────
+# Preflight: utilitários Linux essenciais do próprio doctor
+#
+# jq é obrigatório aqui porque o doctor agrega o output JSON dos specialists
+# com `echo "$output" | jq -e .` (validação) e `jq -r '.summary.ok/.total'`
+# (resumo no progresso). Sem jq, o doctor não consegue cumprir sua função em
+# --json. Outros utilitários (curl, timeout, docker, etc.) são checados por
+# cada specialist via require_commands em _common.sh — não duplicar aqui.
+#
+# Posicionado APÓS --list pra não exigir jq pra inventário (--list usa só grep).
+# ────────────────────────────────────────────────────────────────────────────
+require_commands jq
+
+# ────────────────────────────────────────────────────────────────────────────
 # Execução
 # Cada specialist é invocado num subshell com o mesmo OUTPUT_MODE.
 # Para JSON, o doctor agrega os JSONs individuais em um envelope consolidado.

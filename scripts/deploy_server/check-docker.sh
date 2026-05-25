@@ -44,7 +44,8 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-command -v docker >/dev/null 2>&1 || fail "docker não está instalado (rode check-deps primeiro)"
+# jq é usado pra parsear daemon.json mais abaixo; docker é o sujeito do diagnóstico
+require_commands docker jq
 
 CAT_DAEMON="Daemon"
 CAT_PERMS="Permissões"

@@ -51,6 +51,9 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# jq é usado por product_validate (via _common.sh) pra ler products.json
+require_commands jq
+
 [ -f "$ENV_FILE" ] || fail "arquivo .env não encontrado: $ENV_FILE (use --env-file para apontar para outro caminho)"
 
 # _read_env VAR — lê valor do .env como dados, sem source/eval.

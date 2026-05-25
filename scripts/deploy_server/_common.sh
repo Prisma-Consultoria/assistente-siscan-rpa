@@ -77,7 +77,8 @@ fail() { printf "\n${RED}ERRO: %s${NC}\n\n" "$1" >&2; exit 2; }
 #   aspas envolventes — o caller adiciona "...".
 #
 #   Por que sem jq: callers que precisam disso são fallbacks pra cenários
-#   onde jq pode estar ausente (ex: envelope sintético de erro no doctor).
+#   onde jq pode estar ausente (ex: envelope sintético de erro no doctor,
+#   require_commands quando jq está entre os faltantes).
 #
 #   Cobre o subset que aparece em stderr de fail() / set -u / pipefail:
 #   backslash, aspas duplas, \n \r \t. Outros control chars (0x00-0x1F)
@@ -93,6 +94,69 @@ _json_escape() {
     # Remove control chars restantes (0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F)
     s=$(printf '%s' "$s" | tr -d '\000-\010\013\014\016-\037')
     printf '%s' "$s"
+}
+
+# require_commands cmd1 cmd2 ...
+#
+# Preflight de utilitários Linux: aborta o specialist antes de qualquer check
+# se algum dos comandos pedidos estiver ausente, com uma única mensagem
+# orientativa consolidada (sudo apt install -y X Y Z).
+#
+# Substitui o padrão antigo de N chamadas seriais de `command -v X || fail "X..."`
+# espalhadas pelos specialists, que falhavam na PRIMEIRA ausência sem mostrar as
+# demais — operador instalava uma, rodava de novo, descobria a próxima, etc.
+#
+# IMPORTANTE: a montagem do envelope JSON aqui NÃO pode usar jq, porque jq pode
+# ser exatamente o binário ausente. Por isso o JSON é construído com printf, com
+# escape manual aceitável já que nomes de comandos são alfanuméricos simples
+# (sem aspas, newlines, etc).
+#
+# Em human: mensagem orientativa em stderr (visível tanto standalone quanto via
+# doctor, que captura stderr no envelope sintético desde a melhoria do mascaramento).
+# Em quiet: linha FAIL única em stdout.
+# Em json: envelope válido com um check FAIL por cmd ausente.
+# Exit code: 2 (uso inválido / pré-requisito do host não atendido).
+require_commands() {
+    local missing=()
+    local cmd
+    for cmd in "$@"; do
+        command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+    done
+    [ ${#missing[@]} -eq 0 ] && return 0
+
+    local cmds_csv="${missing[*]}"
+    local install_cmd="sudo apt install -y ${missing[*]}"
+    local total="${#missing[@]}"
+
+    case "$OUTPUT_MODE" in
+        json)
+            # Constrói JSON com printf (jq pode estar entre os ausentes).
+            printf '{\n'
+            printf '  "specialist": "%s",\n' "$SPECIALIST_NAME"
+            printf '  "summary": {"total": %d, "ok": 0, "fail": %d},\n' "$total" "$total"
+            printf '  "checks": [\n'
+            local i=0 last=$((total - 1)) sep
+            for cmd in "${missing[@]}"; do
+                sep=","
+                [ "$i" -eq "$last" ] && sep=""
+                printf '    {"category": "Utilitário Linux ausente", "target": "%s", "protocol": "cmd", "port": 0, "status": "fail", "detail": "binário ausente — instale com: sudo apt install -y %s"}%s\n' \
+                    "$cmd" "$cmd" "$sep"
+                i=$((i + 1))
+            done
+            printf '  ]\n}\n'
+            ;;
+        human)
+            printf "\n${RED}═══ Pré-requisito ausente: utilitário Linux ═══${NC}\n" >&2
+            printf "  Faltam: ${YELLOW}%s${NC}\n\n" "$cmds_csv" >&2
+            printf "  Instale com:\n" >&2
+            printf "    ${CYAN}%s${NC}\n\n" "$install_cmd" >&2
+            ;;
+        quiet)
+            printf "FAIL [%s] preflight: utilitário(s) ausente(s) — %s\n" \
+                "$SPECIALIST_NAME" "$install_cmd" >&2
+            ;;
+    esac
+    exit 2
 }
 
 # ────────────────────────────────────────────────────────────────────────────
