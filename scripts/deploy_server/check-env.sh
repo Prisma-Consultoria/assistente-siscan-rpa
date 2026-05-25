@@ -194,9 +194,11 @@ print_category_header "$CAT_WARN" "Configurações que não impedem o boot mas g
 
 log_level=$(_read_env APP_LOG_LEVEL)
 case "$log_level" in
-    DEBUG) add_fail "$CAT_WARN" env 0 "APP_LOG_LEVEL" "DEBUG em produção gera volume alto de log — TROUBLESHOOTING Problema C" ;;
+    # Categoria "Avisos (não impedem o boot)" — DEBUG é warn, não FAIL.
+    # Mantém specialist exit 0 (operador pode rodar gate sem bloqueio).
+    DEBUG) add_ok "$CAT_WARN" env 0 "APP_LOG_LEVEL" "DEBUG em produção (warn) — gera volume alto de log, ver TROUBLESHOOTING Problema C" ;;
     INFO|WARNING|ERROR|"") add_ok "$CAT_WARN" env 0 "APP_LOG_LEVEL" "${log_level:-padrão (INFO)}" ;;
-    *) add_fail "$CAT_WARN" env 0 "APP_LOG_LEVEL" "valor inesperado: $log_level" ;;
+    *) add_ok "$CAT_WARN" env 0 "APP_LOG_LEVEL" "valor inesperado (warn): $log_level" ;;
 esac
 
 # SYNC_INTERVAL_SECONDS — dashboard tem default no compose; warn se ausente
