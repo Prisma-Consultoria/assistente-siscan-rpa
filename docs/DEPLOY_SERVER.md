@@ -475,31 +475,84 @@ bash siscan-server-doctor.sh --pre-setup
 
 A última linha valida que o ambiente continua íntegro após o pull. Saída esperada: `6/6 specialists OK`.
 
-### Quando esta versão do assistente é nova na VM (primeira atualização para `doctor + specialists`)
+### Playbook — primeira atualização para a versão com diagnóstico amplo
 
-Se a VM ainda está numa versão **anterior** à entrega do diagnóstico amplo (sem `siscan-server-doctor.sh`, sem `scripts/deploy_server/`), siga este procedimento exato:
+Cenário: VM ainda está numa versão **anterior** à entrega do diagnóstico amplo (sem `siscan-server-doctor.sh`, sem `scripts/deploy_server/`), e o operador quer trazer todos os scripts novos + validar a saúde + (se necessário) recuperar o runner.
+
+Execute em ordem na VM (`/app/assistente-siscan-rpa` ou equivalente). Cada passo tem saída esperada — se divergir, pare e investigue antes de continuar.
+
+#### Passo 1 — Atualizar o repositório do assistente
 
 ```bash
-# 1. Atualizar o repositório do assistente
 cd $COMPOSE_DIR
 git pull origin main
+```
 
-# 2. Confirmar que os arquivos novos chegaram
+**Esperado:** `Fast-forward` listando vários arquivos novos (siscan-server-doctor.sh, siscan-runner-recover.sh, scripts/deploy_server/, etc.). Se der "Already up to date", confirme que está na branch `main` (`git branch --show-current`).
+
+#### Passo 2 — Confirmar que os arquivos novos chegaram
+
+```bash
 ls -la siscan-server-doctor.sh siscan-runner-recover.sh scripts/deploy_server/
 ls -la scripts/data/products.json scripts/data/network-endpoints.json
+```
 
-# 3. Garantir bit executável (alguns checkouts não preservam)
+**Esperado:** 9 arquivos `check-*.sh` em `scripts/deploy_server/`, mais `_common.sh`, os 3 scripts no root e os 2 JSON em `scripts/data/`.
+
+#### Passo 3 — Garantir bit executável
+
+```bash
 chmod +x siscan-server-doctor.sh siscan-runner-recover.sh
 chmod +x scripts/deploy_server/check-*.sh
+```
 
-# 4. Rodar diagnóstico amplo — primeira leitura da saúde da VM
+Necessário porque alguns checkouts (especialmente download em zip ou git mais antigo) não preservam o bit `+x`.
+
+#### Passo 4 — Primeira foto da saúde da VM
+
+```bash
 bash siscan-server-doctor.sh
+```
 
-# 5. Conferir lista de specialists disponíveis
+**Esperado:** resumo final do tipo `X/9 specialists OK · Y com FAIL`. É **normal** ver FAILs informativos nessa primeira execução (ex.: `check-runner` se runner está auto-removido, `check-stack` se a stack não está rodando). O que importa é entender **quais** dimensões falharam — cada specialist exibe a ação corretiva embaixo do bloco dele.
+
+#### Passo 5 — Se `check-runner` ou `check-stack` apontaram problema → recuperar runner
+
+Se o passo 4 mostrou problema em `check-runner` (auto-removido após 14 dias offline, ou regra dos 30 dias), rode:
+
+```bash
+bash siscan-runner-recover.sh
+```
+
+O script:
+- Detecta o produto via `.env` (`siscan-rpa` ou `siscan-dashboard`)
+- Faz pré-flight com o doctor (network + deps + docker + permissions)
+- Diagnostica o cenário (auto-removed ou stale 30d ou OK)
+- **Se for auto-removed**: pede token novo (gere em `https://github.com/Prisma-Consultoria/<repo>/settings/actions/runners/new`) e refaz o registro
+- **Se for stale 30d**: roda `run.sh --check` (não precisa token)
+- Valida ao fim chamando `check-runner` novamente
+
+#### Passo 6 — Validação final completa
+
+```bash
+bash siscan-server-doctor.sh
+```
+
+**Esperado agora:** `9/9 specialists OK`. Se ainda restarem FAILs (ex.: `check-stack` se o deploy automático ainda não rodou após a recuperação), acompanhe os logs do runner:
+
+```bash
+sudo journalctl -u 'actions.runner.*' -f | grep -E "Listening|Running|error"
+```
+
+Ou aguarde o próximo deploy automático (workflow CD da branch `main` do produto correspondente) — depois disso a stack sobe e `check-stack` passa também.
+
+#### Passo 7 (opcional) — Inventário do que o assistente entrega agora
+
+```bash
 bash siscan-server-doctor.sh --list
 ```
 
-O passo 4 é a **primeira foto da saúde da VM** com a cobertura nova (9 specialists). Espera-se ver alguns FAILs informativos (ex.: `check-stack` pode falhar se a stack não está rodando no momento — normal) e o resumo `X/9 specialists OK · Y com FAIL`. Use `bash siscan-server-doctor.sh --only check-network` (ou outro subset) para focar numa dimensão específica.
+Mostra os 9 specialists com descrição inline. Útil pra entender o que pode ser invocado pontualmente via `--only check-X` quando precisar diagnosticar uma dimensão específica.
 
 ### Quando há novas variáveis de ambiente
 
