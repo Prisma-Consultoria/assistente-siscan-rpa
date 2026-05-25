@@ -130,32 +130,17 @@ Cada VM precisa de um token de registro gerado no repositório correspondente ao
 
 ## Validação de conectividade (`siscan-network-check.sh`)
 
-O script `siscan-network-check.sh` valida se a VM consegue alcançar todos os endpoints externos que o runner self-hosted, o pull da imagem do projeto (GHCR), o pull do Redis (Docker Hub) e a validação OCSP/CRL exigem. Rode-o antes da instalação inicial e sempre que houver suspeita de bloqueio de firewall (por exemplo, deploys que pararam de funcionar de uma hora para a outra).
-
-A lista canônica de FQDNs verificada pelo script combina o documento *Reativação de whitelist — VMs siscan-dashboard e siscan-rpa* v2.0 (requisição ICI 753315), seções 3 a 7, com a [referência oficial atual do GitHub](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication). São 17 endpoints HTTPS/443 + 5 OCSP/CRL em TCP/80, totalizando 22 checks. Wildcards (`*.actions.githubusercontent.com`, `*.blob.core.windows.net`, `*.pkg.github.com`) são representados por um subdomínio real testável — se o firewall liberou o wildcard, qualquer subdomínio responde; se liberou só FQDNs literais, o teste denuncia o gap.
+Antes de prosseguir com a instalação, valide se a VM alcança todos os endpoints externos exigidos (runner GitHub Actions, GHCR, Docker Hub, OCSP/CRL):
 
 ```bash
-# Saída legível (padrão)
 bash ./siscan-network-check.sh
-
-# Apenas linhas FAIL — útil para cron de monitoramento
-bash ./siscan-network-check.sh --quiet
-
-# Saída JSON estruturada — útil para integração com ferramentas
-bash ./siscan-network-check.sh --json
 ```
 
-Exit codes:
+Saída `22/22 OK` libera o próximo passo. Saída com `FAIL` indica firewall fechado — consulte [`TROUBLESHOOTING.md` → Problema D](TROUBLESHOOTING.md#problema-d--falha-no-pull-por-rede-instável--firewall) e abra requisição de reabertura com a equipe de infraestrutura (para VMs do ICI, referenciar requisição **753315**).
 
-| Code | Significado |
-|---|---|
-| `0` | Todos os endpoints alcançáveis |
-| `1` | Pelo menos um FAIL — consulte `docs/TROUBLESHOOTING.md` ou abra requisição de reabertura de firewall com a equipe de infraestrutura, anexando a lista de FAIL |
-| `2` | Uso inválido (argumento desconhecido, `curl` não instalado) |
+> **Monitoramento contínuo (recomendação 12.8 do PDF de whitelist):** programe `siscan-network-check.sh --quiet` em cron a cada 5 minutos. Isso evita que uma nova expiração de regra de firewall passe despercebida por semanas, como aconteceu em 15/04/2026.
 
-**Critério de aceitação** (seção 11.4 do PDF): qualquer resposta HTTP do servidor (200, 301, 302, 400, 403, 404, 405, ...) conta como sucesso — o que importa é o TLS ter subido. Resposta `000` ou timeout = bloqueio de firewall.
-
-> **Monitoramento contínuo (recomendação 12.8 do PDF):** programe `siscan-network-check.sh --quiet` em cron a cada 5 minutos e dispare alerta se o exit code for diferente de 0 por mais de 2 execuções consecutivas. Isso evita que uma nova expiração de regra de firewall passe despercebida por semanas, como aconteceu em 15/04/2026.
+Referência completa (todas as opções, exit codes, formato do JSON de endpoints, exemplos): [`scripts/siscan-network-check.md`](scripts/siscan-network-check.md).
 
 ---
 
