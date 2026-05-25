@@ -54,6 +54,9 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# jq via product_validate (_common.sh); getent pra resolver UID/GID dos owners
+require_commands jq getent
+
 _read_env() {
     grep -E "^${1}=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/^["'\'']\(.*\)["'\'']$/\1/'
 }

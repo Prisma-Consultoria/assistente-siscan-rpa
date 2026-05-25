@@ -158,6 +158,27 @@ fi
 [ ${#TO_RUN[@]} -gt 0 ] || fail "nenhum specialist a rodar (--only/--except não casou com nada)"
 
 # ────────────────────────────────────────────────────────────────────────────
+# Preflight: utilitários Linux essenciais do próprio doctor
+#
+# jq é obrigatório SOMENTE em --json, onde o doctor agrega o output JSON dos
+# specialists com `echo "$output" | jq -e .` (validação) e
+# `jq -r '"\(.summary.ok)/\(.summary.total)"'` (totais no progresso).
+#
+# Em human/quiet o doctor NÃO usa jq (só faz `bash "$script"` direto e
+# encaminha stdout/stderr). Condicionar o preflight a OUTPUT_MODE=json evita
+# bloquear execuções úteis em hosts sem jq — ex: `--only check-resources`,
+# que não depende de jq nem de manifesto.
+#
+# Specialists que precisam de jq individualmente (check-env, check-permissions,
+# check-network, check-runner, check-stack, check-docker) têm seu próprio
+# require_commands em _common.sh — esses sim falham consistentemente, mesmo
+# em human/quiet, e a stderr fica visível pro operador.
+#
+# Posicionado APÓS --list pra não exigir jq pra inventário (--list usa só grep).
+# ────────────────────────────────────────────────────────────────────────────
+[ "$OUTPUT_MODE" = "json" ] && require_commands jq
+
+# ────────────────────────────────────────────────────────────────────────────
 # Execução
 # Cada specialist é invocado num subshell com o mesmo OUTPUT_MODE.
 # Para JSON, o doctor agrega os JSONs individuais em um envelope consolidado.

@@ -62,10 +62,7 @@ _read_env() {
     grep -E "^${1}=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/^["'\'']\(.*\)["'\'']$/\1/'
 }
 
-# Pré-requisitos do specialist standalone (em uso via doctor, product_validate
-# já cobre jq; mas executado direto isso aqui é o garante).
-command -v curl >/dev/null 2>&1 || fail "curl não está instalado. Instale com: sudo apt install -y curl"
-command -v jq   >/dev/null 2>&1 || fail "jq não está instalado. Instale com: sudo apt install -y jq"
+require_commands curl jq
 
 SISCAN_PRODUCT=""
 [ -f "$ENV_FILE" ] && SISCAN_PRODUCT=$(_read_env SISCAN_PRODUCT)

@@ -77,7 +77,8 @@ fail() { printf "\n${RED}ERRO: %s${NC}\n\n" "$1" >&2; exit 2; }
 #   aspas envolventes — o caller adiciona "...".
 #
 #   Por que sem jq: callers que precisam disso são fallbacks pra cenários
-#   onde jq pode estar ausente (ex: envelope sintético de erro no doctor).
+#   onde jq pode estar ausente (ex: envelope sintético de erro no doctor,
+#   require_commands quando jq está entre os faltantes).
 #
 #   Cobre o subset que aparece em stderr de fail() / set -u / pipefail:
 #   backslash, aspas duplas, \n \r \t. Outros control chars (0x00-0x1F)
@@ -93,6 +94,122 @@ _json_escape() {
     # Remove control chars restantes (0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F)
     s=$(printf '%s' "$s" | tr -d '\000-\010\013\014\016-\037')
     printf '%s' "$s"
+}
+
+# _pkg_for_cmd CMD
+#   Retorna o nome do pacote .deb que provê CMD via stdout. Muitos comandos
+#   têm nome != pacote (timeout vem de coreutils, getent de libc-bin, etc.) —
+#   `sudo apt install -y timeout` falha porque não existe pacote 'timeout'.
+#   Pra binários onde nome=pacote, retorna o próprio cmd.
+#
+#   Fallback explícito: docker é controverso (Docker CE upstream tem
+#   instruções próprias, fora do alvo de `apt install`); aqui retornamos
+#   docker.io (pacote Ubuntu) mas o ideal é o operador seguir o guia oficial.
+_pkg_for_cmd() {
+    case "$1" in
+        timeout|nproc|tr|head|tail|cut|sed|sort|wc) printf 'coreutils' ;;
+        getent)                                    printf 'libc-bin' ;;
+        docker)                                    printf 'docker.io' ;;
+        # Pacotes 1:1 com o nome do comando
+        jq|curl|openssl|sudo|git)                  printf '%s' "$1" ;;
+        # Fallback: assume nome=pacote (operador descobre na hora se errado)
+        *)                                         printf '%s' "$1" ;;
+    esac
+}
+
+# require_commands cmd1 cmd2 ...
+#
+# Preflight de utilitários Linux: aborta o specialist antes de qualquer check
+# se algum dos comandos pedidos estiver ausente, com uma única mensagem
+# orientativa consolidada (sudo apt install -y pkg1 pkg2 ...).
+#
+# Substitui o padrão antigo de N chamadas seriais de `command -v X || fail "X..."`
+# espalhadas pelos specialists, que falhavam na PRIMEIRA ausência sem mostrar as
+# demais — operador instalava uma, rodava de novo, descobria a próxima, etc.
+#
+# IMPORTANTE: a montagem do envelope JSON aqui NÃO pode usar jq, porque jq pode
+# ser exatamente o binário ausente. Por isso o JSON é construído com printf, com
+# escape manual aceitável já que nomes de comandos são alfanuméricos simples
+# (sem aspas, newlines, etc).
+#
+# Em human: callout consolidado em stderr (visível tanto standalone quanto via
+# doctor, que captura stderr no envelope sintético desde a melhoria do mascaramento).
+# Em quiet: linha FAIL em stdout (alinhada com _print_live_result do quiet, que
+# também emite FAIL em stdout — contrato de "quiet = só linhas FAIL no stdout").
+# Em json: envelope com 1 check FAIL por cmd ausente. detail traz a orientação
+# CONSOLIDADA (mesmo install_cmd em todos os checks) — o consumidor agrupa por
+# specialist e usa qualquer linha do array como referência de instalação.
+# Exit code: 2 (uso inválido / pré-requisito do host não atendido).
+require_commands() {
+    local missing_cmds=() missing_pkgs=()
+    local cmd pkg
+    for cmd in "$@"; do
+        command -v "$cmd" >/dev/null 2>&1 && continue
+        missing_cmds+=("$cmd")
+        pkg=$(_pkg_for_cmd "$cmd")
+        # Dedup: timeout E nproc ambos mapeiam pra coreutils — não repetir
+        local already=false p
+        for p in "${missing_pkgs[@]}"; do
+            [ "$p" = "$pkg" ] && already=true && break
+        done
+        $already || missing_pkgs+=("$pkg")
+    done
+    [ ${#missing_cmds[@]} -eq 0 ] && return 0
+
+    local cmds_csv="${missing_cmds[*]}"
+    local install_cmd="sudo apt install -y ${missing_pkgs[*]}"
+    local total="${#missing_cmds[@]}"
+
+    case "$OUTPUT_MODE" in
+        json)
+            # Constrói JSON com printf (jq pode estar entre os ausentes).
+            # detail reutiliza install_cmd consolidado — não repete fragmentos
+            # diferentes por item; quem consome o JSON encontra a mesma linha de
+            # ação em qualquer check do array.
+            printf '{\n'
+            printf '  "specialist": "%s",\n' "$SPECIALIST_NAME"
+            printf '  "summary": {"total": %d, "ok": 0, "fail": %d},\n' "$total" "$total"
+            printf '  "checks": [\n'
+            local i=0 last=$((total - 1)) sep
+            for cmd in "${missing_cmds[@]}"; do
+                sep=","
+                [ "$i" -eq "$last" ] && sep=""
+                printf '    {"category": "Utilitário Linux ausente", "target": "%s", "protocol": "cmd", "port": 0, "status": "fail", "detail": "binário ausente — instale TODOS os faltantes com: %s"}%s\n' \
+                    "$cmd" "$install_cmd" "$sep"
+                i=$((i + 1))
+            done
+            printf '  ]\n}\n'
+            ;;
+        human)
+            printf "\n${RED}═══ Pré-requisito ausente: utilitário Linux ═══${NC}\n" >&2
+            printf "  Faltam (cmd → pacote): ${YELLOW}%s${NC}\n\n" "$(_zip_cmd_pkg "${missing_cmds[@]}")" >&2
+            printf "  Instale com:\n" >&2
+            printf "    ${CYAN}%s${NC}\n\n" "$install_cmd" >&2
+            ;;
+        quiet)
+            # Stdout (sem >&2) — alinhado com _print_live_result do quiet.
+            printf "FAIL [%s] preflight: utilitário(s) ausente(s) (%s) — %s\n" \
+                "$SPECIALIST_NAME" "$cmds_csv" "$install_cmd"
+            ;;
+    esac
+    exit 2
+}
+
+# _zip_cmd_pkg cmd1 cmd2 ...
+#   Helper interno do require_commands em human mode: formata "cmd → pkg" pra
+#   cada cmd, separados por vírgula. Útil quando cmd != pkg (timeout → coreutils).
+_zip_cmd_pkg() {
+    local out="" cmd pkg sep=""
+    for cmd in "$@"; do
+        pkg=$(_pkg_for_cmd "$cmd")
+        if [ "$cmd" = "$pkg" ]; then
+            out+="${sep}${cmd}"
+        else
+            out+="${sep}${cmd} → ${pkg}"
+        fi
+        sep=", "
+    done
+    printf '%s' "$out"
 }
 
 # ────────────────────────────────────────────────────────────────────────────

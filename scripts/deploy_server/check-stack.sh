@@ -49,7 +49,8 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-command -v docker >/dev/null 2>&1 || fail "docker não está instalado (rode check-deps primeiro)"
+# jq é usado por product_validate (via _common.sh) pra ler products.json
+require_commands docker jq
 
 # Detectar produto + validar manifesto
 SISCAN_PRODUCT=""
