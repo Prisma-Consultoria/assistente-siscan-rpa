@@ -64,7 +64,11 @@ _setup_colors
 # ────────────────────────────────────────────────────────────────────────────
 ok()   { [ "$OUTPUT_MODE" = "human" ] && printf "  ${GREEN}✔${NC}  %s\n" "$1"; }
 info() { [ "$OUTPUT_MODE" = "human" ] && printf "  ${GRAY}→${NC}  %s\n" "$1"; }
-warn() { [ "$OUTPUT_MODE" != "json" ] && printf "  ${YELLOW}⚠${NC}  %s\n" "$1" >&2; return 0; }
+# warn() vai pra stderr apenas em human mode. Em quiet/json fica suprimido
+# pra honrar o contrato dos modos (quiet = só FAIL lines; json = só JSON).
+# Avisos relevantes que precisem ser observáveis em quiet/json devem virar
+# add_ok com 'warn' no detalhe (entram no fluxo padrão de saída).
+warn() { [ "$OUTPUT_MODE" = "human" ] && printf "  ${YELLOW}⚠${NC}  %s\n" "$1" >&2; return 0; }
 fail() { printf "\n${RED}ERRO: %s${NC}\n\n" "$1" >&2; exit 2; }
 
 # ────────────────────────────────────────────────────────────────────────────
