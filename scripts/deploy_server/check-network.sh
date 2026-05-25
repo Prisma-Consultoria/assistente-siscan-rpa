@@ -95,6 +95,8 @@ jq -e . "$ENDPOINTS_FILE" >/dev/null 2>&1 || fail "arquivo de endpoints não é 
 # Checks específicos deste specialist
 # ────────────────────────────────────────────────────────────────────────────
 # _check_https CATEGORY FQDN PORT EXPECTED_TEXT
+#   Detalhe gerado deixa explícito que validamos APENAS firewall (TLS subiu),
+#   e que o código HTTP é contexto interpretativo (esperado/inesperado neste FQDN).
 #   EXPECTED_TEXT: do JSON, formato "200 — descrição" (opcional).
 _check_https() {
     local category="$1" fqdn="$2" port="${3:-443}" expected="${4:-}"
@@ -105,21 +107,22 @@ _check_https() {
 
     # Critério (PDF v2.0, seção 11.4): qualquer resposta HTTP != 000 indica TLS subiu.
     if [ -z "$code" ] || [ "$code" = "000" ]; then
-        add_fail "$category" https "$port" "$fqdn" "timeout/conexão recusada"
+        add_fail "$category" https "$port" "$fqdn" "firewall bloqueou — sem resposta (TCP/TLS não completou)"
         return
     fi
 
-    # Formatar detalhe: se houver expected do JSON ("CODE — texto"), comparar
-    # com observado. Match → exibe só o texto. Diferente → exibe ambos.
-    local detail="$code"
+    # Firewall passou (TLS subiu). Agora qualificar a resposta HTTP como contexto.
+    local detail
     if [ -n "$expected" ]; then
         local exp_code="${expected%% — *}"
         local exp_text="${expected#*— }"
         if [ "$code" = "$exp_code" ]; then
-            detail="$code  $exp_text"
+            detail="${code} esperado · ${exp_text}"
         else
-            detail="$code  (esperado $exp_code: $exp_text)"
+            detail="${code} inesperado (esperava ${exp_code}) · ${exp_text}"
         fi
+    else
+        detail="${code} · resposta HTTP recebida (sem expected definido no JSON)"
     fi
     add_ok "$category" https "$port" "$fqdn" "$detail"
 }
@@ -128,14 +131,14 @@ _check_https() {
 _check_tcp() {
     local category="$1" fqdn="$2" port="$3" expected="${4:-}"
     if ! timeout "$TIMEOUT_SEC" bash -c "exec 3<>/dev/tcp/${fqdn}/${port}" 2>/dev/null; then
-        add_fail "$category" tcp "$port" "$fqdn" "timeout/conexão recusada"
+        add_fail "$category" tcp "$port" "$fqdn" "firewall bloqueou — sem TCP/${port}"
         return
     fi
     # Strip leading "TCP/<port> aberto — " do expected pra evitar duplicar.
-    local detail="conectou"
+    local detail="TCP/${port} aberto"
     if [ -n "$expected" ]; then
         local clean="${expected#TCP/${port} aberto — }"
-        [ "$clean" = "$expected" ] && detail="conectou  $expected" || detail="conectou  $clean"
+        [ "$clean" != "$expected" ] && detail="TCP/${port} aberto · ${clean}"
     fi
     add_ok "$category" tcp "$port" "$fqdn" "$detail"
 }
@@ -146,6 +149,23 @@ _check_tcp() {
 #     (orientação fica no JSON, não no código).
 #   - Para cada endpoint da categoria: dispara o check correspondente.
 # ────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
+# Header explicativo do escopo (human mode apenas)
+# ────────────────────────────────────────────────────────────────────────────
+if [ "$OUTPUT_MODE" = "human" ]; then
+    printf "\n${CYAN}══════════════════════════════════════════════════════════════════${NC}\n"
+    printf "${WHITE}  check-network — validação de FIREWALL${NC}\n"
+    printf "${CYAN}══════════════════════════════════════════════════════════════════${NC}\n"
+    printf "\n"
+    printf "  Cada linha mostra apenas se o ${WHITE}firewall liberou${NC} a conexão (TLS subiu).\n"
+    printf "  Códigos HTTP/TCP são ${WHITE}contexto interpretativo${NC}, não validam funcionalidade\n"
+    printf "  do endpoint — só credenciais reais validam isso (escopo futuro).\n"
+    printf "\n"
+    printf "  ${GREEN}✔${NC} = firewall liberou (TLS/TCP completou)\n"
+    printf "  ${RED}✘${NC} = firewall bloqueou (sem resposta)\n"
+    printf "\n"
+fi
+
 cat_count=$(jq '.categories | length' "$ENDPOINTS_FILE")
 for i in $(seq 0 $((cat_count - 1))); do
     cat_label=$(jq -r ".categories[$i].label" "$ENDPOINTS_FILE")

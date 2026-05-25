@@ -111,6 +111,11 @@ print_category_guidance() {
 }
 
 # _print_live_result CATEGORY PROTOCOL PORT TARGET STATUS DETAIL
+#
+# Human mode: ✔ verde para OK, ✘ vermelho para FAIL. O detalhe é mostrado em
+# cor (GRAY para OK, RED para FAIL) — o símbolo+cor já comunicam o veredito,
+# não precisa de label "FAIL" hardcoded no meio (que ficaria redundante quando
+# o detalhe já carrega a mensagem da falha).
 _print_live_result() {
     local cat="$1" proto="$2" port="$3" target="$4" status="$5" detail="$6"
     case "$OUTPUT_MODE" in
@@ -118,7 +123,7 @@ _print_live_result() {
             if [ "$status" = "ok" ]; then
                 printf "  ${GREEN}✔${NC}  %-54s ${GRAY}%s${NC}\n" "$target" "$detail"
             else
-                printf "  ${RED}✘${NC}  %-54s ${RED}FAIL${NC} %s\n" "$target" "$detail"
+                printf "  ${RED}✘${NC}  %-54s ${RED}%s${NC}\n" "$target" "$detail"
             fi
             ;;
         quiet)
