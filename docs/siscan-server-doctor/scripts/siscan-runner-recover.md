@@ -1,6 +1,6 @@
 # `siscan-runner-recover.sh` — Recuperação cirúrgica do runner
 
-Recupera o GitHub Actions self-hosted runner em **dois cenários** descobertos no incidente do ICI (15/04 → 25/05/2026):
+Recupera o GitHub Actions self-hosted runner em **dois cenários** descobertos no incidente no servidor parceiro (15/04 → 25/05/2026):
 
 ## Cenário A — Auto-removal após 14 dias offline
 
@@ -90,7 +90,7 @@ Depois da ação, espera 5s e roda `bash scripts/deploy_server/check-runner.sh -
 - **Reusa identidade**: mantém nome + label do runner conforme manifesto
 - **Cenário B não pede token**: economiza ida ao GitHub UI quando só falta auto-update
 
-## Exemplo — incidente real do ICI (25/05/2026)
+## Exemplo — incidente real no servidor parceiro (25/05/2026)
 
 Cenário: VM `VMPRDAPP-RPADASHBOARD` estava 40 dias sem deploy. Firewall foi reaberto, mas jobs ficavam em `Waiting for a runner`.
 

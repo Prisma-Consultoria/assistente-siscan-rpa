@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # -------------------------------------------
 # Specialist: check-db
-# Summary: Conectividade TCP + pg_isready com PostgreSQL externo (VLAN interna ICI)
+# Summary: Conectividade TCP + pg_isready com PostgreSQL externo (VLAN interna do servidor parceiro)
 # -------------------------------------------
 # Valida conectividade da VM da aplicação com o(s) PostgreSQL externo(s):
 #   - RPA / Full: DATABASE_HOST:DATABASE_PORT (TCP + pg_isready)
 #   - Dashboard / Full: idem para o host parseado de RPA_DATABASE_URL
 #
-# Seção 9 do PDF de whitelist é VLAN interna do ICI, não internet —
+# Seção 9 do PDF de whitelist é VLAN interna do servidor parceiro, não internet —
 # por isso check-network não cobre. Esse é o specialist dedicado.
 # -------------------------------------------
 
@@ -110,7 +110,7 @@ CAT_RPA_DB="Banco do RPA (visto pelo dashboard via RPA_DATABASE_URL)"
 # ────────────────────────────────────────────────────────────────────────────
 # Banco principal do produto
 # ────────────────────────────────────────────────────────────────────────────
-print_category_header "$CAT_LOCAL_DB" "DATABASE_HOST do .env — o banco onde os containers app/migrate/sync escrevem. Tráfego interno na VLAN do ICI."
+print_category_header "$CAT_LOCAL_DB" "DATABASE_HOST do .env — o banco onde os containers app/migrate/sync escrevem. Tráfego interno na VLAN do servidor parceiro."
 
 db_host=$(_read_env DATABASE_HOST)
 db_port=$(_read_env DATABASE_PORT)
@@ -128,7 +128,7 @@ fi
 if [ "$FAIL_COUNT" -eq 0 ] && [ -n "$db_host" ]; then
     print_category_guidance ok "PostgreSQL respondendo. Próximo passo: containers conseguem conectar. Se aplicação ainda dá erro de banco, verifique credenciais (DATABASE_PASSWORD) e migrations."
 else
-    print_category_guidance fail "Banco não está acessível desta VM. AÇÃO: (a) confirmar que a VM do banco está ligada e o postgres aceitando conexões em $db_host:$db_port; (b) verificar firewall interno do ICI / VLAN — porta 5432 entre VMs deve estar liberada (seção 9 do PDF de whitelist); (c) confirmar pg_hba.conf no banco aceita conexões desta VM."
+    print_category_guidance fail "Banco não está acessível desta VM. AÇÃO: (a) confirmar que a VM do banco está ligada e o postgres aceitando conexões em $db_host:$db_port; (b) verificar firewall interno do servidor parceiro / VLAN — porta 5432 entre VMs deve estar liberada (seção 9 do PDF de whitelist); (c) confirmar pg_hba.conf no banco aceita conexões desta VM."
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -162,7 +162,7 @@ if [ -n "$SISCAN_PRODUCT" ] && product_validate >/dev/null 2>&1 && product_has_e
 
         # Veredito específico desta categoria
         if [ "$FAIL_COUNT" -gt 0 ]; then
-            print_category_guidance fail "Container 'sync' do dashboard NÃO vai conseguir importar exames do RPA. AÇÃO: confirmar VLAN do ICI permite tráfego 5432 entre a VM do dashboard e a VM do RPA (chat ICI 27/03 — RPA_DATABASE_URL foi configurado com formato errado, esse specialist captura isso via check-env + esse check)."
+            print_category_guidance fail "Container 'sync' do dashboard NÃO vai conseguir importar exames do RPA. AÇÃO: confirmar VLAN do servidor parceiro permite tráfego 5432 entre a VM do dashboard e a VM do RPA (chat do servidor parceiro 27/03 — RPA_DATABASE_URL foi configurado com formato errado, esse specialist captura isso via check-env + esse check)."
         else
             print_category_guidance ok "Dashboard consegue ler dados do RPA. Próximo passo: sync_exames vai funcionar (re-rode 'docker compose exec app python -m src.commands.sync_exames --full' após restauração de backup)."
         fi

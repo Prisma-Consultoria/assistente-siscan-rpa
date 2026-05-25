@@ -60,7 +60,7 @@ Fonte de verdade declarativa que descreve cada produto que o assistente deploya.
 
 | Flag | Tipo | Consumido por | Comportamento |
 |---|---|---|---|
-| `rsa_keys_required` | bool | `check-permissions` | Valida `rsa_private_key.pem` + `rsa_public_key.pem` em `$HOST_SECRETS_DIR` (chat ICI 01/04 — chaves expirando) |
+| `rsa_keys_required` | bool | `check-permissions` | Valida `rsa_private_key.pem` + `rsa_public_key.pem` em `$HOST_SECRETS_DIR` (chat do servidor parceiro 01/04 — chaves expirando) |
 | `host_secrets_dir_optional` | bool | `check-permissions` | Se ausente no `.env`, deriva de `$(dirname $HOST_LOG_DIR)/secrets` + valida perms 700 |
 | `host_backups_dir_optional` | bool | `check-permissions` | Se ausente, deriva de `$(dirname $HOST_LOG_DIR)/backups` + valida existência |
 | `siscan_portal_url_default` | string | `check-env`, `check-network` | URL default do portal SISCAN (ativa categoria condicional em check-network) |

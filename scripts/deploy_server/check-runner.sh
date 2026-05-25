@@ -9,7 +9,7 @@
 #   3. Registro remoto via GitHub API (catch auto-removal de 14 dias)
 #   4. Idade da última auto-atualização (catch regra dos 30 dias)
 #
-# Cenários que esse specialist detecta (todos vistos no chat ICI):
+# Cenários que esse specialist detecta (todos vistos no chat do servidor parceiro):
 #   - Runner nunca instalado nesta VM
 #   - Runner instalado mas serviço parado
 #   - Runner online mas removido remotamente (>14 dias offline)
@@ -171,7 +171,7 @@ fi
 # ────────────────────────────────────────────────────────────────────────────
 # 4. Idade do runner — regra dos 30 dias
 # ────────────────────────────────────────────────────────────────────────────
-print_category_header "$CAT_AGE" "Se o runner ficou >30 dias sem auto-atualizar, o GitHub para de enviar jobs (sintoma: 'Waiting for a runner' indefinido, descoberto no chat ICI 25/05)."
+print_category_header "$CAT_AGE" "Se o runner ficou >30 dias sem auto-atualizar, o GitHub para de enviar jobs (sintoma: 'Waiting for a runner' indefinido, descoberto no chat do servidor parceiro 25/05)."
 
 # Sinal mais confiável: mtime do .runner_migrated (atualizado a cada upgrade do runner)
 # Fallback: mtime do log mais recente em _diag/

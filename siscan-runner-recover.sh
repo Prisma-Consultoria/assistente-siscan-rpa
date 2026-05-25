@@ -4,7 +4,7 @@
 # -------------------------------------------
 # Arquivo: siscan-runner-recover.sh
 # Propósito: Recuperar o GitHub Actions self-hosted runner em dois cenários
-#            descobertos no chat ICI (incidente 15/04 → 25/05):
+#            descobertos no chat do servidor parceiro (incidente 15/04 → 25/05):
 #
 #   Cenário A — Auto-removal após 14 dias offline
 #     GitHub remove runners offline há > 14 dias. Diagnóstico: 'total_count: 0'

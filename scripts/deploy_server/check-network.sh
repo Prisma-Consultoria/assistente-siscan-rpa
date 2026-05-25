@@ -232,7 +232,7 @@ if [ -f "$ENV_FILE" ] && [ -f "$PRODUCTS_FILE" ]; then
                 if [ "$FAIL_COUNT" -eq "$fail_before" ]; then
                     print_category_guidance ok "Servidor consegue alcançar o portal SISCAN. Próximo passo: RPA poderá autenticar (precisará de credenciais cadastradas em /admin/siscan-credentials)."
                 else
-                    print_category_guidance fail "Servidor NÃO alcança o portal SISCAN — RPA não vai conseguir autenticar nem baixar PDFs. AÇÃO: verificar firewall/proxy/DNS pro endereço $siscan_url; o destino é externo (internet pública), não VLAN interna do ICI."
+                    print_category_guidance fail "Servidor NÃO alcança o portal SISCAN — RPA não vai conseguir autenticar nem baixar PDFs. AÇÃO: verificar firewall/proxy/DNS pro endereço $siscan_url; o destino é externo (internet pública), não VLAN interna do servidor parceiro."
                 fi
             fi
         fi

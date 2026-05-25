@@ -3,7 +3,7 @@
 # Specialist: check-permissions
 # Summary: Ownership de diretórios, git safe.directory, UID 1000, chaves RSA persistidas
 # -------------------------------------------
-# Cobre 5 problemas reais do chat ICI relacionados a permissão + RSA keys:
+# Cobre 5 problemas reais do chat do servidor parceiro relacionados a permissão + RSA keys:
 #   - /app/siscan-rpa criado como root (19/03, 20/03) → bind mount falha
 #   - git pull com "dubious ownership" (19/03) → COMPOSE_DIR sem safe.directory
 #   - PermissionError em data/.artifacts/auth (01/04) → UID 1000 do appuser
@@ -80,7 +80,7 @@ CAT_CONFIG="config/excel_columns_mapping.json"
 # ────────────────────────────────────────────────────────────────────────────
 # 1. COMPOSE_DIR ownership
 # ────────────────────────────────────────────────────────────────────────────
-print_category_header "$CAT_COMPOSE" "O diretório do assistente precisa pertencer ao usuário corrente — caso contrário git pull e bind mounts falham (chat ICI 19/03)."
+print_category_header "$CAT_COMPOSE" "O diretório do assistente precisa pertencer ao usuário corrente — caso contrário git pull e bind mounts falham (chat do servidor parceiro 19/03)."
 
 if [ ! -d "$COMPOSE_DIR" ]; then
     add_fail "$CAT_COMPOSE" fs 0 "$COMPOSE_DIR" "diretório não existe"
@@ -96,7 +96,7 @@ fi
 # ────────────────────────────────────────────────────────────────────────────
 # 2. Git safe.directory
 # ────────────────────────────────────────────────────────────────────────────
-print_category_header "$CAT_GIT" "Se o diretório foi clonado como outro usuário, git pull falha com 'dubious ownership' (chat ICI 19/03). Precisa de 'git config --global --add safe.directory'."
+print_category_header "$CAT_GIT" "Se o diretório foi clonado como outro usuário, git pull falha com 'dubious ownership' (chat do servidor parceiro 19/03). Precisa de 'git config --global --add safe.directory'."
 
 if command -v git >/dev/null 2>&1 && [ -d "$COMPOSE_DIR/.git" ]; then
     if git -C "$COMPOSE_DIR" rev-parse >/dev/null 2>&1; then
@@ -153,7 +153,7 @@ if product_has_extra host_secrets_dir_optional || product_has_extra rsa_keys_req
         secrets_source="HOST_SECRETS_DIR do .env"
     fi
 
-    print_category_header "$CAT_SECRETS" "Diretório de chaves RSA do RPA — sem persistência, credenciais SISCAN expiram a cada deploy (chat ICI 01/04). $secrets_source."
+    print_category_header "$CAT_SECRETS" "Diretório de chaves RSA do RPA — sem persistência, credenciais SISCAN expiram a cada deploy (chat do servidor parceiro 01/04). $secrets_source."
 
     if [ -z "$secrets_dir" ]; then
         add_fail "$CAT_SECRETS" fs 0 "HOST_SECRETS_DIR" "não dá pra derivar (HOST_LOG_DIR também ausente)"
@@ -205,7 +205,7 @@ fi
 # ────────────────────────────────────────────────────────────────────────────
 ARTIFACTS_DIR="$COMPOSE_DIR/data/.artifacts"
 if product_has_extra rsa_keys_required; then  # extras-flag implícita: produto RPA-like
-    print_category_header "$CAT_ARTIFACTS" "O appuser dentro do container RPA é UID 1000. data/.artifacts precisa pertencer a UID 1000 (chat ICI 01/04)."
+    print_category_header "$CAT_ARTIFACTS" "O appuser dentro do container RPA é UID 1000. data/.artifacts precisa pertencer a UID 1000 (chat do servidor parceiro 01/04)."
 
     if [ -d "$ARTIFACTS_DIR" ]; then
         uid=$(stat -c '%u' "$ARTIFACTS_DIR" 2>/dev/null || echo "?")
@@ -223,7 +223,7 @@ fi
 # 7. config/excel_columns_mapping.json (RPA)
 # ────────────────────────────────────────────────────────────────────────────
 if product_has_extra excel_columns_mapping_required; then
-    print_category_header "$CAT_CONFIG" "Arquivo de mapeamento de colunas usado pelo RPA — sem ele, a coleta quebra (chat ICI 27/03)."
+    print_category_header "$CAT_CONFIG" "Arquivo de mapeamento de colunas usado pelo RPA — sem ele, a coleta quebra (chat do servidor parceiro 27/03)."
 
     cfg_dir=$(_read_env HOST_CONFIG_DIR)
     cfg_dir="${cfg_dir:-$COMPOSE_DIR/config}"
