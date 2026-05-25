@@ -81,39 +81,54 @@ O fluxo de deploy e a infraestrutura funcionam assim:
 
 ## Pré-requisitos
 
-Antes de executar o setup, verifique os pré-requisitos em cada VM conforme a tabela a seguir.
+Antes de executar o setup, rode o doctor para validar **automaticamente** todos os pré-requisitos da VM:
 
-### VM de aplicação (RPA ou Dashboard)
+```bash
+git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git
+cd assistente-siscan-rpa
+bash siscan-server-doctor.sh --except check-runner,check-stack,check-db
+```
 
-| Requisito | Mínimo | Verificação |
+Saída esperada: `6/6 specialists OK` (os 3 specialists excluídos só fazem sentido **depois** do setup — runner ainda não foi instalado, stack não foi subida, `.env` ainda não tem DATABASE_HOST). Cada specialist FAIL traz mensagem com ação corretiva específica. Referência completa do que cada specialist verifica: [`siscan-server-doctor/index.md`](siscan-server-doctor/index.md).
+
+> A partir desta versão do assistente, o próprio `siscan-server-setup.sh` invoca o doctor como **Fase 0** (gate pré-flight) antes de executar qualquer ação destrutiva. Use `--skip-doctor` no setup para pular este gate em cenários de debugging.
+
+### Resumo dos checks (referência detalhada)
+
+A tabela a seguir é uma referência detalhada — o doctor cobre tudo dela automaticamente.
+
+#### VM de aplicação (RPA ou Dashboard)
+
+| Requisito | Mínimo | Specialist responsável |
 |---|---|---|
-| Sistema operacional | Ubuntu 24.04 LTS | `lsb_release -a` |
-| vCPUs | 4 | `nproc` |
-| Memória RAM | 8 GB | `free -h` |
-| Docker Engine | ≥ 28.x | `docker version` |
-| Docker Compose | ≥ 2.37 | `docker compose version` |
-| git | qualquer versão | `git --version` |
-| Conectividade HTTPS | `github.com` e `ghcr.io` porta 443 | `curl -Iv https://github.com` |
-| Docker network pool | Pool com subnets disponíveis | `docker network create teste && docker network rm teste` |
+| Sistema operacional | Ubuntu 24.04 LTS | `check-deps` |
+| vCPUs | 4 | `check-resources` |
+| Memória RAM | 8 GB | `check-resources` |
+| Disco livre em `$COMPOSE_DIR` | 20 GB | `check-resources` |
+| Docker Engine | ≥ 28.x | `check-deps` + `check-docker` |
+| Docker Compose | ≥ 2.37 | `check-deps` |
+| git, jq, openssl, curl, sudo, timeout | qualquer versão | `check-deps` |
+| Conectividade HTTPS | 22 endpoints (GitHub Actions, GHCR, Docker Hub, OCSP/CRL) | `check-network` |
+| Docker network pool com subnets disponíveis | — | `check-docker` (teste real `network create`) |
+| Usuário corrente não-root + no grupo `docker` | — | `check-docker` |
+| Stack dir com ownership correto + git safe.directory | — | `check-permissions` |
+| Chaves RSA em `HOST_SECRETS_DIR` (RPA) | persistidas | `check-permissions` |
+| `.env` preenchido com formato correto | — | `check-env` |
 
-> **Docker daemon.json:** se a equipe de infraestrutura configurou `/etc/docker/daemon.json` com `default-address-pools` restrito (ex: uma única subnet `/24`), o Docker não conseguirá criar redes para os compose projects. Verifique com `cat /etc/docker/daemon.json` e consulte o [Problema 1 do Troubleshooting](TROUBLESHOOTING.md#problema-1--pool-de-endereços-docker-esgotado-ao-criar-rede) para a solução.
+> **Docker daemon.json:** se a equipe de infraestrutura configurou `/etc/docker/daemon.json` com `default-address-pools` restrito (ex: uma única subnet `/24`), o Docker não conseguirá criar redes para os compose projects. O `check-docker` detecta isso automaticamente; consulte o [Problema 1 do Troubleshooting](TROUBLESHOOTING.md#problema-1--pool-de-endereços-docker-esgotado-ao-criar-rede) para a solução.
 
-### VM do banco de dados
+#### VM do banco de dados
 
-| Requisito | Mínimo |
-|---|---|
-| PostgreSQL | ≥ 16 |
-| Bancos criados | `siscan_rpa` + `siscan_dashboard` |
-| Conectividade TCP | Porta 5432 acessível por ambas as VMs de aplicação |
-| Senhas sem caracteres especiais | Evitar `@`, `%`, `/`, `#`, `:`, `\` nas senhas dos bancos |
+| Requisito | Mínimo | Specialist responsável |
+|---|---|---|
+| PostgreSQL | ≥ 16 | `check-db` (`SHOW server_version`) |
+| Bancos criados | `siscan_rpa` + `siscan_dashboard` | (operacional, não verificado) |
+| Conectividade TCP | Porta 5432 acessível por ambas as VMs de aplicação | `check-db` (TCP + `pg_isready`) |
+| Senhas sem caracteres especiais | Evitar `@`, `%`, `/`, `#`, `:`, `\` | `check-env` (regex de `RPA_DATABASE_URL`) |
 
 > **Senhas do banco:** o Docker Compose monta a `DATABASE_URL` por interpolação de variáveis. Caracteres como `@` na senha quebram o parsing da URL (o `@` é o separador entre credenciais e host). Use senhas alfanuméricas com símbolos seguros (`_`, `-`, `!`, `^`).
 
-Verificar conectividade antes de prosseguir:
-
-```bash
-psql -h <DATABASE_HOST> -U siscan_rpa -c "SELECT version();"
-```
+> O `check-db` só roda depois que o `.env` tem `DATABASE_HOST` preenchido (após Fase 5 do setup). Use `bash siscan-server-doctor.sh --only check-db` para validá-lo pontualmente após o setup.
 
 ### Token de registro do runner
 
