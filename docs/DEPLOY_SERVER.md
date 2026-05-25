@@ -499,16 +499,9 @@ ls -la scripts/data/products.json scripts/data/network-endpoints.json
 
 **Esperado:** 9 arquivos `check-*.sh` em `scripts/deploy_server/`, mais `_common.sh`, os 3 scripts no root e os 2 JSON em `scripts/data/`.
 
-#### Passo 3 — Garantir bit executável
+> Os scripts já vêm com bit `+x` no índice do git (`100755`), então um `git pull` em clone normal preserva a permissão e não é preciso `chmod +x` na VM. Se em algum caso isolado a permissão se perder (ex.: cópia via `rsync` sem `-p`, download como zip), rode `chmod +x siscan-server-doctor.sh siscan-runner-recover.sh scripts/deploy_server/check-*.sh` antes do Passo 3.
 
-```bash
-chmod +x siscan-server-doctor.sh siscan-runner-recover.sh
-chmod +x scripts/deploy_server/check-*.sh
-```
-
-Necessário porque alguns checkouts (especialmente download em zip ou git mais antigo) não preservam o bit `+x`.
-
-#### Passo 4 — Primeira foto da saúde da VM
+#### Passo 3 — Primeira foto da saúde da VM
 
 ```bash
 bash siscan-server-doctor.sh
@@ -516,9 +509,9 @@ bash siscan-server-doctor.sh
 
 **Esperado:** resumo final do tipo `X/9 specialists OK · Y com FAIL`. É **normal** ver FAILs informativos nessa primeira execução (ex.: `check-runner` se runner está auto-removido, `check-stack` se a stack não está rodando). O que importa é entender **quais** dimensões falharam — cada specialist exibe a ação corretiva embaixo do bloco dele.
 
-#### Passo 5 — Se `check-runner` ou `check-stack` apontaram problema → recuperar runner
+#### Passo 4 — Se `check-runner` ou `check-stack` apontaram problema → recuperar runner
 
-Se o passo 4 mostrou problema em `check-runner` (auto-removido após 14 dias offline, ou regra dos 30 dias), rode:
+Se o passo 3 mostrou problema em `check-runner` (auto-removido após 14 dias offline, ou regra dos 30 dias), rode:
 
 ```bash
 bash siscan-runner-recover.sh
@@ -528,11 +521,13 @@ O script:
 - Detecta o produto via `.env` (`siscan-rpa` ou `siscan-dashboard`)
 - Faz pré-flight com o doctor (network + deps + docker + permissions)
 - Diagnostica o cenário (auto-removed ou stale 30d ou OK)
-- **Se for auto-removed**: pede token novo (gere em `https://github.com/Prisma-Consultoria/<repo>/settings/actions/runners/new`) e refaz o registro
+- **Se for auto-removed**: pede um token novo de registro do runner e refaz o registro
 - **Se for stale 30d**: roda `run.sh --check` (não precisa token)
 - Valida ao fim chamando `check-runner` novamente
 
-#### Passo 6 — Validação final completa
+> **Token de registro do runner:** quem gera é um administrador do repositório do produto correspondente (`Prisma-Consultoria/siscan-rpa` ou `Prisma-Consultoria/siscan-dashboard`) em `Settings → Actions → Runners → New self-hosted runner`. O token expira em ~1h, então combine com o admin que ele gere **no momento** em que você for executar este passo, e cole o valor quando o script perguntar. O operador da VM não precisa de permissão administrativa no repo.
+
+#### Passo 5 — Validação final completa
 
 ```bash
 bash siscan-server-doctor.sh
@@ -546,7 +541,7 @@ sudo journalctl -u 'actions.runner.*' -f | grep -E "Listening|Running|error"
 
 Ou aguarde o próximo deploy automático (workflow CD da branch `main` do produto correspondente) — depois disso a stack sobe e `check-stack` passa também.
 
-#### Passo 7 (opcional) — Inventário do que o assistente entrega agora
+#### Passo 6 (opcional) — Inventário do que o assistente entrega agora
 
 ```bash
 bash siscan-server-doctor.sh --list
