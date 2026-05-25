@@ -158,13 +158,13 @@ Specialists planejados (status atual entre `[]`):
 | Specialist | Verifica | Status |
 |---|---|---|
 | `check-network` | 22 FQDNs externos (runner, GHCR, Docker Hub, OCSP/CRL) | `[implementado]` |
-| `check-deps` | Docker, Compose, curl, sudo, jq, NTP | `[pendente]` |
-| `check-env` | `.env` preenchido, formato de `RPA_DATABASE_URL`, `APP_LOG_LEVEL` | `[pendente]` |
-| `check-docker` | Daemon ativo, pool de redes (`daemon.json`), grupo `docker` | `[pendente]` |
-| `check-runner` | `.runner` local, GitHub API, regra dos 30 dias | `[pendente]` |
-| `check-stack` | `docker compose ps`, port collision, restart loop | `[pendente]` |
-| `check-permissions` | Ownership do stack dir, git `safe.directory`, UID 1000 | `[pendente]` |
-| `check-db` | TCP/5432 + `pg_isready` para `DATABASE_HOST` (e `RPA_DATABASE_URL`) | `[pendente]` |
+| `check-deps` | Docker, Compose, curl, sudo, jq, NTP | `[implementado]` |
+| `check-env` | `.env` preenchido, formato de `RPA_DATABASE_URL`, `APP_LOG_LEVEL` | `[implementado]` |
+| `check-docker` | Daemon ativo, pool de redes (`daemon.json`), grupo `docker` | `[implementado]` |
+| `check-runner` | `.runner` local, GitHub API, regra dos 30 dias | `[implementado]` |
+| `check-stack` | `docker compose ps`, port collision, restart loop | `[implementado]` |
+| `check-permissions` | Ownership do stack dir, git `safe.directory`, UID 1000 | `[implementado]` |
+| `check-db` | TCP/5432 + `pg_isready` para `DATABASE_HOST` (e `RPA_DATABASE_URL`) | `[implementado]` |
 
 Para rodar um specialist isoladamente:
 
