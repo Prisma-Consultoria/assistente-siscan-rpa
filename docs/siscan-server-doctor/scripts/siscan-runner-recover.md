@@ -22,20 +22,23 @@ Resolução: `sudo -u siscan ./run.sh --check` (**não** precisa token).
 ## Sinopse
 
 ```bash
-bash siscan-runner-recover.sh                       # detecta produto via $COMPOSE_DIR/.env (SISCAN_PRODUCT)
-bash siscan-runner-recover.sh --product rpa         # explícito (sem .env ou .env sem SISCAN_PRODUCT)
+bash siscan-runner-recover.sh                              # detecta produto via $COMPOSE_DIR/.env (SISCAN_PRODUCT)
+bash siscan-runner-recover.sh --product rpa                # explícito (sem .env ou .env sem SISCAN_PRODUCT)
 bash siscan-runner-recover.sh --product dashboard
-bash siscan-runner-recover.sh --product full        # VM que hospeda RPA + Dashboard
-bash siscan-runner-recover.sh --skip-doctor         # pula pré-flight (debug)
+bash siscan-runner-recover.sh --product full               # VM que hospeda RPA + Dashboard
+bash siscan-runner-recover.sh --env-file /path/to/.env     # apontar pra um .env em outro caminho
+bash siscan-runner-recover.sh --skip-doctor                # pula pré-flight (debug)
 bash siscan-runner-recover.sh --help
 ```
 
 > **Pré-requisito**: o script precisa saber o produto antes de qualquer ação. Resolução em ordem:
 > 1. `--product VALOR` explícito vence sempre.
-> 2. Senão, lê `SISCAN_PRODUCT` de `$COMPOSE_DIR/.env`.
+> 2. Senão, lê `SISCAN_PRODUCT` do **`ENV_FILE` efetivo**:
+>    - default: `$COMPOSE_DIR/.env` (ou `$PWD/.env` se `COMPOSE_DIR` não estiver exportada)
+>    - override: `--env-file /caminho/para/.env` na CLI
 > 3. Se nenhum dos dois resolveu, aborta com `ERRO: SISCAN_PRODUCT não definido. Use --product rpa|dashboard|full ou preencha .env.`
 >
-> Operacionalmente isso significa que **na VM você pode rodar sem flag** (o `.env` já vem do `siscan-server-setup.sh`); fora da VM (ex.: testes locais, debug em dev box) você usa `--product`.
+> Operacionalmente isso significa que **na VM você pode rodar sem flag** (o `.env` já vem do `siscan-server-setup.sh`); fora da VM (ex.: testes locais, debug em dev box) você usa `--product` ou `--env-file` apontando pra um `.env` válido.
 
 ## Detecção de SISCAN_PRODUCT a partir do `.env`
 
@@ -65,11 +68,11 @@ Características desse mecanismo:
 
 **Pré-requisitos pra detecção via `.env` funcionar:**
 
-1. `$COMPOSE_DIR` aponta pra um diretório acessível (ou está rodando dentro dele — `$(pwd)` é o fallback).
-2. Existe um arquivo `$COMPOSE_DIR/.env` legível pelo usuário corrente.
+1. `ENV_FILE` aponta pra um caminho legível. Default = `$COMPOSE_DIR/.env` (ou `$PWD/.env` se `COMPOSE_DIR` não estiver exportada); pode ser sobrescrito por `--env-file VALOR` na CLI.
+2. O arquivo apontado por `ENV_FILE` existe e é legível pelo usuário corrente.
 3. Esse arquivo tem uma linha `SISCAN_PRODUCT=<rpa|dashboard|full>`.
 
-Se qualquer um dos 3 falhar, a saída é o erro documentado em "Pré-requisito" acima — solução: passar `--product VALOR` na CLI ou ajustar o `.env`.
+Se qualquer um dos 3 falhar, a saída é o erro documentado em "Pré-requisito" acima — soluções: passar `--product VALOR` na CLI, `--env-file /caminho/.env` apontando pra um `.env` válido em outro lugar, ou ajustar o `.env` do default.
 
 ## Como o script decide o que fazer
 
