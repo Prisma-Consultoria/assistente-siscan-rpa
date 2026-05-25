@@ -95,6 +95,58 @@ Diagnóstico em 4 passos:
 | Runner presente, `online`, < 25d | < 25d | **OK** | Nada — exit 0 |
 | `~/actions-runner/` ausente | — | **N/A** | Orienta `siscan-server-setup.sh` |
 
+## Ações por cenário (o que o script faz na VM)
+
+A tabela acima mostra **qual** ação é tomada por cenário, mas não detalha **o que** cada ação muda no host. Esta seção lista os comandos exatos, em ordem, com a propriedade idempotente de cada um e a necessidade de sudo. Útil pra entender o blast radius antes de rodar — especialmente porque o Cenário A consome um token de admin que expira em ~1h.
+
+### Cenário A / A' (Auto-removal, Offline, ou Nome mismatch) — re-registro completo
+
+Todos rodam em `~/actions-runner/`.
+
+| # | Comando | Idempotente? | Sudo? |
+|---|---|---|---|
+| 1 | `./svc.sh stop` | sim — `warn` se já parado | sim |
+| 2 | `./svc.sh uninstall` | sim — `warn` se já desinstalado | sim |
+| 3 | `./config.sh remove --token "$TOKEN"` | sim — `warn` se 404 (esperado quando o GitHub já auto-removeu) | não |
+| 4 | `./config.sh --url $REPO --token $TOKEN --name $EXPECTED_NAME --labels $RUNNER_LABEL --unattended --replace` | sim — `--replace` sobrescreve registro existente | não |
+| 5 | `./svc.sh install $CURRENT_USER` | recria | sim |
+| 6 | `./svc.sh start` | recria | sim |
+
+Estado da VM após sucesso:
+
+- `~/actions-runner/.runner`: regerado com `id` novo (vindo do GitHub) e timestamp atual.
+- `~/actions-runner/.credentials*`: regerado (chaves de autenticação do runner).
+- `/etc/systemd/system/actions.runner.<owner>-<repo>.<host>-<suffix>.service`: arquivo da unit instalado.
+- Serviço `systemctl is-active actions.runner.*`: `active (running)`.
+
+Cobre o caso `.runner` presente + serviço systemd ausente (passos 2 e 5 fazem o ciclo uninstall→install) — exatamente o padrão visto na VMPRDAPP-RPADASHBOARD em 25/05/2026.
+
+### Cenário B / WARN (Regra dos 30 dias) — só auto-update
+
+Não pede token — força o runner a baixar versão nova e reinicia.
+
+| # | Comando | Idempotente? | Sudo? |
+|---|---|---|---|
+| 1 | `./svc.sh stop` | sim — `warn` se já parado | sim |
+| 2 | `./run.sh --check` (executado como `$CURRENT_USER` via `sudo -u`) | repetível — só dispara o auto-update; em runner já atualizado, é noop | sim (apenas pra `sudo -u`) |
+| 3 | `./svc.sh start` | recria | sim |
+
+Estado da VM após sucesso:
+
+- `~/actions-runner/bin/`: binários atualizados pra versão upstream mais recente.
+- `~/actions-runner/.runner_migrated`: mtime renovado (próxima janela de 30d resetada).
+- Serviço continua com o mesmo registro (`.runner` e `.credentials*` intactos).
+
+### Cenário OK — exit 0, nada a fazer
+
+Runner saudável (`online`, idade < 25d). O script não toca em nada e retorna `0`.
+
+### Cenário N/A — `~/actions-runner/` ausente
+
+`fail`: o script orienta `bash siscan-server-setup.sh --product $SISCAN_PRODUCT` (instalação do zero) e sai com `2`. Recovery não cobre instalação inicial — é um script cirúrgico, não setup.
+
+> **Pré-requisito de sudo**: o operador precisa ter `sudo` configurado pro usuário corrente (em VMs do siscan-server-setup, isso já está garantido). Se exigir senha, o script vai pausar pedindo password nos passos 1, 2, 5, 6 do A (ou 1, 2, 3 do B) — sem perder estado.
+
 ## Pré-flight: doctor é invocado primeiro
 
 Antes de tocar no runner, invoca:
