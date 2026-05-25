@@ -285,8 +285,8 @@ step "FASE 0 — Pré-flight via siscan-server-doctor"
 DOCTOR_SCRIPT="${SCRIPT_DIR}/siscan-server-doctor.sh"
 if [ "${SKIP_DOCTOR}" = "true" ]; then
     warn "Fase 0 pulada por --skip-doctor (não recomendado em produção)"
-elif [ ! -x "${DOCTOR_SCRIPT}" ]; then
-    warn "siscan-server-doctor.sh ausente ou não-executável — pulando Fase 0"
+elif [ ! -f "${DOCTOR_SCRIPT}" ]; then
+    warn "siscan-server-doctor.sh ausente — pulando Fase 0"
 else
     info "Rodando doctor em modo quiet (só FAIL apareceria abaixo)..."
     if bash "${DOCTOR_SCRIPT}" --quiet --except check-runner,check-stack,check-db; then
