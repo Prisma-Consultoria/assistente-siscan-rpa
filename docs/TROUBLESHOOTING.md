@@ -498,6 +498,100 @@ docker compose -f docker-compose.prd.rpa.yml exec -T -e PGPASSWORD='SENHA' app \
 
 ---
 
+### Problema 6 — Runner auto-removido após 14 dias offline
+
+Sintoma: deploys via GitHub Actions ficam aguardando indefinidamente; na UI do GitHub, a página `Settings → Actions → Runners` mostra **runner ausente** (não está nem `Idle` nem `Offline` — simplesmente sumiu). Localmente o `.runner` e `~/actions-runner/` continuam presentes.
+
+Causa: política do GitHub remove automaticamente self-hosted runners offline há mais de 14 dias. Caso real: VMPRDAPP-RPADASHBOARD entre 15/04 e 25/05/2026 (40 dias).
+
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Confirmar diagnóstico via API | `gh api repos/Prisma-Consultoria/siscan-dashboard/actions/runners --jq '.total_count'` (precisa `GH_TOKEN` ou `gh auth status`) | `check-runner` (faz essa query quando há auth disponível) |
+| 2 | Cruzar com estado local | `ls -la ~/actions-runner/.runner ~/actions-runner/.runner_migrated` — se presentes mas API retorna `total_count: 0`, é Cenário A do recover | `check-runner` |
+| 3 | Executar a recuperação cirúrgica | `bash siscan-runner-recover.sh` (do `$COMPOSE_DIR`, ou com `--product` explícito) | `siscan-runner-recover.sh` ✅ — ver [doc](siscan-server-doctor/scripts/siscan-runner-recover.md) |
+| 4 | Quando o script pedir `Token:` | Admin do repo gera novo token em `Settings → Actions → Runners → New self-hosted runner` (expira em ~1h) | — (ação no GitHub UI, requer permissão admin no repo) |
+| 5 | Validar pós-recovery | O script roda `check-runner --quiet` no final; ou rode manual: `bash siscan-server-doctor.sh --only check-runner` | `check-runner` |
+
+> O recover é **idempotente** — `svc.sh uninstall` (passo 2 da sequência interna do recover) emite warn se o serviço já estava ausente; cobre o caso da VM ter `.runner` presente + serviço systemd ausente.
+
+---
+
+### Problema 7 — Runner offline > 30 dias (regra de auto-update)
+
+Sintoma: GitHub mostra o runner `online` (ou `Idle`) mas jobs ficam `queued` indefinidamente. Logs do runner não mostram erro de SSL nem de firewall. Caso real: VMs do servidor parceiro em 25/05/2026 antes do recover.
+
+Causa: [regra dos 30 dias do GitHub](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#runner-software-updates-on-self-hosted-runners) — se o runner ficar 30 dias sem auto-atualizar sua versão, o GitHub Actions Service deixa de enviar jobs.
+
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Verificar idade da última auto-atualização | `stat -c '%y' ~/actions-runner/.runner_migrated` (mtime renovado a cada upgrade) | `check-runner` (detecta 25-29d como warn, ≥30d como fail) |
+| 2 | Forçar auto-update | `bash siscan-runner-recover.sh` — detecta Cenário B e roda `./run.sh --check` (não pede token) | `siscan-runner-recover.sh` (Cenário B) |
+| 3 | Validar pós-update | `bash siscan-server-doctor.sh --only check-runner` deve mostrar idade resetada | `check-runner` |
+
+---
+
+### Problema 8 — `RPA_DATABASE_URL` sem prefixo `postgresql://`
+
+Sintoma (caso real, siscan-dashboard 27/03/2026): container `sync` falha no boot com `could not translate host name "siscandashboard"` ou similar. O `.env` tinha `RPA_DATABASE_URL=siscandashboard` (faltava o prefixo + credenciais + host).
+
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Validar formato | `bash siscan-server-doctor.sh --only check-env` (rejeita `RPA_DATABASE_URL` que não case com `^postgresql://user:pass@host:port/db$`) | `check-env` ✅ |
+| 2 | Corrigir o `.env` | `RPA_DATABASE_URL=postgresql://siscan_rpa:SENHA@172.19.225.22:5432/siscan_rpa` (sintaxe completa) | — (ação corretiva) |
+| 3 | Restart do dashboard | `docker compose -f docker-compose.prd.dashboard.yml restart sync` | — (ação corretiva) |
+
+---
+
+### Problema 9 — `git pull` com `dubious ownership`
+
+Sintoma (casos reais, ambas as VMs em 19/03/2026): `git pull origin main` no `$COMPOSE_DIR` falha com `fatal: detected dubious ownership in repository`. Acontece quando o repo foi clonado com outro usuário (tipicamente `root` durante setup inicial) e depois passou a ser operado por `siscan`.
+
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Verificar owner do `$COMPOSE_DIR/.git` | `stat -c '%U' $COMPOSE_DIR/.git` — se diferente do usuário corrente, dispara o "dubious ownership" do git | `check-permissions` (owner + safe.directory) |
+| 2 | Solução A — corrigir ownership | `sudo chown -R $(whoami):$(whoami) $COMPOSE_DIR` (preferível, alinha realidade com expectativa) | — (ação corretiva) |
+| 3 | Solução B — instruir git a confiar | `git config --global --add safe.directory $COMPOSE_DIR` (não corrige ownership, só silencia o warning) | — (ação corretiva) |
+
+---
+
+### Problema 10 — `PermissionError` em `data/.artifacts/auth` (UID 1000)
+
+Sintoma (RPA, 01/04/2026): container `app` do RPA falha ao escrever em `data/.artifacts/auth/` com `PermissionError [Errno 13]`. O `appuser` dentro do container tem UID 1000.
+
+Causa: o diretório foi criado por outro UID no host (tipicamente `root` durante setup, UID 0). Bind mount preserva ownership do host, então UID 1000 do container não escreve.
+
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Verificar owner do diretório | `stat -c '%u:%g' $COMPOSE_DIR/data/.artifacts` (deve ser `1000:1000`) | `check-permissions` (cobre `data/.artifacts` UID 1000 para o RPA) |
+| 2 | Corrigir ownership | `sudo chown -R 1000:1000 $COMPOSE_DIR/data` | — (ação corretiva) |
+| 3 | Reiniciar containers | `docker compose -f docker-compose.prd.rpa.yml restart app rpa-scheduler` | — (ação corretiva) |
+
+---
+
+### Problema 11 — Porta externa já em uso bloqueando `compose up`
+
+Sintoma (RPA, 27/03/2026): `docker compose up -d` falha com `bind: address already in use` na porta declarada em `HOST_APP_EXTERNAL_PORT` (5000, 5001 ou similar). Algum outro processo já segura a porta.
+
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Identificar conflito | `bash siscan-server-doctor.sh --only check-stack` — detecta porta ocupada antes do `compose up` | `check-stack` (valida `expected_external_ports` do manifesto) |
+| 2 | Listar quem usa a porta | `sudo lsof -i :5000` ou `sudo ss -tlnp \| grep :5000` | — (debug) |
+| 3 | Liberar ou trocar | (a) parar o processo conflitante; OU (b) ajustar `HOST_APP_EXTERNAL_PORT` no `.env` pra outra porta livre | — (ação corretiva) |
+
+---
+
+### Problema 12 — `excel_columns_mapping.json` ausente em `config/`
+
+Sintoma (siscan-dashboard, 27/03/2026): container `app` ou `sync` falha logo no boot com erro de parsing de Excel, citando ausência do arquivo de mapeamento de colunas.
+
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Confirmar ausência | `ls -la $COMPOSE_DIR/config/excel_columns_mapping.json` (ou cair em "No such file or directory") | `check-permissions` (cobre presença de `excel_columns_mapping.json` no produto que exige) |
+| 2 | Copiar do repo do produto | O arquivo é versionado em `siscan-dashboard/config/excel_columns_mapping.json` — clonar o repo do dashboard e copiar | — (ação corretiva) |
+| 3 | Permissão de leitura | `chmod 644 $COMPOSE_DIR/config/excel_columns_mapping.json` | — (ação corretiva) |
+
+---
+
 ## Coleta de artefatos para suporte avançado
 
 Sempre coletar antes de abrir chamado. Substituir `<PASTA_LOGS>` pelo valor de `HOST_LOG_DIR` no `.env`.
