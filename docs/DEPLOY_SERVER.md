@@ -105,7 +105,7 @@ A tabela a seguir é uma referência detalhada — o doctor cobre tudo dela auto
 | vCPUs | 4 | `check-resources` |
 | Memória RAM | 8 GB | `check-resources` |
 | Disco livre em `$COMPOSE_DIR` | 20 GB | `check-resources` |
-| Docker Engine | ≥ 28.x | `check-deps` + `check-docker` |
+| Docker Engine | ≥ 24 (recomendado 28+) | `check-deps` + `check-docker` |
 | Docker Compose | ≥ 2.37 | `check-deps` |
 | git, jq, openssl, curl, sudo, timeout | qualquer versão | `check-deps` |
 | Conectividade HTTPS | 22 endpoints (GitHub Actions, GHCR, Docker Hub, OCSP/CRL) | `check-network` |
