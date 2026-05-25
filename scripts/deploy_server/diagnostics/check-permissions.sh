@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./_common.sh
 source "$SCRIPT_DIR/_common.sh"
 
-COMPOSE_DIR="$(pwd)"
+COMPOSE_DIR="${COMPOSE_DIR:-$(pwd)}"
 ENV_FILE="$COMPOSE_DIR/.env"
 
 usage() {

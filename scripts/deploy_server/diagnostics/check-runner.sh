@@ -23,7 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./_common.sh
 source "$SCRIPT_DIR/_common.sh"
 
-ENV_FILE="$(pwd)/.env"
+ENV_FILE="${COMPOSE_DIR:-$(pwd)}/.env"
 RUNNER_DIR="${RUNNER_DIR:-${HOME}/actions-runner}"
 
 usage() {
