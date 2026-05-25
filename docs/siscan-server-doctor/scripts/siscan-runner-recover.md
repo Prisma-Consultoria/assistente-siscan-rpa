@@ -37,6 +37,36 @@ bash siscan-runner-recover.sh --help
 >
 > Operacionalmente isso significa que **na VM você pode rodar sem flag** (o `.env` já vem do `siscan-server-setup.sh`); fora da VM (ex.: testes locais, debug em dev box) você usa `--product`.
 
+## Detecção de SISCAN_PRODUCT a partir do `.env`
+
+Quando você roda sem `--product`, o script tenta inferir o produto do `.env` da VM. **Não há "magia": é grep simples sobre arquivo de dados.**
+
+```bash
+ENV_FILE="${COMPOSE_DIR}/.env"   # COMPOSE_DIR cai pra $(pwd) se não exportado
+
+_read_env_var() {
+    grep -E "^SISCAN_PRODUCT=" "$ENV_FILE" 2>/dev/null \
+        | tail -1 \                            # última linha vence (override)
+        | cut -d= -f2- \                       # tudo após o primeiro '='
+        | sed 's/^["'\'']\(.*\)["'\'']$/\1/'   # remove aspas envolventes se houver
+}
+```
+
+Características desse mecanismo:
+
+- **Lê como dados, não como código**: NÃO usa `source .env` nem `eval`. Isso evita que chars especiais no valor (`$`, `` ` ``, aspas mal-fechadas) sejam interpretados como bash — proteção contra command injection.
+- **Última atribuição vence** (`tail -1`): se o `.env` tiver `SISCAN_PRODUCT=` duas vezes, prevalece a de baixo (consistente com o comportamento de `docker compose` e `dotenv`).
+- **Aspas envolventes são strippadas**: aceita `SISCAN_PRODUCT=rpa`, `SISCAN_PRODUCT="rpa"` ou `SISCAN_PRODUCT='rpa'` indistintamente.
+- **Mesmo padrão dos demais specialists**: `check-env`, `check-permissions`, `check-db`, `check-runner` usam função idêntica — qualquer mudança aqui precisa ser propagada (ou extraída pra `_common.sh`).
+
+**Pré-requisitos pra detecção via `.env` funcionar:**
+
+1. `$COMPOSE_DIR` aponta pra um diretório acessível (ou está rodando dentro dele — `$(pwd)` é o fallback).
+2. Existe um arquivo `$COMPOSE_DIR/.env` legível pelo usuário corrente.
+3. Esse arquivo tem uma linha `SISCAN_PRODUCT=<rpa|dashboard|full>`.
+
+Se qualquer um dos 3 falhar, a saída é o erro documentado em "Pré-requisito" acima — solução: passar `--product VALOR` na CLI ou ajustar o `.env`.
+
 ## Como o script decide o que fazer
 
 Diagnóstico em 4 passos:
