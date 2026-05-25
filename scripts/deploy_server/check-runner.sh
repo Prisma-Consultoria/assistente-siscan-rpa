@@ -195,7 +195,9 @@ else
     if [ "$age_days" -lt 25 ]; then
         add_ok "$CAT_AGE" age 0 "última atualização" "$age_days dia(s) ($age_source) — dentro da janela segura"
     elif [ "$age_days" -lt 30 ]; then
-        add_fail "$CAT_AGE" age 0 "última atualização" "$age_days dia(s) — AVISO: faltam $((30 - age_days)) dias para o GitHub parar de enviar jobs; force update com 'sudo -u siscan ./run.sh --check'"
+        # Janela de aviso preventivo — não é FAIL, GitHub ainda envia jobs.
+        # FAIL só ≥ 30 dias quando a regra realmente bloqueia.
+        add_ok "$CAT_AGE" age 0 "última atualização" "$age_days dia(s) (warn) — faltam $((30 - age_days)) dia(s) pro GitHub parar de enviar jobs; rode 'sudo -u siscan ./run.sh --check' preventivamente"
     else
         add_fail "$CAT_AGE" age 0 "última atualização" "$age_days dia(s) — REGRA DOS 30 DIAS ATIVA: GitHub não envia mais jobs até o runner se atualizar; rode 'siscan-runner-recover.sh'"
     fi
