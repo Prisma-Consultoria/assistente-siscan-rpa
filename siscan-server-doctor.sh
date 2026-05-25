@@ -213,14 +213,41 @@ for name in "${TO_RUN[@]}"; do
             if [ "$PROGRESS_ENABLED" = true ]; then
                 printf "  ⟳ [%d/%d] %s... " "$idx" "$total_specs" "$name" >&2
             fi
-            output="$(bash "$script" --json 2>/dev/null)"
+            # Captura stderr separadamente. Quando o specialist pre-falha (fail()
+            # em _common.sh escreve em stderr e sai com 2), a stderr é a única
+            # pista do erro real. Antes era descartada via 2>/dev/null e o
+            # diagnóstico do operador ficava "voando às cegas".
+            stderr_file=$(mktemp)
+            output="$(bash "$script" --json 2>"$stderr_file")"
             rc=$?
             # Specialist que pre-falha (exit 2, ex: .env ausente) sai com stdout vazio.
             # Substitui por envelope de erro pra não quebrar o JSON final do doctor.
             if [ -z "$output" ] || ! echo "$output" | jq -e . >/dev/null 2>&1; then
-                # shellcheck disable=SC2016
-                output=$(printf '{"specialist": "%s", "summary": {"total": 1, "ok": 0, "fail": 1}, "checks": [{"category": "Pré-requisito do specialist", "target": "%s", "protocol": "err", "port": 0, "status": "fail", "detail": "specialist saiu com exit=%s sem JSON válido (provável .env/PRODUCTS_FILE ausente)"}]}' "$name" "$name" "$rc")
+                # Cauda da stderr (últimos 500 chars) — captura ERROR: ...
+                # do fail() + qualquer ruído de set -u/pipefail antes do abort.
+                stderr_tail=$(tail -c 500 "$stderr_file" 2>/dev/null)
+                [ -z "$stderr_tail" ] && stderr_tail="(stderr vazio)"
+                # Monta envelope usando jq pra escapar aspas/quebras de linha
+                # corretamente — printf com sed era frágil pra mensagens
+                # multi-linha de fail().
+                output=$(jq -nc \
+                    --arg name "$name" \
+                    --arg rc "$rc" \
+                    --arg stderr "$stderr_tail" \
+                    '{
+                        specialist: $name,
+                        summary: {total: 1, ok: 0, fail: 1},
+                        checks: [{
+                            category: "Pré-requisito do specialist",
+                            target: $name,
+                            protocol: "err",
+                            port: 0,
+                            status: "fail",
+                            detail: ("specialist saiu com exit=" + $rc + " sem JSON válido. stderr: " + $stderr)
+                        }]
+                    }')
             fi
+            rm -f "$stderr_file"
             SPECIALIST_OUTPUTS+=("$output")
             # Resumo da execução no stderr (OK/FAIL + totais quando jq disponível)
             if [ "$PROGRESS_ENABLED" = true ]; then
