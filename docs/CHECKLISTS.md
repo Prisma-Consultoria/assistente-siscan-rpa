@@ -1,8 +1,8 @@
 # Checklists Operacionais — Assistente SISCAN
 <a name="checklists"></a>
 
-Versão: 4.1
-Data: 2026-03-24
+Versão: 4.2
+Data: 2026-03-27
 
 Checklists para os três modos de deploy: HOST (PC local, produto `full`), Servidor RPA (produto `rpa`) e Servidor Dashboard (produto `dashboard`).
 
@@ -20,8 +20,8 @@ Este checklist se aplica a qualquer modo de deploy, independentemente do produto
   - HOST: `.env.host.sample`
   - Servidor RPA: `.env.server-rpa.sample`
   - Servidor Dashboard: `.env.server-dashboard.sample`
-- [ ] `DATABASE_PASSWORD` alterado (não usar o padrão).
-- [ ] Conectividade com GHCR confirmada (`ghcr.io` porta 443 acessível).
+- [ ] `DATABASE_PASSWORD` alterado (não usar o padrão). Evitar caracteres especiais `@`, `%`, `/`, `#`, `:`, `\` (quebram a interpolação da `DATABASE_URL` no compose — ver [TROUBLESHOOTING — Problema 2B](TROUBLESHOOTING.md#problema-2b--senha-com-caracteres-especiais-quebra-a-database_url)).
+- [ ] Conectividade externa confirmada (Modo Servidor: `bash siscan-server-doctor.sh --only check-network` cobre os 22 endpoints — GHCR, GitHub Actions, Docker Hub, OCSP/CRL. Modo HOST: ao menos `ghcr.io:443` acessível).
 
 ---
 
@@ -62,10 +62,13 @@ Este checklist se aplica a qualquer modo de deploy, independentemente do produto
 - [ ] `DATABASE_HOST` preenchido com IP/hostname do PostgreSQL (**não** usar `db`).
 - [ ] `SECRET_KEY` definida.
 - [ ] Caminhos `HOST_*` em formato Linux absoluto.
+- [ ] `config/excel_columns_mapping.json` presente em `$COMPOSE_DIR/config/` (necessário para parsing dos laudos — ver [TROUBLESHOOTING — Problema 12](TROUBLESHOOTING.md#problema-12--excel_columns_mappingjson-ausente-em-config)).
+- [ ] Pré-flight do doctor: `bash siscan-server-doctor.sh --pre-setup` → `6/6 specialists OK` (gate obrigatório; o setup invoca como Fase 0).
 - [ ] `siscan-server-setup.sh --product rpa` executado.
 
 ### Após configuração
 
+- [ ] Validação completa: `bash siscan-server-doctor.sh` → `9/9 specialists OK`.
 - [ ] Containers em execução: `docker compose -f docker-compose.prd.rpa.yml ps` → `app` e `rpa-scheduler` com status `Up` / `healthy`.
 - [ ] Health: `http://<IP>:5001/health` → `"schema_status":"current"`.
 - [ ] Runner online: GitHub → `siscan-rpa` → Settings → Actions → Runners → status `Idle`.
@@ -93,10 +96,12 @@ bash ./siscan-server-setup.sh --product rpa --check
 - [ ] `RPA_DATABASE_URL` preenchido com conexão ao banco do RPA.
 - [ ] `ADMIN_PASSWORD` definida.
 - [ ] `HOST_LOG_DIR` preenchido.
+- [ ] Pré-flight do doctor: `bash siscan-server-doctor.sh --pre-setup` → `6/6 specialists OK` (gate obrigatório; o setup invoca como Fase 0).
 - [ ] `siscan-server-setup.sh --product dashboard` executado.
 
 ### Após configuração
 
+- [ ] Validação completa: `bash siscan-server-doctor.sh` → `9/9 specialists OK`.
 - [ ] Containers em execução: `docker compose -f docker-compose.prd.dashboard.yml ps` → `redis`, `app` e `sync` com status `Up` / `healthy`.
 - [ ] Redis operacional: `docker compose -f docker-compose.prd.dashboard.yml exec redis redis-cli ping` → `PONG`.
 - [ ] Health: `http://<IP>:5000/health` → `"schema_status":"current"`.
@@ -122,6 +127,18 @@ Os passos a seguir se aplicam a qualquer produto. Substitua o compose file e a i
 - [ ] Recriar: `docker compose -f <compose-file> up -d`.
 - [ ] Coletar artefatos: [TROUBLESHOOTING.md — Coleta de artefatos](TROUBLESHOOTING.md).
 - [ ] Comunicar time DevOps Prisma.
+
+### Runner do GitHub Actions caído (auto-removido >14d ou stale >30d)
+
+Quando o doctor sinaliza problema em `check-runner` (ou jobs ficam `queued` mesmo com runner aparentemente OK), use o recover idempotente em vez de re-registrar manualmente:
+
+```bash
+cd $COMPOSE_DIR
+bash siscan-runner-recover.sh        # detecta cenário e age (auto-removed → re-registro com token; stale 30d → run.sh --check sem token)
+bash siscan-server-doctor.sh --only check-runner   # valida ao final
+```
+
+Ver [TROUBLESHOOTING.md — Problemas 6 e 7](TROUBLESHOOTING.md#problema-6--runner-auto-removido-após-14-dias-offline) e a doc completa em [`siscan-server-doctor/scripts/siscan-runner-recover.md`](siscan-server-doctor/scripts/siscan-runner-recover.md).
 
 ---
 
