@@ -42,13 +42,17 @@ bash siscan-runner-recover.sh --help
 Quando você roda sem `--product`, o script tenta inferir o produto do `.env` da VM. **Não há "magia": é grep simples sobre arquivo de dados.**
 
 ```bash
-ENV_FILE="${COMPOSE_DIR}/.env"   # COMPOSE_DIR cai pra $(pwd) se não exportado
+# COMPOSE_DIR cai pra $(pwd) se não exportado;
+# --env-file VALOR no CLI sobrescreve este default (ver --help do script).
+ENV_FILE="${COMPOSE_DIR}/.env"
 
 _read_env_var() {
-    grep -E "^SISCAN_PRODUCT=" "$ENV_FILE" 2>/dev/null \
-        | tail -1 \                            # última linha vence (override)
-        | cut -d= -f2- \                       # tudo após o primeiro '='
-        | sed 's/^["'\'']\(.*\)["'\'']$/\1/'   # remove aspas envolventes se houver
+    # Pipeline em uma linha — copy-paste seguro (sem trailing spaces após \).
+    # 1. grep   → linhas começando com 'SISCAN_PRODUCT='
+    # 2. tail   → última atribuição vence (override permitido)
+    # 3. cut    → pega tudo após o primeiro '='
+    # 4. sed    → remove aspas envolventes ("..." ou '...')
+    grep -E "^SISCAN_PRODUCT=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/^["'\'']\(.*\)["'\'']$/\1/'
 }
 ```
 
