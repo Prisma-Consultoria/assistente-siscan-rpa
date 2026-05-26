@@ -34,7 +34,7 @@
 #   1  falha em alguma etapa do recovery
 #   2  uso inválido / pré-condição não atendida
 #
-# Referência: docs/siscan-server-doctor/scripts/siscan-runner-recover.md
+# Referência: docs/guides/siscan-runner-recover.md
 # -------------------------------------------
 
 set -uo pipefail

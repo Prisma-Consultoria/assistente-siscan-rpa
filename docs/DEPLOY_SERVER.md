@@ -528,7 +528,7 @@ bash siscan-runner-recover.sh
 O script:
 - Detecta o produto via `.env` (ou aceita `--product` explícito quando `.env` não estiver disponível)
 - Faz pré-flight com o doctor (network + deps + docker + permissions)
-- Diagnostica o cenário automaticamente — cobre 9 cenários auto-resolvíveis (N/A, 1, 2, C, A, A2, B, WARN, OK) + 1 inconclusivo (UNKNOWN); ver [doc completa](siscan-server-doctor/scripts/siscan-runner-recover.md)
+- Diagnostica o cenário automaticamente — cobre 9 cenários auto-resolvíveis (N/A, 1, 2, C, A, A2, B, WARN, OK) + 1 inconclusivo (UNKNOWN); ver [doc completa](guides/siscan-runner-recover.md)
 - **Se for auto-removed (A/A2)**: pede token novo (ou usa `--token <valor>`) e refaz o registro completo
 - **Se for stale 30d (B/WARN)**: roda `run.sh --check` (não precisa token)
 - **Se for serviço systemd ausente (C)**: só `svc.sh install + start` (não precisa token — caminho cirúrgico)

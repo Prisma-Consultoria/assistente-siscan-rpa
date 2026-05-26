@@ -376,7 +376,7 @@ Sintoma: deploys via GitHub Actions ficam aguardando runner; GitHub mostra runne
 | 3 | Se aparecer `SSL connection could not be established` | O runner perdeu conectividade SSL. Reiniciar o serviço: `sudo ~/actions-runner/svc.sh stop && sudo ~/actions-runner/svc.sh start` | `check-network` (detecta firewall) + `siscan-runner-recover.sh` (Cenário A — reinicia serviço como parte do re-registro) |
 | 4 | Se `start` não resolver SSL | Testar conectividade da VM: `curl -Iv https://github.com`. Se falhar, é problema de rede/firewall — envolver infra | `check-network` |
 | 5 | Verificar conectividade com GitHub | `curl -s https://api.github.com` deve retornar JSON | `check-network` (cobre `api.github.com` entre os 22 endpoints) |
-| 6 | Re-registrar o runner (token expirado) | Obter novo token de registro no GitHub → Settings → Actions → Runners → `./config.sh` com o novo token | `siscan-runner-recover.sh` (detecta auto-removal via API + cuida do re-registro completo, ver [doc](siscan-server-doctor/scripts/siscan-runner-recover.md)) |
+| 6 | Re-registrar o runner (token expirado) | Obter novo token de registro no GitHub → Settings → Actions → Runners → `./config.sh` com o novo token | `siscan-runner-recover.sh` (detecta auto-removal via API + cuida do re-registro completo, ver [doc](guides/siscan-runner-recover.md)) |
 
 > O runner pode mostrar `Active (running)` no systemd mas estar desconectado do GitHub (loop de erro SSL). Nesse caso, `svc.sh status` mostra ativo mas o GitHub mostra Offline. A solução é `stop` + `start` para forçar reconexão.
 
@@ -508,7 +508,7 @@ Causa: política do GitHub remove automaticamente self-hosted runners offline h�
 |---|---|---|---|
 | 1 | Confirmar diagnóstico via API | `gh api repos/<owner>/<repo>/actions/runners --jq '.total_count'` — `<owner>/<repo>` vem de `scripts/data/products.json` conforme `$SISCAN_PRODUCT` (`siscan-rpa`, `siscan-dashboard`, ou ambos no `full`). Precisa `GH_TOKEN` ou `gh auth status`. Em geral, deixe o `check-runner` resolver automaticamente via manifesto | `check-runner` (resolve repo via manifesto + faz a query quando há auth) |
 | 2 | Cruzar com estado local | `ls -la ~/actions-runner/.runner ~/actions-runner/.runner_migrated` — se presentes mas API retorna `total_count: 0`, é Cenário A do recover | `check-runner` |
-| 3 | Executar a recuperação cirúrgica | `bash siscan-runner-recover.sh` (do `$COMPOSE_DIR`, ou com `--product` explícito) | `siscan-runner-recover.sh` ✅ — ver [doc](siscan-server-doctor/scripts/siscan-runner-recover.md) |
+| 3 | Executar a recuperação cirúrgica | `bash siscan-runner-recover.sh` (do `$COMPOSE_DIR`, ou com `--product` explícito) | `siscan-runner-recover.sh` ✅ — ver [doc](guides/siscan-runner-recover.md) |
 | 4 | Quando o script pedir `Token:` | Admin do repo gera novo token em `Settings → Actions → Runners → New self-hosted runner` (token expira rapidamente — gere logo antes de colar) | — (ação no GitHub UI, requer permissão admin no repo) |
 | 5 | Validar pós-recovery | O script roda `check-runner --quiet` no final; ou rode manual: `bash siscan-server-doctor.sh --only check-runner` | `check-runner` |
 
