@@ -66,11 +66,27 @@ bash siscan-runner-recover.sh --help
 
 ### Flag `--token`
 
-Quando fornecida, sobrescreve o prompt interativo `read -srp "Token: "` dos cenários que precisam de token (N/A, 1, 2, A, A2). Útil para:
+Quando fornecida, sobrescreve o prompt interativo `read -srp "Token: "` dos cenários que precisam de token de registro (N/A, 1, 2, A, A2). Útil para:
 - **Automação** (CI/scripts sem TTY interativo)
-- **UNKNOWN defensivo**: se `gh`/`GH_TOKEN` ausentes e estado local OK + idade <30d, fornecer `--token` força o cenário **A2** (re-registro defensivo, assumindo que o GitHub pode ter auto-removido o runner sem possibilidade de detectar via API)
+- **Precedência defensiva**: quando a API GitHub está indisponível (sem gh/`GH_TOKEN`), fornecer `--token` **força o cenário A2** independentemente da idade local — assumindo que o operador desconfia de auto-removal e quer re-registrar. Antes da #53, a faixa de idade vencia a presença do `--token` e o recover caía em WARN/B (run.sh --check) ignorando o token; **corrigido a partir de #53**.
 
 Sem `--token`, o comportamento histórico do prompt interativo é preservado.
+
+### Flag `--pat` (novo a partir de #53)
+
+PAT (Personal Access Token classic, scope `repo`) usado pelo `run.sh --check` nos ramos B/WARN.
+
+Precedência de resolução:
+1. `--pat <VALOR>` explícito na CLI
+2. Variável de ambiente `$GH_TOKEN`
+3. `gh auth token` (se `gh` CLI autenticado)
+4. Prompt interativo `read -srp "PAT: "`
+
+**Diferença entre `--token` e `--pat`**:
+- `--token` = token de **registro** do runner (gerado em Settings → Actions → Runners → New self-hosted runner; expira em ~5 min; uso único pelo `config.sh`).
+- `--pat` = **Personal Access Token** clássico do usuário (gerado em Settings → Developer settings → Personal access tokens; dura horas/dias/meses; usado pelo `run.sh --check` para validar conectividade com a API).
+
+Cada token tem propósito diferente — fornecer um no lugar do outro vai falhar.
 
 > **Pré-requisito**: o script precisa saber o produto antes de qualquer ação. Resolução em ordem:
 > 1. `--product VALOR` explícito vence sempre.

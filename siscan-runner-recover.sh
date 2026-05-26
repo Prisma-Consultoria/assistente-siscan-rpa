@@ -64,6 +64,7 @@ ENV_FILE="${COMPOSE_DIR}/.env"
 SISCAN_PRODUCT=""
 SKIP_DOCTOR=false
 TOKEN_ARG=""
+PAT_ARG=""
 CURRENT_USER="$(whoami)"
 
 usage() {
@@ -77,6 +78,9 @@ Opções:
   --skip-doctor                  Pula pré-flight via doctor (debugging)
   --token TOKEN                  Token de registro do runner (alternativa a gh/GH_TOKEN);
                                  quando fornecido, sobrescreve o prompt interativo
+  --pat PAT                      Personal Access Token (scope 'repo') usado pelo
+                                 'run.sh --check' nos ramos B/WARN. Se omitido,
+                                 tenta resolver via 'gh auth token' ou prompt interativo.
   -h, --help                     Esta ajuda
 
 Cenários detectados automaticamente:
@@ -118,6 +122,8 @@ while [ $# -gt 0 ]; do
         --skip-doctor)  SKIP_DOCTOR=true; shift ;;
         --token)        _require_value "$@"; TOKEN_ARG="$2"; shift 2 ;;
         --token=*)      TOKEN_ARG="${1#*=}"; shift ;;
+        --pat)          _require_value "$@"; PAT_ARG="$2"; shift 2 ;;
+        --pat=*)        PAT_ARG="${1#*=}"; shift ;;
         -h|--help)      usage; exit 0 ;;
         *) echo "argumento desconhecido: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -255,6 +261,32 @@ prompt_token_if_needed() {
     [ -n "$TOKEN" ] || fail "Token vazio. Abortando."
 }
 
+# resolve_pat — define $PAT para uso em 'run.sh --check' (ramos B/WARN).
+# Precedência: --pat > GH_TOKEN > 'gh auth token' > prompt interativo.
+# PAT é diferente do token de registro: precisa scope 'repo' e dura mais.
+# Fix #53/Bug 3: antes, run.sh --check era chamado sem --url/--pat e caía em
+# prompt interativo bloqueando o fluxo automatizado.
+resolve_pat() {
+    if [ -n "$PAT_ARG" ]; then
+        PAT="$PAT_ARG"
+        info "PAT fornecido via --pat"
+    elif [ -n "${GH_TOKEN:-}" ]; then
+        PAT="$GH_TOKEN"
+        info "PAT obtido de \$GH_TOKEN"
+    elif command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+        PAT=$(gh auth token 2>/dev/null)
+        [ -n "$PAT" ] && info "PAT obtido de 'gh auth token'"
+    fi
+    if [ -z "${PAT:-}" ]; then
+        printf "${YELLOW}PAT (Personal Access Token) requerido para 'run.sh --check'.${NC}\n"
+        printf "${WHITE}Gere em:${NC} ${CYAN}https://github.com/settings/tokens (scope 'repo')${NC}\n\n"
+        # shellcheck disable=SC2162
+        read -srp "PAT: " PAT
+        echo ""
+    fi
+    [ -n "$PAT" ] || fail "PAT vazio. Abortando 'run.sh --check'."
+}
+
 case "$scenario" in
     N/A)
         # Bootstrap completo — recover instalando do zero
@@ -315,13 +347,20 @@ case "$scenario" in
         ;;
 
     B|WARN)
+        resolve_pat
         runner_stop_service "$RUNNER_DIR"
         info "Forçando auto-update via 'run.sh --check' (pode demorar ~30s)..."
-        if sudo -u "$CURRENT_USER" "$RUNNER_DIR/run.sh" --check; then
-            ok "run.sh --check OK (runner atualizado)"
-        else
-            fail "run.sh --check retornou erro — runner pode estar com problema mais sério."
+        # Fix #53/Bug 3: passar --url e --pat para evitar prompt interativo.
+        # Fix #53/Bug 2: 'run.sh --check' retorna exit 0 mesmo com FAILs
+        # internos. Capturar output e fazer parse procurando 'F A I L'.
+        check_output=$(sudo -u "$CURRENT_USER" "$RUNNER_DIR/run.sh" --check \
+            --url "$REPO_URL" --pat "$PAT" 2>&1)
+        check_exit=$?
+        printf '%s\n' "$check_output"
+        if [ "$check_exit" -ne 0 ] || printf '%s' "$check_output" | grep -q "F A I L"; then
+            fail "run.sh --check reportou falha (exit=$check_exit). Verifique logs em $RUNNER_DIR/_diag/. Causas comuns: PAT sem scope 'repo', firewall bloqueando endpoints do GitHub Actions, runner removido do GitHub (cenário A — rode com --token <token-registro> em vez de --pat)."
         fi
+        ok "run.sh --check OK (runner atualizado, sem FAILs internos)"
         runner_start_service "$RUNNER_DIR" \
             || fail "svc.sh start falhou."
         ;;
@@ -342,6 +381,12 @@ step_print "6/6 — Validação pós-recovery"
 cd "$SCRIPT_DIR" || true
 info "Aguardando 5s pra runner estabelecer conexão..."
 sleep 5
+
+# Fix #53/Bug 4: exportar RUNNER_DIR pra propagação garantida pra subshell
+# do check-runner.sh. Sem isso, o specialist podia cair no default
+# ${HOME}/actions-runner em contextos onde HOME era inconsistente com o
+# RUNNER_DIR usado pelo recover, gerando falso positivo 'config.sh: ausente'.
+export RUNNER_DIR
 
 if bash "$SPECIALISTS_DIR/check-runner.sh" --quiet; then
     ok "Runner recuperado com sucesso — pronto pra receber jobs."

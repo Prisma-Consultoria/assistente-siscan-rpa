@@ -180,13 +180,17 @@ runner_diagnose() {
     runners_json=$(runner_query_api "$owner" "$repo")
 
     if [ -z "$runners_json" ]; then
-        if [ "$age_days" -ge 30 ]; then
+        # Precedência: --token (operadora forneceu = sinal forte de auto-removal
+        # suspeito) > idade ≥30d > faixa de aviso 25-29d > UNKNOWN.
+        # Fix #53/Bug 1: antes, idade 25-29d vencia o has_token e ignorava o
+        # --token fornecido, fazendo cair em WARN (run.sh --check) em vez de A2
+        # (re-registro). Observado em campo na VMPRDAPP-RPADASHBOARD 26/05/2026.
+        if [ "$has_token" = "true" ]; then
+            echo "A2"; return 0
+        elif [ "$age_days" -ge 30 ]; then
             echo "B"; return 0
         elif [ "$age_days" -ge 25 ]; then
             echo "WARN"; return 0
-        elif [ "$has_token" = "true" ]; then
-            # Operadora forneceu token defensivamente → assume A2
-            echo "A2"; return 0
         else
             echo "UNKNOWN"; return 0
         fi
