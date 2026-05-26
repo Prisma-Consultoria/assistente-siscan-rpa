@@ -1,10 +1,12 @@
 # Guia de Deploy — Modo Servidor (Ubuntu Server)
 <a name="deploy-server"></a>
 
-Versão: 2.2
-Data: 2026-03-27
+Versão: 2.3
+Data: 2026-05-26
 
 Deploy em Ubuntu Server com PostgreSQL externo. O deploy de novas versões é automático via GitHub Actions com self-hosted runner. O assistente suporta dois produtos (`rpa` e `dashboard`), cada um instalado em sua própria VM.
+
+> Este documento é um **playbook narrativo de alto nível**: arquitetura, operação cotidiana e conteúdo único do modo servidor. Para a referência operacional detalhada de cada script (flags, fases internas, exit codes, schema), consulte os guias em [`docs/guides/`](guides/) — linkados ao longo do texto.
 
 ---
 
@@ -81,7 +83,7 @@ O fluxo de deploy e a infraestrutura funcionam assim:
 
 ## Pré-requisitos
 
-Antes de executar o setup, rode o doctor para validar **automaticamente** todos os pré-requisitos da VM:
+Antes de executar o setup, rode o doctor para validar **automaticamente** todos os pré-requisitos da VM (Docker/Compose, recursos, conectividade HTTPS para 22 FQDNs, pool de redes Docker, permissões etc.):
 
 ```bash
 git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git
@@ -89,46 +91,9 @@ cd assistente-siscan-rpa
 bash siscan-server-doctor.sh --pre-setup
 ```
 
-Saída esperada: `6/6 specialists OK` (os 3 specialists excluídos só fazem sentido **depois** do setup — runner ainda não foi instalado, stack não foi subida, `.env` ainda não tem DATABASE_HOST). Cada specialist FAIL traz mensagem com ação corretiva específica. Referência completa do que cada specialist verifica: [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md).
+Saída esperada: `6/6 specialists OK` (3 specialists só fazem sentido depois do setup — runner, stack e banco). Cada FAIL traz mensagem com ação corretiva específica. A referência completa de cada specialist (o que verifica, exit codes, schema JSON) está em [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md).
 
-> A partir desta versão do assistente, o próprio `siscan-server-setup.sh` invoca o doctor como **Fase 0** (gate pré-flight) antes de executar qualquer ação destrutiva. Use `--skip-doctor` no setup para pular este gate em cenários de debugging.
-
-### Resumo dos checks (referência detalhada)
-
-A tabela a seguir é uma referência detalhada — o doctor cobre tudo dela automaticamente.
-
-#### VM de aplicação (RPA ou Dashboard)
-
-| Requisito | Mínimo | Specialist responsável |
-|---|---|---|
-| Sistema operacional | Ubuntu 24.04 LTS | `check-deps` |
-| vCPUs | 4 | `check-resources` |
-| Memória RAM | 8 GB | `check-resources` |
-| Disco livre em `$COMPOSE_DIR` | 20 GB | `check-resources` |
-| Docker Engine | ≥ 24 (recomendado 28+) | `check-deps` + `check-docker` |
-| Docker Compose | ≥ 2.37 | `check-deps` |
-| git, jq, openssl, curl, sudo, timeout | qualquer versão | `check-deps` |
-| Conectividade HTTPS | 22 endpoints (GitHub Actions, GHCR, Docker Hub, OCSP/CRL) | `check-network` |
-| Docker network pool com subnets disponíveis | — | `check-docker` (teste real `network create`) |
-| Usuário corrente não-root + no grupo `docker` | — | `check-docker` |
-| Stack dir com ownership correto + git safe.directory | — | `check-permissions` |
-| Chaves RSA em `HOST_SECRETS_DIR` (RPA) | persistidas | `check-permissions` |
-| `.env` preenchido com formato correto | — | `check-env` |
-
-> **Docker daemon.json:** se a equipe de infraestrutura configurou `/etc/docker/daemon.json` com `default-address-pools` restrito (ex: uma única subnet `/24`), o Docker não conseguirá criar redes para os compose projects. O `check-docker` detecta isso automaticamente; consulte o [Problema 1 do Troubleshooting](TROUBLESHOOTING.md#problema-1--pool-de-endereços-docker-esgotado-ao-criar-rede) para a solução.
-
-#### VM do banco de dados
-
-| Requisito | Mínimo | Specialist responsável |
-|---|---|---|
-| PostgreSQL | ≥ 16 | `check-db` (`SHOW server_version`) |
-| Bancos criados | `siscan_rpa` + `siscan_dashboard` | (operacional, não verificado) |
-| Conectividade TCP | Porta 5432 acessível por ambas as VMs de aplicação | `check-db` (TCP + `pg_isready`) |
-| Senhas sem caracteres especiais | Evitar `@`, `%`, `/`, `#`, `:`, `\` | `check-env` (regex de `RPA_DATABASE_URL`) |
-
-> **Senhas do banco:** o Docker Compose monta a `DATABASE_URL` por interpolação de variáveis. Caracteres como `@` na senha quebram o parsing da URL (o `@` é o separador entre credenciais e host). Use senhas alfanuméricas com símbolos seguros (`_`, `-`, `!`, `^`).
-
-> O `check-db` só roda depois que o `.env` tem `DATABASE_HOST` preenchido (após Fase 5 do setup). Use `bash siscan-server-doctor.sh --only check-db` para validá-lo pontualmente após o setup.
+> O próprio `siscan-server-setup.sh` invoca o doctor como **Fase 0** (gate pré-flight) antes de executar qualquer ação destrutiva. Use `--skip-doctor` no setup só em cenários de debugging.
 
 ### Token de registro do runner
 
@@ -137,63 +102,29 @@ Cada VM precisa de um token de registro gerado no repositório correspondente ao
 | Sistema | Onde gerar o token |
 |---|---|
 | siscan-rpa | [siscan-rpa → Settings → Actions → Runners → New](https://github.com/Prisma-Consultoria/siscan-rpa/settings/actions/runners/new) |
-| `dashboard` | [siscan-dashboard → Settings → Actions → Runners → New](https://github.com/Prisma-Consultoria/siscan-dashboard/settings/actions/runners/new) |
+| siscan-dashboard | [siscan-dashboard → Settings → Actions → Runners → New](https://github.com/Prisma-Consultoria/siscan-dashboard/settings/actions/runners/new) |
 
->  ⚠️  O token expira em poucos minutos. Gere-o imediatamente antes de executar o script.
-
----
-
-## Validação de saúde (`siscan-server-doctor.sh`)
-
-Antes de prosseguir com a instalação — e sempre que o deploy quebrar — rode o doctor para um diagnóstico amplo da VM:
-
-```bash
-bash ./siscan-server-doctor.sh
-```
-
-O doctor orquestra os specialists em `scripts/deploy_server/check-*.sh`, cada um cobrindo uma dimensão da saúde da VM. Saída `N/N specialists OK` libera o próximo passo. Saída com `FAIL` em algum specialist aponta a causa-raiz — consulte [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) para a ação corretiva associada.
-
-Specialists planejados (status atual entre `[]`):
-
-| Specialist | Verifica | Status |
-|---|---|---|
-| `check-network` | 22 FQDNs externos (runner, GHCR, Docker Hub, OCSP/CRL) | `[implementado]` |
-| `check-deps` | Docker, Compose, curl, sudo, jq, NTP | `[implementado]` |
-| `check-env` | `.env` preenchido, formato de `RPA_DATABASE_URL`, `APP_LOG_LEVEL` | `[implementado]` |
-| `check-docker` | Daemon ativo, pool de redes (`daemon.json`), grupo `docker` | `[implementado]` |
-| `check-runner` | `.runner` local, GitHub API, regra dos 30 dias | `[implementado]` |
-| `check-stack` | `docker compose ps`, port collision, restart loop | `[implementado]` |
-| `check-permissions` | Ownership do stack dir, git `safe.directory`, UID 1000 | `[implementado]` |
-| `check-db` | TCP/5432 + `pg_isready` para `DATABASE_HOST` (e `RPA_DATABASE_URL`) | `[implementado]` |
-
-Para rodar um specialist isoladamente:
-
-```bash
-bash siscan-server-doctor.sh --only check-network         # via doctor
-bash scripts/deploy_server/check-network.sh               # standalone
-```
-
-> **Monitoramento contínuo (recomendação 12.8 do PDF de whitelist):** programe `siscan-server-doctor.sh --quiet` em cron a cada 5 minutos. Exit != 0 dispara alerta. Isso evita que uma nova expiração de regra de firewall — ou outras regressões — passem despercebidas por semanas, como aconteceu em 15/04/2026.
-
-Referência completa do doctor + de cada specialist (opções, exit codes, schema, exemplos): [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md).
+> ⚠️ O token expira em poucos minutos. Gere-o imediatamente antes de executar o script.
 
 ---
 
-## Instalação (`siscan-server-setup.sh`)
+## Instalação
 
-O script `siscan-server-setup.sh` é o ponto de entrada para instalar o siscan-rpa e/ou o siscan-dashboard em servidores Ubuntu. Ele é executado **uma única vez** de forma interativa em cada VM. O flag `--product` seleciona qual aplicação será instalada naquela VM. O mesmo script e o mesmo repositório do assistente são usados para instalar qualquer um dos dois produtos — a diferença está no argumento passado.
+O script `siscan-server-setup.sh` é o ponto de entrada para instalar o siscan-rpa e/ou o siscan-dashboard em servidores Ubuntu. Ele roda **uma única vez** de forma interativa em cada VM. O flag `--product` seleciona qual aplicação será instalada — o mesmo script e o mesmo repositório do assistente funcionam para ambos.
 
-Em uma infraestrutura com 3 VMs (conforme o diagrama de arquitetura acima), o processo de instalação é:
+Em uma infraestrutura com 3 VMs (conforme o diagrama de arquitetura acima):
 
 1. **Na VM do RPA (VM 1):** clone o assistente e execute com `--product rpa`. O script configura o compose do RPA, gera a chave de sessão, solicita as credenciais do banco externo e os caminhos de dados, instala o runner do GitHub Actions e registra no repositório `siscan-rpa`.
-2. **Na VM do Dashboard (VM 3):** clone o assistente novamente (ou copie) e execute com `--product dashboard`. O script configura o compose do dashboard (que inclui o Redis), gera a chave de sessão, solicita as credenciais do banco externo, a connection string do banco do RPA para o sync, e o caminho de logs, instala o runner e registra no repositório `siscan-dashboard`.
-3. **A VM do banco de dados (VM 2)** não precisa do assistente — é um PostgreSQL dedicado que deve estar acessível por ambas as VMs antes de executar o script.
+2. **Na VM do Dashboard (VM 3):** clone o assistente novamente e execute com `--product dashboard`. O script configura o compose do dashboard (que inclui o Redis), gera a chave de sessão, solicita credenciais e a connection string do banco do RPA para o sync, instala o runner e registra no repositório `siscan-dashboard`.
+3. **A VM do banco de dados (VM 2)** não precisa do assistente — é um PostgreSQL dedicado que deve estar acessível por ambas as VMs antes do primeiro `compose up`.
 
-Cada VM é independente — não é necessário instalar uma antes da outra. A única dependência é que o PostgreSQL (VM 2) esteja acessível no momento em que os containers subirem pela primeira vez.
+Cada VM é independente — não há ordem obrigatória entre RPA e Dashboard. A única dependência é que o PostgreSQL (VM 2) esteja acessível no momento em que os containers subirem pela primeira vez.
+
+O script executa 11 fases idempotentes (`0` a `10`) que cobrem pré-flight via doctor, criação do usuário dedicado `siscan`, estrutura de diretórios, geração do `.env`, instalação do runner (via cenários `N/A → 1 → 2 → 3 → 4`) e persistência de `COMPOSE_DIR`. Detalhe de cada fase, flags, variáveis de ambiente reconhecidas e exit codes em [`guides/siscan-server-setup.md`](guides/siscan-server-setup.md).
 
 ### Instalação do siscan-rpa (VM 1)
 
-Na VM dedicada ao RPA, clone o assistente e execute o script com `--product rpa`:
+Na VM dedicada ao RPA:
 
 ```bash
 git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git
@@ -213,25 +144,11 @@ O script configura automaticamente:
 | Chave de sessão | `SECRET_KEY` (auto-gerada) |
 | Diretórios HOST_* | 5 (logs, downloads, consolidated, PDFs, config) |
 
-Durante a execução, o script solicita interativamente os seguintes valores:
-
-| Fase | Pergunta | Valor esperado |
-|---|---|---|
-| 5 | `DATABASE_HOST` | IP ou hostname do PostgreSQL externo (ex.: `192.168.1.10`) |
-| 5 | `DATABASE_PASSWORD` | Senha do banco PostgreSQL |
-| 5 | `HOST_LOG_DIR` | `/opt/siscan-rpa/logs` |
-| 5 | `HOST_SISCAN_REPORTS_INPUT_DIR` | `/opt/siscan-rpa/media/downloads` |
-| 5 | `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR` | `/opt/siscan-rpa/media/reports/mamografia/consolidated` |
-| 5 | `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR` | `/opt/siscan-rpa/media/reports/mamografia/consolidated/laudos` |
-| 5 | `HOST_CONFIG_DIR` | `/opt/siscan-rpa/config` |
-| 7 | `URL do repositório` | Enter para aceitar `https://github.com/Prisma-Consultoria/siscan-rpa` |
-| 7 | `Token de registro` | Token copiado da tela do GitHub |
-
-> `SECRET_KEY` é gerada automaticamente — não pergunta.
+Durante a execução (Fase 5 e Fase 7) o script solicita `DATABASE_HOST`, `DATABASE_PASSWORD`, os 5 caminhos `HOST_*`, a URL do repositório e o token de registro. A `SECRET_KEY` é gerada via `openssl rand -hex 32` — não pergunta.
 
 ### Instalação do siscan-dashboard (VM 3)
 
-Na VM dedicada ao dashboard, clone o assistente e execute o script com `--product dashboard`:
+Na VM dedicada ao dashboard:
 
 ```bash
 git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git
@@ -250,194 +167,25 @@ O script configura automaticamente:
 | Repo URL padrão | `Prisma-Consultoria/siscan-dashboard` |
 | Chave de sessão | `SESSION_SECRET` (auto-gerada) |
 | Diretórios HOST_* | 1 (logs) |
-| Serviço extra | Redis (cache operacional, criado automaticamente pelo compose) |
+| Serviço extra | Redis (cache, criado automaticamente pelo compose) |
 
-A principal diferença em relação ao RPA é a variável `RPA_DATABASE_URL`, que permite ao serviço `sync` conectar no banco do RPA para importar os dados de exames. Sem essa variável, o dashboard sobe mas o sync não funciona.
-
-Durante a execução, o script solicita interativamente os seguintes valores:
-
-| Fase | Pergunta | Valor esperado |
-|---|---|---|
-| 5 | `DATABASE_HOST` | IP ou hostname do PostgreSQL (ex.: `192.168.1.10`) |
-| 5 | `DATABASE_PASSWORD` | Senha do banco do dashboard |
-| 5 | `ADMIN_PASSWORD` | Senha do administrador do dashboard |
-| 5 | `RPA_DATABASE_URL` | `postgresql://siscan_rpa:senha@192.168.1.10:5432/siscan_rpa` |
-| 5 | `HOST_LOG_DIR` | `/opt/siscan-dashboard/logs` |
-| 7 | `URL do repositório` | Enter para aceitar `https://github.com/Prisma-Consultoria/siscan-dashboard` |
-| 7 | `Token de registro` | Token copiado da tela do GitHub |
-
-> `SESSION_SECRET` é gerada automaticamente — não pergunta.
+A principal diferença em relação ao RPA é a variável `RPA_DATABASE_URL`, que permite ao serviço `sync` ler o banco do RPA. Sem ela, o dashboard sobe mas o sync não funciona. Além disso, o script pergunta `ADMIN_PASSWORD` (admin do painel).
 
 ---
 
-## Fases do script
+## Validação de saúde
 
-O script `siscan-server-setup.sh` executa 10 fases em sequência. Cada fase exibe um banner com o número e o nome da etapa, seguido de verificações e ações. Se alguma fase falhar, o script interrompe com uma mensagem de erro indicando o problema e a ação corretiva. Algumas fases se adaptam ao produto selecionado (`rpa` ou `dashboard`), conforme indicado.
+Antes de prosseguir com a instalação — e sempre que o deploy quebrar — rode o doctor para um diagnóstico amplo da VM:
 
-Antes de iniciar as fases, o script exibe um banner com o produto selecionado, o compose file que será usado, o diretório da stack, o diretório do runner e o usuário atual. Essas informações permitem ao operador confirmar visualmente que os parâmetros estão corretos antes de prosseguir.
+```bash
+bash ./siscan-server-doctor.sh
+```
 
-### Fase 1 — Verificação de pré-requisitos
+O doctor orquestra **9 specialists** (`check-network`, `check-deps`, `check-env`, `check-docker`, `check-runner`, `check-stack`, `check-permissions`, `check-db`, `check-resources`) e agrega o resultado em um único relatório. Saída `N/N specialists OK` libera o próximo passo; cada FAIL aponta a causa-raiz com ação corretiva associada.
 
-O script verifica se as ferramentas necessárias estão instaladas e acessíveis: Docker Engine (>= 24.x recomendado), Docker Compose v2 (plugin), curl e sudo. Para cada ferramenta encontrada, exibe a versão detectada. Se alguma estiver ausente, o script interrompe com a instrução de instalação.
+Para rodar um specialist isoladamente, modos de saída (`--quiet`, `--json`, `--list`), subconjuntos (`--only`, `--except`, `--pre-setup`) e exit codes consumíveis por gates de CI ou cron: consulte [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md).
 
-No caso do Docker, se o daemon não estiver acessível, o script diagnostica a causa provável: serviço inativo (`systemctl`), usuário fora do grupo `docker`, ou socket `/var/run/docker.sock` inexistente. Essa verificação é idêntica para ambos os produtos.
-
----
-
-### Fase 2 — Usuário dedicado para o runner
-
-O GitHub Actions runner recusa execução como root. Se o script detectar que está rodando como root, ele cria o usuário `siscan` (solicita que o operador defina uma senha), adiciona ao grupo `docker`, transfere a propriedade do diretório do assistente para esse usuário e re-executa o script inteiro como `siscan`, propagando o `--product` selecionado. Se o script já estiver rodando como não-root, apenas confirma o usuário e prossegue.
-
----
-
-### Fase 3 — Estrutura de diretórios da stack
-
-O diretório da stack é o próprio diretório onde o assistente foi clonado. Os arquivos da stack (compose file, `.env`, diretório `config/`) ficam nesse mesmo local — não é criado um diretório separado. O script verifica se o diretório existe e se o usuário atual é o dono. Se necessário, ajusta as permissões via `sudo chown`.
-
----
-
-### Fase 4 — Arquivos da stack
-
-O script verifica se o compose file correspondente ao produto está presente no diretório da stack. Se não estiver, tenta copiar do diretório de origem do script (caso tenham sido distribuídos juntos). Se o arquivo não for encontrado em nenhum dos dois locais, o script interrompe com a instrução para o operador colocar o arquivo manualmente.
-
-| Sistema | Compose file |
-|---|---|
-| siscan-rpa | `docker-compose.prd.rpa.yml` |
-| siscan-dashboard | `docker-compose.prd.dashboard.yml` |
-
-Além do compose, o script verifica o diretório `config/` e a presença do arquivo `excel_columns_mapping.json` (necessário para o RPA). Se o `config/` não existir, tenta copiar do diretório de origem ou cria vazio com aviso.
-
----
-
-### Fase 5 — Configuração do `.env`
-
-Esta é a fase interativa principal. O script cria o `.env` a partir do sample correspondente ao produto (`.env.server-rpa.sample` ou `.env.server-dashboard.sample`) e solicita os valores obrigatórios ao operador.
-
-O fluxo de perguntas segue esta ordem:
-
-1. **Chave de sessão** — gerada automaticamente sem intervenção do operador. Para o RPA, gera `SECRET_KEY`; para o dashboard, gera `SESSION_SECRET`. Ambas são chaves hexadecimais de 256 bits produzidas via `openssl rand -hex 32`.
-2. **`DATABASE_HOST`** — o script pergunta o IP ou hostname do PostgreSQL externo. Se o valor atual for `db` (padrão de desenvolvimento), avisa que é inválido para banco externo e solicita correção.
-3. **`DATABASE_PASSWORD`** — o script pergunta a senha do banco. Se detectar a senha padrão `siscan_rpa`, exibe aviso para alteração. A entrada é ocultada (não ecoa no terminal).
-4. **`ADMIN_PASSWORD`** (apenas para o siscan-dashboard) — o script solicita a senha do usuário administrador do dashboard. Se deixada vazia, o dashboard gera uma senha temporária nos logs na primeira execução.
-5. **`RPA_DATABASE_URL`** (apenas para o siscan-dashboard) — o script solicita a connection string completa para o banco do RPA, exibindo o formato e um exemplo. Essa variável é obrigatória para que o `sync_exames` consiga ler os dados do RPA.
-6. **Diretórios `HOST_*`** — o script percorre cada variável de caminho, exibindo o valor atual e uma descrição. Se o valor atual parecer um caminho Windows (letra de drive, barras invertidas, UNC), exibe um aviso e sugere o equivalente Linux. O operador pode manter o valor atual pressionando Enter ou informar um novo caminho.
-
-| Variável | siscan-rpa | siscan-dashboard |
-|---|---|---|
-| Chave de sessão | `SECRET_KEY` (auto-gerada) | `SESSION_SECRET` (auto-gerada) |
-| `DATABASE_HOST` | Pergunta (obrigatório) | Pergunta (obrigatório) |
-| `DATABASE_PASSWORD` | Pergunta | Pergunta |
-| `ADMIN_PASSWORD` | — | Pergunta (senha do admin do dashboard) |
-| `RPA_DATABASE_URL` | — | Pergunta (obrigatório para o sync) |
-| Diretórios `HOST_*` | 5 caminhos | 1 caminho (`HOST_LOG_DIR`) |
-
-Ao final, o produto é persistido no `.env` via `SISCAN_PRODUCT=rpa` ou `SISCAN_PRODUCT=dashboard`, permitindo que o assistente (`siscan-assistente.sh`) detecte automaticamente qual produto gerenciar em operações futuras.
-
----
-
-### Fase 6 — Criação dos diretórios `HOST_*`
-
-O script lê os caminhos definidos nas variáveis `HOST_*_DIR` do `.env` e executa `mkdir -p` para cada um, criando toda a estrutura de diretórios necessária para os bind mounts dos containers. Para cada diretório criado com sucesso, exibe uma confirmação. Se a criação falhar (por exemplo, por falta de permissão), exibe um aviso — mas não interrompe o script. O número de diretórios criados varia: 5 para RPA (logs, downloads, consolidados, PDFs, config), 1 para dashboard (logs).
-
----
-
-### Fase 7 — GitHub Actions Runner
-
-Esta fase instala e registra o GitHub Actions runner que receberá os deploys automáticos via CI/CD. O script é **idempotente** — detecta o estado atual da instalação e retoma de onde parou. São 3 sub-etapas independentes (download, registro, serviço), cada uma verificada individualmente:
-
-| Indicador | Significa | Sub-etapa pulada |
-|---|---|---|
-| `config.sh` presente | Binários extraídos | Download |
-| `.runner` presente | Runner registrado no GitHub | Download + Registro |
-| Serviço systemd ativo | Instalação completa | Download + Registro + Serviço |
-
-Isso permite re-executar o script com segurança após falhas parciais (ex: token expirado, erro de rede no registro). O script retoma da sub-etapa que faltou, sem repetir o que já foi feito.
-
-Se o runner não estiver instalado, o fluxo completo é:
-
-1. **Detecta a arquitetura** do servidor (x86_64 ou aarch64) para baixar o binário correto.
-2. **Consulta a versão mais recente** do runner via API do GitHub (`actions/runner/releases/latest`).
-3. **Baixa e extrai** o tarball no diretório `~/actions-runner`.
-4. **Solicita a URL do repositório** — sugere a URL padrão conforme o produto; o operador pode aceitar com Enter ou informar outra.
-5. **Solicita o token de registro** — o operador deve copiar o token gerado na tela de Settings → Actions → Runners → New do repositório correspondente. O token expira em poucos minutos.
-6. **Registra o runner** com a label e o nome definidos pelo produto, usando `--unattended --replace`.
-7. **Instala como serviço systemd** e inicia o serviço. O runner passa a rodar em background e sobrevive a reinicializações do servidor.
-
-| Aspecto | siscan-rpa | siscan-dashboard |
-|---|---|---|
-| Label | `producao-rpa` | `producao-dashboard` |
-| Nome | `<hostname>-siscan-rpa` | `<hostname>-siscan-dashboard` |
-| URL padrão do repo | `Prisma-Consultoria/siscan-rpa` | `Prisma-Consultoria/siscan-dashboard` |
-
----
-
-### Fase 8 — Persistir `COMPOSE_DIR` no ambiente do runner
-
-O runner roda como serviço systemd e não carrega `~/.bashrc` nem `/etc/environment`. Para que os workflows de CD consigam localizar o compose file e o `.env` no servidor, o script grava a variável `COMPOSE_DIR` (diretório do assistente) em dois locais:
-
-1. **`~/actions-runner/.env`** — é o único mecanismo para injetar variáveis de ambiente nos jobs executados pelo runner. Ambos os workflows de CD (siscan-rpa e siscan-dashboard) usam `${COMPOSE_DIR}` para navegar até o diretório correto antes de executar `docker compose`.
-2. **`/etc/environment`** — disponibiliza a variável para sessões interativas (SSH), permitindo que o operador use `cd $COMPOSE_DIR` para acessar rapidamente o diretório da stack.
-
-Como o runner foi instalado e iniciado na fase 7 — antes do `COMPOSE_DIR` ser gravado — o script **reinicia o serviço do runner** ao final desta fase para que ele carregue o `.env` atualizado. Isso garante que o primeiro deploy via workflow já encontre o `COMPOSE_DIR` disponível.
-
----
-
-### Fase 9 — Permissões Docker
-
-O script verifica se o usuário atual pertence ao grupo `docker`. Se não pertencer, executa `sudo usermod -aG docker` e avisa que é necessário logout/login para que a mudança tenha efeito na sessão do terminal. O serviço do runner, por reiniciar via systemd, já terá o grupo automaticamente. Comportamento idêntico para ambos os produtos.
-
----
-
-### Fase 10 — Resumo e próximos passos
-
-O script exibe um resumo completo do que foi configurado: produto, diretório da stack, compose file, `.env`, diretório do runner e label. Em seguida, lista os próximos passos que o operador deve executar:
-
-1. Revisar o `.env` no diretório da stack para confirmar que todos os valores estão corretos.
-2. Confirmar que o runner aparece como **Idle** em GitHub → Settings → Actions → Runners do repositório correspondente.
-3. Verificar o status do serviço do runner via `sudo ~/actions-runner/svc.sh status`.
-4. O próximo merge para `main` no repositório correspondente acionará o deploy automaticamente. Para acionar manualmente, usar Actions → CD → Run workflow.
-5. Acompanhar os logs do runner via `journalctl -u actions.runner.*.service -f`.
-6. Acompanhar os logs da stack após o primeiro deploy via `docker compose -f <compose-file> logs -f`.
-
----
-
-## Referência de variáveis — `.env`
-
-As variáveis do `.env` são específicas de cada sistema. As seções a seguir documentam as variáveis do **siscan-rpa** (`docker-compose.prd.rpa.yml`). Para as variáveis do **siscan-dashboard** (`docker-compose.prd.dashboard.yml`), consulte o `.env.server-dashboard.sample` que acompanha o assistente.
-
-### Aplicação HTTP (siscan-rpa)
-
-| Variável | `.env.server-rpa.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
-|---|---|---|---|---|
-| `HOST_APP_EXTERNAL_PORT` | `5001` | `:-5001` | Não | Porta TCP publicada no host. URL de acesso: `http://<IP>:<porta>`. |
-| `APP_LOG_LEVEL` | `INFO` | `:-INFO` | Não | Verbosidade dos logs. Use `INFO` em produção; `DEBUG` gera alto volume. |
-| `SECRET_KEY` | *(vazio — preencher)* | sem fallback | **Sim** | Assina cookies de sessão do painel web. Gere com `openssl rand -hex 32`. |
-
-### Banco de dados (siscan-rpa)
-
-| Variável | `.env.server-rpa.sample` | Default no compose | Obrigatória? | O que faz / Impacto |
-|---|---|---|---|---|
-| `DATABASE_NAME` | `siscan_rpa` | `:-siscan_rpa` | Não | Nome do banco operacional no PostgreSQL externo. |
-| `DATABASE_USER` | `siscan_rpa` | `:-siscan_rpa` | Não | Usuário PostgreSQL da aplicação e das migrations. |
-| `DATABASE_PASSWORD` | `siscan_rpa` | `:-siscan_rpa` | Não (**altere em produção**) | Senha do banco. Substitua antes do primeiro start. |
-| `DATABASE_PORT` | `5432` | `:-5432` | Não | Porta TCP do PostgreSQL externo. |
-| `DATABASE_HOST` | *(vazio — preencher)* | **sem fallback** | **Sim** | IP ou hostname do PostgreSQL externo. |
-
-### Variáveis específicas do siscan-dashboard
-
-A tabela a seguir lista variáveis que existem apenas no `.env.server-dashboard.sample` e não se aplicam ao siscan-rpa.
-
-| Variável | `.env.server-dashboard.sample` | Obrigatória? | O que faz |
-|---|---|---|---|
-| `SESSION_SECRET` | *(vazio)* | **Sim** | Chave de sessão Flask. Auto-gerada pelo setup. |
-| `RPA_DATABASE_URL` | *(vazio)* | **Sim** | Conexão ao banco do RPA para o sync. Formato: `postgresql://user:pass@host:port/db` |
-| `SYNC_INTERVAL_SECONDS` | `1800` | Não | Intervalo do sync automático em segundos. |
-| `ADMIN_PASSWORD` | *(vazio)* | Sim (1ª exec.) | Senha do admin do dashboard. |
-| `HOST_DASHBOARD_EXTERNAL_PORT` | `5000` | Não | Porta TCP do dashboard. |
-| `REDIS_HOST` | `redis` | Não | Host do Redis. Default `redis` (serviço local no compose). |
-| `REDIS_PORT` | `6379` | Não | Porta TCP do Redis. |
-| `CACHE_TIMEOUT` | `300` | Não | TTL do cache operacional em segundos. |
-| `CACHE_KEY_PREFIX` | `siscan-dashboard:cache` | Não | Prefixo das chaves do dashboard no Redis. |
+> **Monitoramento contínuo:** programe `siscan-server-doctor.sh --quiet` em cron a cada 5 minutos. Exit != 0 dispara alerta — evita que expirações de regra de firewall ou outras regressões passem despercebidas (como no incidente de 15/04/2026).
 
 ---
 
@@ -450,7 +198,7 @@ Após o primeiro deploy, acesse a aplicação conforme o produto instalado na VM
 | siscan-rpa | `http://<IP>:5001` | Navegar até `/admin/siscan-credentials` e cadastrar usuário/senha do SISCAN |
 | siscan-dashboard | `http://<IP>:5000` | Login com admin / senha definida em `ADMIN_PASSWORD` |
 
-O runner registrado na fase 7 receberá automaticamente os próximos deploys via GitHub Actions.
+O runner registrado na Fase 7 do setup receberá automaticamente os próximos deploys via GitHub Actions.
 
 ---
 
@@ -461,11 +209,11 @@ Após a instalação inicial, o assistente não se atualiza sozinho. Há **dois 
 | Mecanismo | O que atualiza | Quando |
 |---|---|---|
 | **Workflow CD** (automático) | `docker-compose.prd.*.yml`, `.env.server-*.sample`, imagens Docker do GHCR | A cada merge em `main` dos repos `siscan-rpa` / `siscan-dashboard` |
-| **`git pull` manual** | Tudo o resto: `siscan-server-setup.sh`, `siscan-server-doctor.sh`, `siscan-runner-recover.sh`, `scripts/deploy_server/check-*.sh`, `scripts/data/*.json`, `docs/` | Quando o assistente ganha novas funcionalidades (specialists novos, manifesto, fixes, etc.) |
+| **`git pull` manual** | Tudo o resto: `siscan-server-setup.sh`, `siscan-server-doctor.sh`, `siscan-runner-recover.sh`, `scripts/deploy_server/check-*.sh`, `scripts/data/*.json`, `docs/` | Quando o assistente ganha novas funcionalidades (specialists novos, manifesto, fixes etc.) |
 
-> **Importante:** o `git pull` **não é opcional** quando o repo do assistente ganha novos scripts (como aconteceu na entrega do `siscan-server-doctor` + specialists). O workflow CD só sincroniza compose + sample, não o resto do repo.
+> **Importante:** o `git pull` **não é opcional** quando o repo do assistente ganha novos scripts. O workflow CD só sincroniza compose + sample, não o resto do repo.
 
-### Procedimento padrão de atualização
+### Procedimento padrão
 
 ```bash
 cd $COMPOSE_DIR   # tipicamente /app/assistente-siscan-rpa
@@ -475,93 +223,23 @@ bash siscan-server-doctor.sh --pre-setup
 
 A última linha valida que o ambiente continua íntegro após o pull. Saída esperada: `6/6 specialists OK`.
 
-### Playbook — primeira atualização para a versão com diagnóstico amplo
+### Cenários complexos (runner offline, auto-removed, primeira atualização ampla)
 
-Cenário: VM ainda está numa versão **anterior** à entrega do diagnóstico amplo (sem `siscan-server-doctor.sh`, sem `scripts/deploy_server/`), e o operador quer trazer todos os scripts novos + validar a saúde + (se necessário) recuperar o runner.
-
-Execute em ordem na VM (`/app/assistente-siscan-rpa` ou equivalente). Cada passo tem saída esperada — se divergir, pare e investigue antes de continuar.
-
-#### Passo 1 — Atualizar o repositório do assistente
+Para recuperação cirúrgica do runner — auto-removido após 14 dias offline, regra dos 30 dias de auto-update, bootstrap em VM nova, serviço systemd ausente, entre outros — use `siscan-runner-recover.sh`. O script detecta automaticamente um entre **9 cenários auto-resolvíveis** (`OK`, `N/A`, `1`, `2`, `C`, `A`, `A2`, `B`, `WARN`) + 1 inconclusivo (`UNKNOWN`), compartilha a lógica de download/registro/instalação com `siscan-server-setup.sh` e valida ao final via `check-runner`. Detalhe de cada cenário, flags (`--token`, `--pat`, `--env-file`, `--product`), resolução do `ENV_FILE` e geração do PAT classic: [`guides/siscan-runner-recover.md`](guides/siscan-runner-recover.md).
 
 ```bash
-cd $COMPOSE_DIR
-git pull origin main
-```
-
-**Esperado:** `Fast-forward` listando vários arquivos novos (siscan-server-doctor.sh, siscan-runner-recover.sh, scripts/deploy_server/, etc.). Se der "Already up to date", confirme que está na branch `main` (`git branch --show-current`).
-
-#### Passo 2 — Confirmar que os arquivos novos chegaram
-
-```bash
-ls -la siscan-server-doctor.sh siscan-runner-recover.sh scripts/deploy_server/
-ls -la scripts/data/products.json scripts/data/network-endpoints.json
-```
-
-**Esperado:** 9 arquivos `check-*.sh` em `scripts/deploy_server/`, mais `_common.sh`, os 3 scripts no root e os 2 JSON em `scripts/data/`.
-
-> Os scripts já vêm com bit `+x` no índice do git (`100755`), então um `git pull` em clone normal preserva a permissão e não é preciso `chmod +x` na VM. Se em algum caso isolado a permissão se perder (ex.: cópia via `rsync` sem `-p`, download como zip), rode `chmod +x siscan-server-doctor.sh siscan-runner-recover.sh scripts/deploy_server/check-*.sh` antes do Passo 3.
-
-#### Passo 3 — Primeira foto da saúde da VM
-
-```bash
-bash siscan-server-doctor.sh
-```
-
-**Esperado:** resumo final do tipo `X/9 specialists OK · Y com FAIL`. É **normal** ver FAILs informativos nessa primeira execução (ex.: `check-runner` se runner está auto-removido, `check-stack` se a stack não está rodando). O que importa é entender **quais** dimensões falharam — cada specialist exibe a ação corretiva embaixo do bloco dele.
-
-#### Passo 4 — Se `check-runner` ou `check-stack` apontaram problema → recuperar runner
-
-Se o passo 3 mostrou problema em `check-runner` (auto-removido após 14 dias offline, ou regra dos 30 dias), rode (a partir do `$COMPOSE_DIR`, que tem o `.env` com `SISCAN_PRODUCT` configurado):
-
-```bash
+# Na VM (detecta produto via .env)
 bash siscan-runner-recover.sh
+
+# Sem .env / testes locais
+bash siscan-runner-recover.sh --product rpa
+bash siscan-runner-recover.sh --product dashboard
+bash siscan-runner-recover.sh --product full
 ```
-
-> **Caso `SISCAN_PRODUCT` não esteja no `.env`** (cenário de testes locais ou recuperação em diretório sem `.env`), o script aborta com `ERRO: SISCAN_PRODUCT não definido`. Nesse caso, passe o produto explicitamente — um destes três valores conforme o caso da VM:
->
-> ```bash
-> bash siscan-runner-recover.sh --product rpa         # VM do RPA
-> bash siscan-runner-recover.sh --product dashboard   # VM do Dashboard
-> bash siscan-runner-recover.sh --product full        # VM que hospeda os dois
-> ```
-
-O script:
-- Detecta o produto via `.env` (ou aceita `--product` explícito quando `.env` não estiver disponível)
-- Faz pré-flight com o doctor (network + deps + docker + permissions)
-- Diagnostica o cenário automaticamente — cobre 9 cenários auto-resolvíveis (N/A, 1, 2, C, A, A2, B, WARN, OK) + 1 inconclusivo (UNKNOWN); ver [doc completa](guides/siscan-runner-recover.md)
-- **Se for auto-removed (A/A2)**: pede token novo (ou usa `--token <valor>`) e refaz o registro completo
-- **Se for stale 30d (B/WARN)**: roda `run.sh --check` (não precisa token)
-- **Se for serviço systemd ausente (C)**: só `svc.sh install + start` (não precisa token — caminho cirúrgico)
-- **Se for bootstrap (N/A/1/2)**: faz download + register + install + start (pede token)
-- Valida ao fim chamando `check-runner` novamente
-
-> **Token de registro do runner:** quem gera é um administrador do repositório do produto correspondente (`Prisma-Consultoria/siscan-rpa` ou `Prisma-Consultoria/siscan-dashboard`) em `Settings → Actions → Runners → New self-hosted runner`. O token expira em ~1h, então combine com o admin que ele gere **no momento** em que você for executar este passo, e cole o valor quando o script perguntar. O operador da VM não precisa de permissão administrativa no repo.
-
-#### Passo 5 — Validação final completa
-
-```bash
-bash siscan-server-doctor.sh
-```
-
-**Esperado agora:** `9/9 specialists OK`. Se ainda restarem FAILs (ex.: `check-stack` se o deploy automático ainda não rodou após a recuperação), acompanhe os logs do runner:
-
-```bash
-sudo journalctl -u 'actions.runner.*' -f | grep -E "Listening|Running|error"
-```
-
-Ou aguarde o próximo deploy automático (workflow CD da branch `main` do produto correspondente) — depois disso a stack sobe e `check-stack` passa também.
-
-#### Passo 6 (opcional) — Inventário do que o assistente entrega agora
-
-```bash
-bash siscan-server-doctor.sh --list
-```
-
-Mostra os 9 specialists com descrição inline. Útil pra entender o que pode ser invocado pontualmente via `--only check-X` quando precisar diagnosticar uma dimensão específica.
 
 ### Quando há novas variáveis de ambiente
 
-Quando uma nova versão do assistente introduz variáveis de ambiente novas (como foi o caso da adição do Redis com `REDIS_HOST`, `REDIS_PORT`, `CACHE_TIMEOUT`), o `.env` sample atualizado já estará disponível no servidor após o próximo deploy automático. Para identificar as variáveis novas, compare o sample com o `.env` em uso:
+Quando uma nova versão do assistente introduz variáveis novas (como a adição do Redis com `REDIS_HOST`, `REDIS_PORT`, `CACHE_TIMEOUT`), o `.env` sample atualizado já estará disponível no servidor após o próximo deploy automático. Para identificar o que falta:
 
 ```bash
 # Ver variáveis que existem no sample mas não no .env atual
@@ -581,13 +259,30 @@ docker compose -f docker-compose.prd.dashboard.yml down
 docker compose -f docker-compose.prd.dashboard.yml up -d --wait
 ```
 
-> No modo HOST (PC local), o assistente oferece a **Opção 7 — Atualizar o Assistente** no menu interativo, que baixa a versão mais recente do script automaticamente. A **Opção 3 — Editar configurações** permite revisar e completar variáveis novas interativamente.
+---
 
-### Compose file e `git pull` — por que não há conflito
+## Variáveis de ambiente principais
+
+A tabela a seguir lista apenas as variáveis **obrigatórias** por produto — todas as demais variáveis (defaults do compose, opcionais como `APP_LOG_LEVEL`, `SYNC_INTERVAL_SECONDS`, `CACHE_TIMEOUT`, `REDIS_HOST` etc.) e o detalhamento completo do `.env` estão em [`guides/siscan-server-setup.md`](guides/siscan-server-setup.md) e no manifesto declarativo `scripts/data/products.json` (schema em [`guides/siscan-server-doctor/products-manifest.md`](guides/siscan-server-doctor/products-manifest.md)).
+
+| Variável | Produtos | Origem | O que faz |
+|---|---|---|---|
+| `SISCAN_PRODUCT` | todos | Auto (Fase 5) | Persiste o produto (`rpa`/`dashboard`/`full`) para detecção automática pelos scripts. |
+| `SECRET_KEY` | `rpa`, `full` | Auto-gerada | Assina cookies de sessão do painel web (64 hex chars). |
+| `SESSION_SECRET` | `dashboard` | Auto-gerada | Chave de sessão Flask do dashboard. |
+| `DATABASE_HOST` | todos | Interativo | IP/hostname do PostgreSQL externo. Rejeita literal `db`. |
+| `DATABASE_PASSWORD` | todos | Interativo | Senha do banco. Evite caracteres `@`, `%`, `/`, `#`, `:`, `\` (quebram parsing da `RPA_DATABASE_URL`). |
+| `ADMIN_PASSWORD` | `dashboard` | Interativo | Senha do admin do painel. Vazio = senha temporária nos logs. |
+| `RPA_DATABASE_URL` | `dashboard` | Interativo | Conexão ao banco do RPA para o sync. Formato: `postgresql://user:pass@host:port/db` |
+| `HOST_*_DIR` | varia | Interativo | Caminhos POSIX para bind mounts (logs, downloads, reports etc.). |
+
+---
+
+## Compose file e `git pull` — por que não há conflito
 
 Os workflows de CD sobrescrevem o compose file e o `.env` sample no servidor a cada deploy, baixando a versão mais recente da branch `main` do assistente via `curl`. Como o conteúdo baixado é idêntico ao que está na `main` do repositório remoto, o `git pull` subsequente não detecta diferença e executa normalmente (fast-forward).
 
-O único cenário que causaria conflito é se o operador **modificar manualmente** o compose file ou o sample no servidor. Nesse caso, o `git pull` recusaria o merge por haver alterações locais não commitadas. Para resolver, descarte as alterações locais antes do pull:
+O único cenário que causaria conflito é se o operador **modificar manualmente** o compose file ou o sample no servidor. Nesse caso, descarte as alterações locais antes do pull:
 
 ```bash
 git checkout -- docker-compose.prd.rpa.yml docker-compose.prd.dashboard.yml
@@ -681,3 +376,13 @@ docker compose -f docker-compose.prd.dashboard.yml exec app \
 ```
 
 O sync incremental (sem `--full`) roda automaticamente a cada 30 minutos via container `sync`. O `--full` é necessário após restauração de backup porque o `sync_control` pode ter timestamps inconsistentes com os dados restaurados.
+
+---
+
+## Veja também
+
+- [`guides/siscan-server-setup.md`](guides/siscan-server-setup.md) — referência operacional completa do `siscan-server-setup.sh` (11 fases, flags, exit codes, manifesto `products.json`).
+- [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md) — referência completa do doctor + de cada specialist (opções, exit codes, schema JSON, exemplos).
+- [`guides/siscan-runner-recover.md`](guides/siscan-runner-recover.md) — recuperação cirúrgica do runner em 9 cenários auto-resolvíveis + UNKNOWN.
+- [`CHECKLISTS.md`](CHECKLISTS.md) — checklist operacional pós-setup.
+- [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — sintomas observados em campo, com a coluna "Coberto por" indicando qual script automatiza cada caso.
