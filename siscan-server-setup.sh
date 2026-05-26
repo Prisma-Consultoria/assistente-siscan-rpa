@@ -65,6 +65,7 @@ done
 RUNNER_DIR="${RUNNER_DIR:-${HOME}/actions-runner}"
 CURRENT_USER="$(whoami)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SPECIALISTS_DIR="${SCRIPT_DIR}/scripts/deploy_server"
 
 # ────────────────────────────────────────────────────────────────────────────
 # Helpers de output
@@ -692,65 +693,34 @@ ensure_host_paths "${ENV_FILE}"
 step "FASE 7 — GitHub Actions Runner"
 # ════════════════════════════════════════════════════════════════════════════
 
-# O runner pode estar em 4 estados ao re-executar o script:
-#   1. Nada instalado          → download + registro + serviço
-#   2. Binários extraídos      → pular download, fazer registro + serviço
-#   3. Registrado, sem serviço → pular download e registro, instalar serviço
-#   4. Tudo completo           → verificar status do serviço
-#
-# Indicadores:
-#   config.sh  — existe após extração do tarball (estado ≥ 2)
-#   .runner    — existe após config.sh --url/--token bem-sucedido (estado ≥ 3)
-#   svc.sh + systemd ativo — serviço instalado e rodando (estado 4)
+# Lógica idempotente delegada para o módulo _runner.sh (issue #51).
+# Estados detectados:
+#   N/A  - $RUNNER_DIR não existe        → cria, baixa, registra, instala, start
+#   1    - dir existe, binários ausentes → baixa, registra, instala, start
+#   2    - binários OK, .runner ausente  → registra, instala, start
+#   3    - .runner OK, systemd ausente   → instala, start
+#   4    - tudo presente                 → garante start (idempotente)
 
-# ── Estado 1: download necessário ─────────────────────────────────────────
-if [ ! -f "${RUNNER_DIR}/config.sh" ]; then
-    printf "  ${WHITE}Download do runner${NC}\n\n"
+# shellcheck source=scripts/deploy_server/_runner.sh
+source "${SPECIALISTS_DIR}/_runner.sh"
 
-    # Detectar arquitetura
-    ARCH=$(uname -m)
-    case "${ARCH}" in
-        x86_64)  RUNNER_ARCH="x64" ;;
-        aarch64) RUNNER_ARCH="arm64" ;;
-        *) fail "Arquitetura não suportada pelo runner: ${ARCH}" ;;
-    esac
-    info "Arquitetura: ${ARCH} → linux-${RUNNER_ARCH}"
+RUNNER_STATE=$(runner_get_state "${RUNNER_DIR}")
 
-    # Obter versão mais recente
-    info "Consultando versão mais recente do runner..."
-    RUNNER_VERSION=$(curl -fsSL \
-        "https://api.github.com/repos/actions/runner/releases/latest" \
-        | grep '"tag_name"' \
-        | sed 's/.*"v\([^"]*\)".*/\1/' \
-        | head -1)
+# Bootstrap incremental: N/A e 1 precisam de download.
+case "${RUNNER_STATE}" in
+    N/A|1)
+        printf "  ${WHITE}Download do runner${NC}\n\n"
+        runner_download_binaries "${RUNNER_DIR}" \
+            || fail "Falha no download do runner. Verifique conectividade com github.com."
+        RUNNER_STATE=2
+        ;;
+    *)
+        ok "Binários do runner presentes em ${RUNNER_DIR}"
+        ;;
+esac
 
-    if [ -z "${RUNNER_VERSION}" ]; then
-        fail "Não foi possível obter a versão do runner. Verifique a conectividade com github.com."
-    fi
-    info "Versão: ${RUNNER_VERSION}"
-
-    RUNNER_TARBALL_URL="https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz"
-
-    # Baixar e extrair
-    mkdir -p "${RUNNER_DIR}"
-    TARBALL="${RUNNER_DIR}/actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz"
-
-    info "Baixando runner em ${TARBALL}..."
-    if ! curl -fsSL --progress-bar -o "${TARBALL}" "${RUNNER_TARBALL_URL}"; then
-        rm -f "${TARBALL}"
-        fail "Falha ao baixar o runner. Verifique a conectividade."
-    fi
-
-    info "Extraindo em ${RUNNER_DIR}..."
-    tar xzf "${TARBALL}" -C "${RUNNER_DIR}"
-    rm -f "${TARBALL}"
-    ok "Runner extraído"
-else
-    ok "Binários do runner já extraídos em ${RUNNER_DIR}"
-fi
-
-# ── Estado 2: registro necessário ─────────────────────────────────────────
-if [ ! -f "${RUNNER_DIR}/.runner" ]; then
+# Estado 2 → 3: registro com URL + token interativo.
+if [ "${RUNNER_STATE}" = "2" ]; then
     printf "\n${WHITE}  Registro do runner no repositório GitHub${NC}\n\n"
     printf "  O token de registro é gerado em:\n"
     printf "  ${CYAN}Settings → Actions → Runners → New self-hosted runner${NC}\n\n"
@@ -767,35 +737,26 @@ if [ ! -f "${RUNNER_DIR}/.runner" ]; then
     printf "\n"
     [ -z "${REG_TOKEN}" ] && fail "Token de registro é obrigatório"
 
-    info "Registrando runner com label '${RUNNER_LABEL}'..."
-    if ! (cd "${RUNNER_DIR}" && ./config.sh \
-            --url "${REPO_URL}" \
-            --token "${REG_TOKEN}" \
-            --labels "${RUNNER_LABEL}" \
-            --name "${RUNNER_NAME}" \
-            --unattended \
-            --replace); then
-        fail "Falha ao registrar o runner. Verifique a URL e o token (tokens expiram após alguns minutos)."
-    fi
-    ok "Runner registrado: ${RUNNER_NAME} [${RUNNER_LABEL}]"
+    runner_register "${RUNNER_DIR}" "${REPO_URL}" "${REG_TOKEN}" "${RUNNER_NAME}" "${RUNNER_LABEL}" \
+        || fail "Falha ao registrar o runner. Verifique URL e token (tokens expiram em ~5min)."
+    RUNNER_STATE=3
 else
     ok "Runner já registrado em ${RUNNER_DIR}"
 fi
 
-# ── Estado 3: serviço systemd necessário ──────────────────────────────────
-RUNNER_SVC_STATUS=$(sudo "${RUNNER_DIR}/svc.sh" status 2>/dev/null || true)
-if echo "${RUNNER_SVC_STATUS}" | grep -qi "active\|running"; then
+# Estado 3 → 4: instala systemd unit.
+if [ "${RUNNER_STATE}" = "3" ]; then
+    runner_install_service "${RUNNER_DIR}" "${CURRENT_USER}" \
+        || fail "Falha ao instalar serviço systemd do runner."
+    RUNNER_STATE=4
+fi
+
+# Estado 4: garantir que o serviço está rodando.
+if runner_service_status_active "${RUNNER_DIR}"; then
     ok "Serviço do runner: ativo"
 else
-    # Serviço não ativo — instalar (se necessário) e iniciar
-    info "Instalando runner como serviço systemd (usuário: ${CURRENT_USER})..."
-    # svc.sh install é idempotente — se já instalado, apenas avisa
-    sudo bash -c "cd '${RUNNER_DIR}' && ./svc.sh install '${CURRENT_USER}'" 2>/dev/null || true
-
-    if ! sudo bash -c "cd '${RUNNER_DIR}' && ./svc.sh start"; then
-        fail "Falha ao iniciar o serviço do runner."
-    fi
-    ok "Serviço do runner instalado e iniciado"
+    runner_start_service "${RUNNER_DIR}" \
+        || fail "Falha ao iniciar o serviço do runner."
 fi
 
 # ════════════════════════════════════════════════════════════════════════════

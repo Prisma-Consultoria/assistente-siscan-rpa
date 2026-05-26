@@ -48,6 +48,8 @@ DOCTOR_SCRIPT="$SCRIPT_DIR/siscan-server-doctor.sh"
 SPECIALIST_NAME="recover"
 # shellcheck source=scripts/deploy_server/_common.sh
 source "$SPECIALISTS_DIR/_common.sh"
+# shellcheck source=scripts/deploy_server/_runner.sh
+source "$SPECIALISTS_DIR/_runner.sh"
 
 # Force human mode — script interativo, não json/quiet
 OUTPUT_MODE="human"
@@ -61,6 +63,7 @@ COMPOSE_DIR="${COMPOSE_DIR:-$(pwd)}"
 ENV_FILE="${COMPOSE_DIR}/.env"
 SISCAN_PRODUCT=""
 SKIP_DOCTOR=false
+TOKEN_ARG=""
 CURRENT_USER="$(whoami)"
 
 usage() {
@@ -72,13 +75,19 @@ Opções:
   --env-file FILE                Override do .env (default: \$COMPOSE_DIR/.env ou \$CWD/.env)
   --runner-dir DIR               Override do diretório do runner (default: ~/actions-runner)
   --skip-doctor                  Pula pré-flight via doctor (debugging)
+  --token TOKEN                  Token de registro do runner (alternativa a gh/GH_TOKEN);
+                                 quando fornecido, sobrescreve o prompt interativo
   -h, --help                     Esta ajuda
 
-Cenários detectados automaticamente via GitHub API:
-  A) Auto-removal (>14d offline)  → re-registro (pede token novo)
-  B) Regra dos 30 dias            → run.sh --check (sem token)
-  OK) Runner saudável             → exit 0, nada a fazer
-  N/A) Runner nunca instalado     → orienta siscan-server-setup.sh
+Cenários detectados automaticamente:
+  OK   ) Runner saudável                                   → exit 0, nada a fazer
+  N/A  ) ~/actions-runner não existe                       → bootstrap completo (pede token)
+  C    ) .runner OK + systemd unit ausente                 → svc.sh install + start (sem token)
+  A    ) total_count=0 na API (auto-removal >14d)          → uninstall + register + install (pede token)
+  A2   ) runner offline ou nome mismatch na API            → uninstall + register + install (pede token)
+  B    ) idade >=30d                                       → run.sh --check (sem token)
+  WARN ) idade 25-29d                                      → run.sh --check preventivo (sem token)
+  UNKNOWN) sem gh/GH_TOKEN/--token + estado inconclusivo   → orienta passos manuais
 
 Exit code: 0 = OK · 1 = falha no recovery · 2 = pré-condição/uso
 EOF
@@ -93,6 +102,8 @@ while [ $# -gt 0 ]; do
         --runner-dir)   RUNNER_DIR="${2:-}"; shift 2 ;;
         --runner-dir=*) RUNNER_DIR="${1#*=}"; shift ;;
         --skip-doctor)  SKIP_DOCTOR=true; shift ;;
+        --token)        TOKEN_ARG="${2:-}"; shift 2 ;;
+        --token=*)      TOKEN_ARG="${1#*=}"; shift ;;
         -h|--help)      usage; exit 0 ;;
         *) echo "argumento desconhecido: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -133,20 +144,18 @@ info "Nome do runner esperado: $EXPECTED_NAME"
 info "Label: $RUNNER_LABEL"
 
 # ────────────────────────────────────────────────────────────────────────────
-# 2. Pré-condição: ~/actions-runner/ deve existir
+# 2. Inspeção do estado local — sem abortar; o cenário decide
 # ────────────────────────────────────────────────────────────────────────────
-step_print "2/6 — Validação da instalação local"
+step_print "2/6 — Inspeção da instalação local"
 
-if [ ! -d "$RUNNER_DIR" ]; then
-    fail "Diretório do runner não existe: $RUNNER_DIR
-       Esse script é pra recuperar runner JÁ INSTALADO. Para nova instalação:
-       bash siscan-server-setup.sh --product $SISCAN_PRODUCT"
-fi
-if [ ! -x "$RUNNER_DIR/config.sh" ] || [ ! -x "$RUNNER_DIR/svc.sh" ]; then
-    fail "Binários do runner ausentes em $RUNNER_DIR (config.sh ou svc.sh).
-       Reinstale via: bash siscan-server-setup.sh --product $SISCAN_PRODUCT"
-fi
-ok "Binários do runner presentes em $RUNNER_DIR"
+LOCAL_STATE=$(runner_get_state "$RUNNER_DIR")
+case "$LOCAL_STATE" in
+    N/A) info "Diretório do runner ausente — será criado pelo bootstrap (cenário N/A)" ;;
+    1)   info "Diretório existe mas binários ausentes — bootstrap incremental" ;;
+    2)   info ".runner ausente — registro necessário" ;;
+    3)   ok "Binários + .runner OK; systemd unit ausente (cenário C provável)" ;;
+    4)   ok "Instalação local completa em $RUNNER_DIR" ;;
+esac
 
 # ────────────────────────────────────────────────────────────────────────────
 # 3. Pré-flight via doctor (não inclui check-runner — é o que vamos consertar)
@@ -171,141 +180,143 @@ else
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# 4. Diagnóstico do cenário
+# 4. Diagnóstico do cenário (delegado para _runner.sh)
 # ────────────────────────────────────────────────────────────────────────────
 step_print "4/6 — Diagnóstico do estado do runner"
 
-# 4a — Idade local
-age_days=999
-age_source=""
-age_file=""
-if [ -f "$RUNNER_DIR/.runner_migrated" ]; then
-    age_file="$RUNNER_DIR/.runner_migrated"
-    age_source="último upgrade (.runner_migrated)"
-elif [ -d "$RUNNER_DIR/_diag" ]; then
-    age_file=$(ls -t "$RUNNER_DIR/_diag"/Runner_*.log 2>/dev/null | head -1)
-    [ -n "$age_file" ] && age_source="último log em _diag/"
-elif [ -f "$RUNNER_DIR/.runner" ]; then
-    age_file="$RUNNER_DIR/.runner"
-    age_source="data de registro (.runner)"
+age_days=$(runner_local_age_days "$RUNNER_DIR")
+if [ "$age_days" -ne 999 ]; then
+    info "Idade do runner: $age_days dia(s)"
 fi
 
-if [ -n "$age_source" ] && [ -e "$age_file" ]; then
-    age_epoch=$(stat -c '%Y' "$age_file" 2>/dev/null || echo 0)
-    now_epoch=$(date +%s)
-    age_days=$(( (now_epoch - age_epoch) / 86400 ))
-    info "Idade do runner: $age_days dia(s) ($age_source)"
-else
-    warn "Não foi possível determinar idade do runner — assumindo velho"
-fi
+HAS_TOKEN_ARG="false"
+[ -n "$TOKEN_ARG" ] && HAS_TOKEN_ARG="true"
 
-# 4b — Estado remoto via GitHub API
-runners_json=""
-if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    runners_json=$(gh api "repos/$REPO_OWNER/$REPO_NAME/actions/runners" 2>/dev/null || echo "")
-elif [ -n "${GH_TOKEN:-}" ]; then
-    runners_json=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-        "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/actions/runners" 2>/dev/null || echo "")
-fi
+scenario=$(runner_diagnose "$RUNNER_DIR" "$EXPECTED_NAME" "$REPO_OWNER" "$REPO_NAME" "$HAS_TOKEN_ARG")
 
-scenario="UNKNOWN"
-if [ -z "$runners_json" ]; then
-    warn "API GitHub indisponível (sem gh ou GH_TOKEN). Cenário A vs B detectável só via idade."
-    if [ "$age_days" -ge 30 ]; then
-        scenario="B"
-        info "→ Cenário B (regra dos 30 dias) — runner com $age_days d"
-    fi
-else
-    total=$(echo "$runners_json" | jq -r '.total_count // 0')
-    if [ "$total" -eq 0 ]; then
-        scenario="A"
-        info "→ Cenário A (auto-removal): total_count=0 — runner removido pelo GitHub"
-    else
-        remote_status=$(echo "$runners_json" | jq -r ".runners[] | select(.name == \"$EXPECTED_NAME\") | .status" | head -1)
-        if [ -z "$remote_status" ]; then
-            scenario="A2"
-            names=$(echo "$runners_json" | jq -r '.runners[].name' | paste -sd, -)
-            info "→ Cenário A' (nome mismatch): esperado '$EXPECTED_NAME' não está na API"
-            info "   Registrados: $names"
-        elif [ "$remote_status" = "offline" ]; then
-            scenario="A2"
-            info "→ Cenário A' (offline na API): runner registrado mas reportando offline"
-        elif [ "$age_days" -ge 30 ]; then
-            scenario="B"
-            info "→ Cenário B (regra dos 30 dias): runner online mas $age_days d sem update"
-        elif [ "$age_days" -ge 25 ]; then
-            scenario="WARN"
-            info "→ AVISO: runner $age_days d sem update (regra dos 30d em $((30 - age_days))d)"
+case "$scenario" in
+    OK)
+        ok "Runner saudável (online, $age_days d desde último update) — nada a fazer."
+        exit 0
+        ;;
+    N/A) info "→ Cenário N/A: $RUNNER_DIR não existe — bootstrap completo" ;;
+    1)   info "→ Cenário 1: binários ausentes — bootstrap incremental (download + register + install + start)" ;;
+    2)   info "→ Cenário 2: .runner ausente — register + install + start" ;;
+    C)   info "→ Cenário C: systemd unit ausente, .runner válido — install + start (sem token)" ;;
+    A)   info "→ Cenário A (auto-removal): total_count=0 na API — re-registro completo" ;;
+    A2)
+        if [ "$HAS_TOKEN_ARG" = "true" ] && ! command -v gh >/dev/null 2>&1 && [ -z "${GH_TOKEN:-}" ]; then
+            info "→ Cenário A' (defensivo): --token fornecido sem API consultável — assume runner removido"
         else
-            ok "Runner saudável (online, $age_days d desde último update) — nada a fazer."
-            exit 0
+            info "→ Cenário A' (offline/nome mismatch na API) — re-registro completo"
         fi
-    fi
-fi
+        ;;
+    B)   info "→ Cenário B (regra dos 30 dias): $age_days d — run.sh --check" ;;
+    WARN) info "→ AVISO ($age_days d): regra dos 30d em $((30 - age_days)) d — run.sh --check preventivo" ;;
+    UNKNOWN)
+        warn "API GitHub indisponível (sem gh/GH_TOKEN/--token) e idade local insuficiente pra disparar B/WARN."
+        ;;
+esac
 
 # ────────────────────────────────────────────────────────────────────────────
-# 5. Execução do recovery
+# 5. Execução do recovery (delegada para _runner.sh)
 # ────────────────────────────────────────────────────────────────────────────
 step_print "5/6 — Execução do recovery"
 
-cd "$RUNNER_DIR" || fail "Não foi possível entrar em $RUNNER_DIR"
+REPO_URL="https://github.com/$REPO_OWNER/$REPO_NAME"
 
-case "$scenario" in
-    A|A2)
-        printf "${YELLOW}Re-registro requer token novo (expira em ~5 min).${NC}\n"
-        printf "${WHITE}Gere agora em:${NC} ${CYAN}https://github.com/$REPO_OWNER/$REPO_NAME/settings/actions/runners/new${NC}\n\n"
+# prompt_token_if_needed — usa --token se fornecido; senão pergunta interativo.
+# Mensagem de origem do token vira "args.fornecido" ou "prompt.interativo".
+prompt_token_if_needed() {
+    if [ -n "$TOKEN_ARG" ]; then
+        TOKEN="$TOKEN_ARG"
+        info "Token fornecido via --token"
+    else
+        printf "${YELLOW}Token de registro requerido (expira em ~5 min).${NC}\n"
+        printf "${WHITE}Gere agora em:${NC} ${CYAN}%s/settings/actions/runners/new${NC}\n\n" "$REPO_URL"
         # shellcheck disable=SC2162
         read -srp "Token: " TOKEN
         echo ""
-        [ -n "$TOKEN" ] || fail "Token vazio. Abortando."
+    fi
+    [ -n "$TOKEN" ] || fail "Token vazio. Abortando."
+}
 
-        info "Parando serviço..."
-        sudo ./svc.sh stop 2>/dev/null && ok "svc.sh stop" || warn "svc.sh stop (já parado?)"
+case "$scenario" in
+    N/A)
+        # Bootstrap completo — recover instalando do zero
+        runner_download_binaries "$RUNNER_DIR" \
+            || fail "Falha no download do runner. Verifique conectividade com github.com."
+        prompt_token_if_needed
+        runner_register "$RUNNER_DIR" "$REPO_URL" "$TOKEN" "$EXPECTED_NAME" "$RUNNER_LABEL" \
+            || fail "Falha ao registrar o runner."
+        runner_install_service "$RUNNER_DIR" "$CURRENT_USER" \
+            || fail "Falha ao instalar systemd unit."
+        runner_start_service "$RUNNER_DIR" \
+            || fail "Falha ao iniciar serviço do runner."
+        ;;
 
-        info "Desinstalando serviço..."
-        sudo ./svc.sh uninstall 2>/dev/null && ok "svc.sh uninstall" || warn "svc.sh uninstall (já desinstalado?)"
+    1)
+        # Diretório existe mas binários ausentes (estado raro — limpeza parcial)
+        runner_download_binaries "$RUNNER_DIR" \
+            || fail "Falha no download do runner."
+        prompt_token_if_needed
+        runner_register "$RUNNER_DIR" "$REPO_URL" "$TOKEN" "$EXPECTED_NAME" "$RUNNER_LABEL" \
+            || fail "Falha ao registrar o runner."
+        runner_install_service "$RUNNER_DIR" "$CURRENT_USER" \
+            || fail "Falha ao instalar systemd unit."
+        runner_start_service "$RUNNER_DIR" \
+            || fail "Falha ao iniciar serviço do runner."
+        ;;
 
-        info "Removendo registro local (config.sh remove)..."
-        ./config.sh remove --token "$TOKEN" 2>/dev/null && ok "config remove" || warn "config remove (404 esperado se runner já foi auto-removido)"
+    2)
+        # Binários presentes, .runner ausente
+        prompt_token_if_needed
+        runner_register "$RUNNER_DIR" "$REPO_URL" "$TOKEN" "$EXPECTED_NAME" "$RUNNER_LABEL" \
+            || fail "Falha ao registrar o runner."
+        runner_install_service "$RUNNER_DIR" "$CURRENT_USER" \
+            || fail "Falha ao instalar systemd unit."
+        runner_start_service "$RUNNER_DIR" \
+            || fail "Falha ao iniciar serviço do runner."
+        ;;
 
-        info "Re-registrando com novo token..."
-        if ./config.sh \
-            --url "https://github.com/$REPO_OWNER/$REPO_NAME" \
-            --token "$TOKEN" \
-            --name "$EXPECTED_NAME" \
-            --labels "$RUNNER_LABEL" \
-            --unattended --replace; then
-            ok "config register OK (name=$EXPECTED_NAME, label=$RUNNER_LABEL)"
-        else
-            fail "Falha no config.sh — verifique o token (expira em ~5min) e a URL do repo"
-        fi
+    C)
+        # .runner válido, systemd unit ausente — caminho cirúrgico, sem token
+        runner_install_service "$RUNNER_DIR" "$CURRENT_USER" \
+            || fail "Falha ao instalar systemd unit."
+        runner_start_service "$RUNNER_DIR" \
+            || fail "Falha ao iniciar serviço do runner."
+        ;;
 
-        info "Instalando serviço systemd..."
-        sudo ./svc.sh install "$CURRENT_USER" && ok "svc.sh install" || fail "svc.sh install falhou"
-
-        info "Iniciando serviço..."
-        sudo ./svc.sh start && ok "svc.sh start" || fail "svc.sh start falhou"
+    A|A2)
+        prompt_token_if_needed
+        runner_stop_service "$RUNNER_DIR"
+        runner_uninstall_service "$RUNNER_DIR"
+        runner_remove_registration "$RUNNER_DIR" "$TOKEN"
+        runner_register "$RUNNER_DIR" "$REPO_URL" "$TOKEN" "$EXPECTED_NAME" "$RUNNER_LABEL" \
+            || fail "Falha no config.sh — verifique o token (expira em ~5min) e a URL do repo."
+        runner_install_service "$RUNNER_DIR" "$CURRENT_USER" \
+            || fail "svc.sh install falhou."
+        runner_start_service "$RUNNER_DIR" \
+            || fail "svc.sh start falhou."
         ;;
 
     B|WARN)
-        info "Parando serviço (sem desinstalar)..."
-        sudo ./svc.sh stop && ok "svc.sh stop" || warn "svc.sh stop (já parado?)"
-
+        runner_stop_service "$RUNNER_DIR"
         info "Forçando auto-update via 'run.sh --check' (pode demorar ~30s)..."
-        if sudo -u "$CURRENT_USER" ./run.sh --check; then
+        if sudo -u "$CURRENT_USER" "$RUNNER_DIR/run.sh" --check; then
             ok "run.sh --check OK (runner atualizado)"
         else
-            fail "run.sh --check retornou erro — runner pode estar com problema mais sério"
+            fail "run.sh --check retornou erro — runner pode estar com problema mais sério."
         fi
-
-        info "Reiniciando serviço..."
-        sudo ./svc.sh start && ok "svc.sh start" || fail "svc.sh start falhou"
+        runner_start_service "$RUNNER_DIR" \
+            || fail "svc.sh start falhou."
         ;;
 
     *)
         fail "Cenário desconhecido — nada a fazer automaticamente.
        Rode 'bash $DOCTOR_SCRIPT --only check-runner' para diagnóstico detalhado,
-       ou 'bash siscan-server-setup.sh --product $SISCAN_PRODUCT' para re-instalação completa."
+       ou 'bash siscan-server-setup.sh --product $SISCAN_PRODUCT' para re-instalação completa.
+       Alternativa: forneça --token <novo> para forçar fluxo A2 defensivo."
         ;;
 esac
 

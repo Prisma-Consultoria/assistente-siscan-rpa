@@ -528,9 +528,11 @@ bash siscan-runner-recover.sh
 O script:
 - Detecta o produto via `.env` (ou aceita `--product` explícito quando `.env` não estiver disponível)
 - Faz pré-flight com o doctor (network + deps + docker + permissions)
-- Diagnostica o cenário (auto-removed ou stale 30d ou OK)
-- **Se for auto-removed**: pede um token novo de registro do runner e refaz o registro
-- **Se for stale 30d**: roda `run.sh --check` (não precisa token)
+- Diagnostica o cenário automaticamente — cobre 8 cenários (N/A, 1, 2, C, A, A2, B, WARN, OK; ver [doc completa](siscan-server-doctor/scripts/siscan-runner-recover.md))
+- **Se for auto-removed (A/A2)**: pede token novo (ou usa `--token <valor>`) e refaz o registro completo
+- **Se for stale 30d (B/WARN)**: roda `run.sh --check` (não precisa token)
+- **Se for serviço systemd ausente (C)**: só `svc.sh install + start` (não precisa token — caminho cirúrgico)
+- **Se for bootstrap (N/A/1/2)**: faz download + register + install + start (pede token)
 - Valida ao fim chamando `check-runner` novamente
 
 > **Token de registro do runner:** quem gera é um administrador do repositório do produto correspondente (`Prisma-Consultoria/siscan-rpa` ou `Prisma-Consultoria/siscan-dashboard`) em `Settings → Actions → Runners → New self-hosted runner`. O token expira em ~1h, então combine com o admin que ele gere **no momento** em que você for executar este passo, e cole o valor quando o script perguntar. O operador da VM não precisa de permissão administrativa no repo.
