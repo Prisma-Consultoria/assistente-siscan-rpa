@@ -83,7 +83,44 @@ O fluxo de deploy e a infraestrutura funcionam assim:
 
 ## Pré-requisitos
 
-Antes de executar o setup, rode o doctor para validar **automaticamente** todos os pré-requisitos da VM (Docker/Compose, recursos, conectividade HTTPS para 22 FQDNs, pool de redes Docker, permissões etc.):
+Antes de provisionar a VM e executar o setup, garanta que ela atende aos requisitos mínimos abaixo. O doctor (próxima seção) valida automaticamente todos eles, mas dimensionamento de hardware/SO precisa ser combinado com a equipe de infraestrutura antes.
+
+### VM de aplicação (RPA ou Dashboard)
+
+| Requisito | Mínimo | Validado por |
+|---|---|---|
+| Sistema operacional | Ubuntu 24.04 LTS | `check-deps` |
+| vCPUs | 4 | `check-resources` |
+| Memória RAM | 8 GB | `check-resources` |
+| Disco livre em `$COMPOSE_DIR` | 20 GB | `check-resources` |
+| Docker Engine | ≥ 24 (recomendado 28+) | `check-deps` + `check-docker` |
+| Docker Compose | ≥ 2.37 | `check-deps` |
+| git, jq, openssl, curl, sudo, timeout | qualquer versão | `check-deps` |
+| Conectividade HTTPS | 22 endpoints (GitHub Actions, GHCR, Docker Hub, OCSP/CRL) | `check-network` |
+| Docker network pool com subnets disponíveis | — | `check-docker` (teste real `network create`) |
+| Usuário corrente não-root + no grupo `docker` | — | `check-docker` |
+| Stack dir com ownership correto + git `safe.directory` | — | `check-permissions` |
+| Chaves RSA em `HOST_SECRETS_DIR` (RPA) | persistidas | `check-permissions` |
+| `.env` preenchido com formato correto | — | `check-env` |
+
+> **Docker `daemon.json`:** se a equipe de infraestrutura configurou `/etc/docker/daemon.json` com `default-address-pools` restrito (ex: uma única subnet `/24`), o Docker não conseguirá criar redes para os compose projects. O `check-docker` detecta isso automaticamente; consulte o [Problema 1 do Troubleshooting](TROUBLESHOOTING.md#problema-1--pool-de-endereços-docker-esgotado-ao-criar-rede) para a solução.
+
+### VM do banco de dados
+
+| Requisito | Mínimo | Validado por |
+|---|---|---|
+| PostgreSQL | ≥ 16 | `check-db` (`SHOW server_version`) |
+| Bancos criados | `siscan_rpa` + `siscan_dashboard` | (operacional, não verificado) |
+| Conectividade TCP | Porta 5432 acessível por ambas as VMs de aplicação | `check-db` (TCP + `pg_isready`) |
+| Senhas sem caracteres especiais | Evitar `@`, `%`, `/`, `#`, `:`, `\` | `check-env` (regex de `RPA_DATABASE_URL`) |
+
+> **Senhas do banco:** o Docker Compose monta a `DATABASE_URL` por interpolação de variáveis. Caracteres como `@` na senha quebram o parsing da URL (o `@` é o separador entre credenciais e host). Use senhas alfanuméricas com símbolos seguros (`_`, `-`, `!`, `^`).
+
+> O `check-db` só roda depois que o `.env` tem `DATABASE_HOST` preenchido (após Fase 5 do setup). Use `bash siscan-server-doctor.sh --only check-db` para validá-lo pontualmente após o setup.
+
+### Pré-flight automatizado
+
+Com a VM provisionada, valide todos os requisitos acima de uma vez:
 
 ```bash
 git clone https://github.com/Prisma-Consultoria/assistente-siscan-rpa.git
@@ -91,7 +128,7 @@ cd assistente-siscan-rpa
 bash siscan-server-doctor.sh --pre-setup
 ```
 
-Saída esperada: `6/6 specialists OK` (3 specialists só fazem sentido depois do setup — runner, stack e banco). Cada FAIL traz mensagem com ação corretiva específica. A referência completa de cada specialist (o que verifica, exit codes, schema JSON) está em [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md).
+Saída esperada: `6/6 specialists OK` (3 specialists — runner, stack, banco — só fazem sentido depois do setup completar). Cada FAIL traz mensagem com ação corretiva específica. Referência completa de cada specialist (o que verifica, exit codes, schema JSON) em [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md).
 
 > O próprio `siscan-server-setup.sh` invoca o doctor como **Fase 0** (gate pré-flight) antes de executar qualquer ação destrutiva. Use `--skip-doctor` no setup só em cenários de debugging.
 
@@ -173,7 +210,7 @@ A principal diferença em relação ao RPA é a variável `RPA_DATABASE_URL`, qu
 
 ---
 
-## Validação de saúde
+## Validação de saúde (`siscan-server-doctor.sh`)
 
 Antes de prosseguir com a instalação — e sempre que o deploy quebrar — rode o doctor para um diagnóstico amplo da VM:
 
@@ -181,11 +218,32 @@ Antes de prosseguir com a instalação — e sempre que o deploy quebrar — rod
 bash ./siscan-server-doctor.sh
 ```
 
-O doctor orquestra **9 specialists** (`check-network`, `check-deps`, `check-env`, `check-docker`, `check-runner`, `check-stack`, `check-permissions`, `check-db`, `check-resources`) e agrega o resultado em um único relatório. Saída `N/N specialists OK` libera o próximo passo; cada FAIL aponta a causa-raiz com ação corretiva associada.
+O doctor orquestra **9 specialists** em `scripts/deploy_server/check-*.sh`, cada um cobrindo uma dimensão da saúde da VM:
 
-Para rodar um specialist isoladamente, modos de saída (`--quiet`, `--json`, `--list`), subconjuntos (`--only`, `--except`, `--pre-setup`) e exit codes consumíveis por gates de CI ou cron: consulte [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md).
+| Specialist | Cobre |
+|---|---|
+| `check-network` | 22 FQDNs externos (runner, GHCR, Docker Hub, OCSP/CRL) |
+| `check-deps` | Docker, Compose, curl, sudo, jq, NTP |
+| `check-env` | `.env` preenchido, formato de `RPA_DATABASE_URL`, `APP_LOG_LEVEL` |
+| `check-docker` | Daemon ativo, pool de redes (`daemon.json`), grupo docker |
+| `check-runner` | `.runner` local, GitHub API, regra dos 30 dias |
+| `check-stack` | `docker compose ps`, port collision, restart loop |
+| `check-permissions` | Ownership do stack dir, git `safe.directory`, UID 1000 |
+| `check-db` | TCP/5432 + `pg_isready` para `DATABASE_HOST` (e `RPA_DATABASE_URL`) |
+| `check-resources` | vCPUs, RAM, disco em `$COMPOSE_DIR` |
 
-> **Monitoramento contínuo:** programe `siscan-server-doctor.sh --quiet` em cron a cada 5 minutos. Exit != 0 dispara alerta — evita que expirações de regra de firewall ou outras regressões passem despercebidas (como no incidente de 15/04/2026).
+Saída `N/N specialists OK` libera o próximo passo. Saída com `FAIL` em algum specialist aponta a causa-raiz — consulte [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) para a ação corretiva associada.
+
+Para rodar um specialist isoladamente:
+
+```bash
+bash siscan-server-doctor.sh --only check-network       # via doctor
+bash scripts/deploy_server/check-network.sh             # standalone
+```
+
+Modos de saída (`--quiet`, `--json`, `--list`), subconjuntos (`--only`, `--except`, `--pre-setup`), exit codes consumíveis por gates de CI ou cron, schema do envelope JSON e detalhe de cada specialist em [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md).
+
+> **Monitoramento contínuo (recomendação 12.8 do PDF de whitelist):** programe `siscan-server-doctor.sh --quiet` em cron a cada 5 minutos. Exit != 0 dispara alerta. Isso evita que uma nova expiração de regra de firewall — ou outras regressões — passem despercebidas por semanas, como aconteceu em 15/04/2026.
 
 ---
 
