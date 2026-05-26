@@ -26,7 +26,7 @@ Para detalhes técnicos do deploy HOST (arquitetura dos 8 containers, bancos, he
 
 Se a versão preferida (`openssl`) não estiver disponível, o assistente cai para `python3` e, em último recurso, lê 64 caracteres hexadecimais de `/dev/urandom`.
 
-## Uso rápido
+## Invocações suportadas
 
 ### Linux/macOS
 
@@ -262,19 +262,7 @@ token=ghp_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 ## Solução de problemas
 
-| Sintoma | Causa provável | Ação |
-|---|---|---|
-| "Arquivo de configuração não encontrado: docker-compose.prd.host.yml" | Você não está no diretório certo, ou o `git pull` falhou | `cd` para a raiz do repo e confira `ls docker-compose.prd.host.yml` |
-| "CONFIGURAÇÃO INCOMPLETA" listando `HOST_LOG_DIR` etc. | Variáveis obrigatórias vazias no `.env` | Use a opção 3 e preencha; o assistente lista exatamente o que falta |
-| "DOCKER NÃO ESTÁ FUNCIONANDO" | Docker Desktop não iniciou; serviço Docker parado no Linux | Abra o Docker Desktop ou `sudo systemctl start docker`; teste com `docker ps` |
-| "FALHA NO LOGIN" no GHCR | Token vencido, sem `read:packages`, ou usuário errado (e-mail em vez do username) | Gere novo PAT e teste manual: `echo $TOKEN \| docker login ghcr.io -u $USER --password-stdin` |
-| Pull falha com timeout | Proxy corporativo bloqueando `ghcr.io:443` | Configure proxy no Docker Desktop; teste `curl -I https://ghcr.io` |
-| Path Windows num assistente Linux (`C:\...`) | `.env` veio de instalação anterior em outro SO | Use a opção 3 — a validação detecta e oferece o caminho equivalente em Linux |
-| Opção 7 falha após download | Arquivo baixado corrompido ou shebang ausente | O backup é restaurado automaticamente; verifique conectividade com `raw.githubusercontent.com` |
-| Opção 4 diz "container não encontrado" | A stack não está rodando | Use a opção 1 primeiro; depois confira `docker ps` |
-| `jq: command not found` (warning silencioso) | `jq` não instalado | `apt install jq` (Debian/Ubuntu) ou `brew install jq` (macOS). Sem `jq`, os textos de ajuda do `.env` ficam reduzidos aos defaults embutidos. |
-
-Para problemas mais profundos (rede, runner, banco), consulte `../TROUBLESHOOTING.md` e o checklist em `../CHECKLISTS.md`.
+Sintomas observáveis ao usar este utilitário estão catalogados em [`../TROUBLESHOOTING.md`](../TROUBLESHOOTING.md) — seção "Problemas específicos — Modo HOST" (Problema 4) cobre os 9 sintomas mais comuns do assistente interativo. Para problemas mais profundos (rede, runner, banco), consulte também o checklist em [`../CHECKLISTS.md`](../CHECKLISTS.md).
 
 ## Exit codes
 

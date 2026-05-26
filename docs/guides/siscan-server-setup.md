@@ -51,26 +51,30 @@ tldr: |
   - `.env.server-<produto>.sample` (ou `.env.host.sample` para `full`)
   - `config/excel_columns_mapping.json` (para `rpa` e `full`).
 
-## Uso rápido
+## Invocações suportadas
+
+Catálogo de formas sintáticas aceitas pelo script. Para a sequência operacional onde cada invocação é usada, ver [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md).
 
 ```bash
-# VM dedicada ao RPA
+# Produto explícito via --product
 bash ./siscan-server-setup.sh --product rpa
-
-# VM dedicada ao Dashboard
 bash ./siscan-server-setup.sh --product dashboard
-
-# Host único (RPA + Dashboard juntos)
 bash ./siscan-server-setup.sh --product full
 
-# Modo interativo (menu pergunta o produto)
+# Forma equivalente com '='
+bash ./siscan-server-setup.sh --product=rpa
+
+# Sem --product → abre menu interativo
 bash ./siscan-server-setup.sh
 
-# Debug: pular o gate doctor da Fase 0
+# Pular o gate doctor da Fase 0
 bash ./siscan-server-setup.sh --product rpa --skip-doctor
+
+# Via variável de ambiente equivalente a --product
+SISCAN_PRODUCT=rpa bash ./siscan-server-setup.sh
 ```
 
-Quando rodado como `root`, o script cria automaticamente o usuário dedicado `siscan`, transfere permissões do diretório de trabalho e **re-executa a si mesmo via `sudo -u siscan`** (ver Fase 2).
+Argumentos desconhecidos são silenciosamente ignorados (loop com `*) shift ;;`).
 
 ## Flags
 
@@ -265,16 +269,7 @@ Schema completo: [`docs/guides/siscan-server-doctor/products-manifest.md`](./sis
 
 ## Solução de problemas
 
-- **Fase 0 falha com exit 2** — rode `bash siscan-server-doctor.sh` (sem `--quiet`) para ver o detalhe. Em ambientes de debugging, use `--skip-doctor` para prosseguir mesmo assim. Sintomas comuns documentados em [`docs/TROUBLESHOOTING.md`](../TROUBLESHOOTING.md).
-- **`Cannot connect to the Docker daemon` na Fase 1** — o próprio script diagnostica e sugere `sudo systemctl start docker` ou `sudo usermod -aG docker $USER` + logout/login.
-- **Re-execução como `siscan` na Fase 2 perde variáveis** — a Fase 2 já repassa `SISCAN_PRODUCT`, `COMPOSE_DIR` e `RUNNER_DIR`. Outras variáveis customizadas precisam ser re-exportadas no `.bashrc` do usuário `siscan` ou passadas no `sudo -u siscan VAR=... bash ...`.
-- **Sample `.env.server-<produto>.sample` não encontrado** — Fase 5 cria `.env` vazio + warn. O operador precisa preencher manualmente as variáveis obrigatórias (vide tabela acima) antes do primeiro deploy.
-- **Token de registro expirou (Fase 7)** — tokens válidos por poucos minutos. Gere um novo em `Settings → Actions → Runners → New` e rode o script novamente — a Fase 7 detecta o estado parcial e retoma do ponto certo.
-- **Runner ficou "offline" no GitHub depois do setup** — use [`siscan-runner-recover.sh`](./siscan-runner-recover.md) (que compartilha `_runner.sh` com este setup) para diagnóstico e recovery cirúrgico.
-- **`COMPOSE_DIR` não aparece nos jobs do runner** — confirme que a Fase 8 reiniciou o serviço. Verifique `cat ${RUNNER_DIR}/.env` e `sudo ${RUNNER_DIR}/svc.sh status`. Reiniciar manualmente: `sudo ${RUNNER_DIR}/svc.sh stop && sudo ${RUNNER_DIR}/svc.sh start`.
-- **Caminhos Windows detectados na Fase 5** — copie o `.env` para Linux antes (via `dos2unix` se necessário) e use caminhos POSIX (`/opt/siscan-rpa/dados`, não `C:\siscan\dados`).
-
-Para outros sintomas, consulte a tabela "Coberto por" em [`docs/TROUBLESHOOTING.md`](../TROUBLESHOOTING.md) e o checklist operacional em [`docs/CHECKLISTS.md`](../CHECKLISTS.md).
+Sintomas observáveis ao usar este utilitário estão catalogados em [`../TROUBLESHOOTING.md`](../TROUBLESHOOTING.md) com diagnóstico passo-a-passo e ação corretiva. Cada problema referencia o specialist do doctor que cobre a verificação automatizada. Para sequência operacional do deploy completo, ver [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md).
 
 ## Exit codes
 

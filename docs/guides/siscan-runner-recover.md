@@ -48,37 +48,43 @@ Histórico de cenários cobertos:
 - **Token de registro** (cenários N/A, 1, 2, A, A2): gerado em Settings → Actions → Runners → New self-hosted runner (expira em ~5 min).
 - **PAT classic com scope `repo`** (cenários B, WARN): para `run.sh --check`. Pode vir de `--pat`, `$GH_TOKEN`, `gh auth token` ou prompt interativo.
 
-## Uso rápido
+## Invocações suportadas
+
+Catálogo de formas sintáticas aceitas pelo script. Para a sequência operacional onde cada invocação é usada, ver [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md).
 
 ```bash
-# Detecta produto via $COMPOSE_DIR/.env (SISCAN_PRODUCT)
+# Sem flags → infere produto do $COMPOSE_DIR/.env (SISCAN_PRODUCT)
 bash siscan-runner-recover.sh
 
-# Produto explícito (sem .env ou .env sem SISCAN_PRODUCT)
+# Produto explícito
 bash siscan-runner-recover.sh --product rpa
 bash siscan-runner-recover.sh --product dashboard
 bash siscan-runner-recover.sh --product full
 
-# Apontar pra um .env em outro caminho
+# .env em outro caminho
 bash siscan-runner-recover.sh --env-file /path/to/.env
 
-# Pular pré-flight (debug — não recomendado em produção)
+# Pular pré-flight do doctor
 bash siscan-runner-recover.sh --skip-doctor
 
-# Automação: fornecer token de registro via CLI (sem prompt)
-bash siscan-runner-recover.sh --token ghr_xxx...
+# Token de registro via CLI (cenários N/A, 1, 2, A, A2)
+bash siscan-runner-recover.sh --token ghr_xxx
 
-# Cenários B/WARN: fornecer PAT classic via CLI (sem prompt)
-bash siscan-runner-recover.sh --pat ghp_xxx...
+# PAT classic via CLI (cenários B, WARN)
+bash siscan-runner-recover.sh --pat ghp_xxx
 
 # Diretório do runner customizado
 bash siscan-runner-recover.sh --runner-dir /opt/actions-runner
 
-# Ajuda completa
+# Combinações
+bash siscan-runner-recover.sh --product rpa --token ghr_xxx
+bash siscan-runner-recover.sh --env-file /path/to/.env --skip-doctor
+bash siscan-runner-recover.sh --product full --runner-dir /opt/actions-runner --pat ghp_xxx
+
+# Ajuda
+bash siscan-runner-recover.sh -h
 bash siscan-runner-recover.sh --help
 ```
-
-> **Na VM você pode rodar sem flag** — o `.env` já vem do `siscan-server-setup.sh`. Fora da VM (testes locais, debug em dev box) use `--product` ou `--env-file` apontando para um `.env` válido.
 
 ## Flags
 
@@ -509,42 +515,7 @@ Se qualquer um dos 3 falhar, o script aborta com `ERRO: SISCAN_PRODUCT não defi
 
 ## Solução de problemas
 
-### `ERRO: SISCAN_PRODUCT não definido`
-
-- **Causa**: rodou sem `--product` e o `.env` não tem `SISCAN_PRODUCT=`.
-- **Solução**: passar `--product rpa|dashboard|full` ou `--env-file /caminho/.env` ou ajustar o `.env`.
-
-### `Falha ao registrar o runner. Verifique URL e token (tokens expiram em poucos minutos)`
-
-- **Causa**: token de registro expirou ou foi colado errado.
-- **Solução**: gerar novo token em `https://github.com/<owner>/<repo>/settings/actions/runners/new` e re-rodar.
-
-### `run.sh --check reportou falha (exit=N)`
-
-A mensagem completa lista causas comuns:
-- PAT sem scope `repo` — verificar em Settings → Tokens (classic) e regenerar marcando `repo`.
-- Firewall bloqueando endpoints do GitHub Actions — rodar `bash siscan-server-doctor.sh --only check-network`.
-- Runner removido do GitHub (cenário A real) — rodar com `--token <token-registro>` em vez de `--pat`.
-
-### `gh auth status falhou e GH_TOKEN não setado — pulando check remoto`
-
-- **Causa**: nenhum dos 4 mecanismos de auth funcionou.
-- **Solução**: `gh auth login` na VM (recomendado) ou `export GH_TOKEN=ghp_xxx` ou passar `--pat`/`--token` explícito.
-
-### `AVISO: check-runner ainda reporta problema(s) — pode ser timing`
-
-- **Causa**: o serviço foi iniciado mas o runner ainda não terminou o handshake com o GitHub (latência de rede).
-- **Solução**: aguardar 30s e rodar `bash scripts/deploy_server/check-runner.sh` manualmente. Se persistir, ver `sudo journalctl -u 'actions.runner.*.service' -f`.
-
-### Cenário C sem internet → falha em `svc.sh install`
-
-- **Causa**: `svc.sh install` baixa systemd unit template do binário local — não precisa de internet. Se falhou, geralmente é permissão de sudo.
-- **Solução**: verificar `sudo -v` no usuário corrente.
-
-### Pré-flight aborta com exit 2
-
-- **Causa**: doctor reportou problemas em rede, deps, docker ou permissions.
-- **Solução**: rodar `bash siscan-server-doctor.sh --only check-network,check-deps,check-docker,check-permissions` para detalhe. Após corrigir, re-rodar o recover. Para pular (debug): `--skip-doctor`.
+Sintomas observáveis ao usar este utilitário estão catalogados em [`../TROUBLESHOOTING.md`](../TROUBLESHOOTING.md) com diagnóstico passo-a-passo e ação corretiva. Cada problema referencia o specialist do doctor que cobre a verificação automatizada. Para sequência operacional do deploy completo, ver [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md).
 
 ## Exit codes
 

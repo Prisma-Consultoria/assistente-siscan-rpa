@@ -248,6 +248,26 @@ HOST_LOG_DIR=C:/siscan-rpa/logs
 
 ---
 
+### Problema 4 — Sintomas do assistente interativo (`siscan-assistente.sh` / `.ps1`)
+
+Mensagens vistas durante o uso do assistente interativo no modo HOST.
+
+| Sintoma | Causa provável | Ação |
+|---|---|---|
+| `Arquivo de configuração não encontrado: docker-compose.prd.host.yml` | Você não está no diretório certo, ou o `git pull` falhou | `cd` para a raiz do repo e confira `ls docker-compose.prd.host.yml` |
+| `CONFIGURAÇÃO INCOMPLETA` listando `HOST_LOG_DIR` etc. | Variáveis obrigatórias vazias no `.env` | Use a opção 3 do menu e preencha; o assistente lista exatamente o que falta |
+| `DOCKER NÃO ESTÁ FUNCIONANDO` | Docker Desktop não iniciou (Windows/macOS); serviço Docker parado (Linux) | Abra o Docker Desktop ou `sudo systemctl start docker`; teste com `docker ps` |
+| `FALHA NO LOGIN` no GHCR | Token vencido, sem scope `read:packages`, ou usuário errado (e-mail em vez do username) | Gere novo PAT em GitHub Settings → Developer settings → Tokens (classic) com scope `read:packages`; teste: `echo $TOKEN \| docker login ghcr.io -u $USER --password-stdin` |
+| Pull falha com timeout em `ghcr.io` | Proxy corporativo bloqueando porta 443 | Configure proxy no Docker Desktop; teste `curl -I https://ghcr.io` |
+| Path Windows num assistente Linux (`C:\...`) | `.env` veio de instalação anterior em outro SO | Use a opção 3 — a validação detecta e oferece o caminho equivalente em Linux |
+| Opção 7 (Atualizar Assistente) falha após download | Arquivo baixado corrompido ou shebang ausente | O backup é restaurado automaticamente pelo próprio assistente; verifique conectividade com `raw.githubusercontent.com` |
+| Opção 4 (Coleta manual) diz "container não encontrado" | A stack não está rodando | Use a opção 1 primeiro; depois confira `docker ps` |
+| `jq: command not found` (warning silencioso) | `jq` não instalado | `apt install jq` (Debian/Ubuntu) ou `brew install jq` (macOS). Sem `jq`, os textos de ajuda do `.env` ficam reduzidos aos defaults embutidos |
+
+Referência completa do utilitário em [`guides/siscan-assistente.md`](guides/siscan-assistente.md).
+
+---
+
 ## Problemas específicos — Modo Servidor
 
 ### Problema 1 — Pool de endereços Docker esgotado ao criar rede

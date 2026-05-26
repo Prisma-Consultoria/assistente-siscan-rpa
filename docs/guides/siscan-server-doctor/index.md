@@ -51,31 +51,43 @@ tldr: |
 - **Manifesto `scripts/data/network-endpoints.json`** — lista canônica de FQDNs usada pelo `check-network`.
 - **Usuário não-root** — `check-docker` falha (FAIL) se o doctor for executado como root, refletindo a restrição do GitHub Actions runner (recusa instalação como root).
 
-## Uso rápido
+## Invocações suportadas
+
+Catálogo de formas sintáticas aceitas pelo orquestrador. Para a sequência operacional onde cada invocação é usada, ver [`../../DEPLOY_SERVER.md`](../../DEPLOY_SERVER.md).
 
 ```bash
-# Modo padrão (post-setup): roda TODOS os 9 specialists em human mode
+# Sem flags → roda todos os 9 specialists em modo human
 bash siscan-server-doctor.sh
 
-# Antes do setup completar: pula check-runner, check-stack e check-db
-# (dependem de coisas que o setup ainda vai criar)
+# Subconjunto pré-setup (--except check-runner,check-stack,check-db)
 bash siscan-server-doctor.sh --pre-setup
 
-# Subset granular
+# --only LIST (CSV de specialists)
 bash siscan-server-doctor.sh --only check-network
 bash siscan-server-doctor.sh --only check-network,check-db
+bash siscan-server-doctor.sh --only check-env,check-docker
+
+# --except LIST (CSV de specialists a excluir)
 bash siscan-server-doctor.sh --except check-stack
+bash siscan-server-doctor.sh --except check-db,check-stack
 
-# Cron / monitoramento contínuo — só imprime linhas FAIL
+# Modos de saída
 bash siscan-server-doctor.sh --quiet
-
-# Integração com ferramenta externa (JSON consolidado)
+bash siscan-server-doctor.sh --json
 bash siscan-server-doctor.sh --json | jq '.summary'
 
-# Inventário dos specialists disponíveis (Summary do header de cada um)
+# Inventário dos specialists descobertos
 bash siscan-server-doctor.sh --list
 
+# Timeout customizado (repassado a check-network, check-db)
+bash siscan-server-doctor.sh --timeout 15
+
+# Combinações de subconjunto + modo
+bash siscan-server-doctor.sh --only check-network --quiet
+bash siscan-server-doctor.sh --pre-setup --json
+
 # Ajuda
+bash siscan-server-doctor.sh -h
 bash siscan-server-doctor.sh --help
 ```
 
@@ -347,18 +359,7 @@ Atualizar quando a whitelist mudar (PDF v2.0 §3-7). Detalhes: [`siscan-server-d
 
 ## Solução de problemas
 
-- **`nenhum specialist a rodar (--only/--except não casou com nada)`** — typo no nome do specialist (precisa ser `check-X`, não `X`). Use `--list` para conferir os nomes válidos.
-- **`OUTPUT_MODE desconhecido: <x>`** — variável `OUTPUT_MODE` foi setada manualmente para algo fora de `human|quiet|json`. Limpe ou use as flags `--quiet`/`--json`.
-- **Saída `--json` quebrada / truncada** — sintoma típico de specialist que falhou em `require_commands` antes de emitir JSON. O envelope sintético do doctor preserva a cauda da stderr; procure por `Pré-requisito do specialist` para identificar qual binário falta.
-- **`jq` ausente** — só obrigatório em `--json` (preflight do doctor). Specialists individuais que precisam (`check-env`, `check-stack`, `check-docker`, `check-network`, `check-runner`, `check-permissions`) abortam com mensagem orientativa via `require_commands`.
-- **Specialist mostra `total_count=0` no `check-runner`** — runner foi auto-removido pelo GitHub após **14 dias offline**. Rode `siscan-runner-recover.sh` (cenário B).
-- **Specialist `check-runner` reporta `>= 30 dias`** — **regra dos 30 dias** ativa. Rode `siscan-runner-recover.sh` (cenário A).
-- **Specialist `check-docker` aponta `pool /24 cabe ≤ 1 subnet`** — caso recorrente do servidor parceiro. Edite `/etc/docker/daemon.json` para usar pool `/16` com `size: 24` e reinicie o daemon. Veja `docs/TROUBLESHOOTING.md` (Servidor #1).
-- **`check-permissions` aponta UID != 1000 em `data/.artifacts`** — `sudo chown -R 1000:1000 $COMPOSE_DIR/data/.artifacts && sudo chmod -R 755 $COMPOSE_DIR/data/.artifacts`.
-- **`check-network` mostra OCSP/CRL com `firewall bloqueou — sem TCP/80`** — a regra de firewall liberou apenas 443; OCSP/CRL roda em HTTP/80 por design do PKIX. Abrir requisição complementar.
-- **Rodar como root** — `check-docker` falha em "user atual: root (uid=0)". Faça o setup/diagnóstico como o usuário não-root dedicado (convenção: `siscan`).
-
-Catálogo completo de sintomas e ações: [`docs/TROUBLESHOOTING.md`](../TROUBLESHOOTING.md).
+Sintomas observáveis ao usar este utilitário estão catalogados em [`../../TROUBLESHOOTING.md`](../../TROUBLESHOOTING.md) com diagnóstico passo-a-passo e ação corretiva. Cada problema referencia o specialist do doctor que cobre a verificação automatizada. Para sequência operacional do deploy completo, ver [`../../DEPLOY_SERVER.md`](../../DEPLOY_SERVER.md).
 
 ## Exit codes
 
