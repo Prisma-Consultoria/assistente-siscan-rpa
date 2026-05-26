@@ -125,7 +125,7 @@ else
 fi
 
 # Sincronização de tempo
-print_category_header "$CAT_TIME" "Clock dessincronizado causa SSL_ERROR_SYSCALL no TLS — sintoma típico relatado no chat do servidor parceiro em 06/05."
+print_category_header "$CAT_TIME" "Clock dessincronizado causa SSL_ERROR_SYSCALL no TLS — sintoma típico relatado no registro interno em 06/05."
 # Em ambientes sem systemd (WSL, containers), timedatectl falha — skip controlado
 # (não conta como FAIL, mas avisa).
 if command -v timedatectl >/dev/null 2>&1; then

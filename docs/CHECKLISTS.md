@@ -134,11 +134,11 @@ Quando o doctor sinaliza problema em `check-runner` (ou jobs ficam `queued` mesm
 
 ```bash
 cd $COMPOSE_DIR
-bash siscan-runner-recover.sh        # detecta cenário e age (auto-removed → re-registro com token; stale 30d → run.sh --check sem token)
+bash siscan-runner-recover.sh        # detecta cenário e age (auto-removed → re-registro com token; stale 30d → run.sh --check (pede PAT))
 bash siscan-server-doctor.sh --only check-runner   # valida ao final
 ```
 
-Ver [TROUBLESHOOTING.md — Problemas 6 e 7](TROUBLESHOOTING.md#problema-6--runner-auto-removido-após-14-dias-offline) e a doc completa em [`siscan-server-doctor/scripts/siscan-runner-recover.md`](siscan-server-doctor/scripts/siscan-runner-recover.md).
+Ver [TROUBLESHOOTING.md — Problemas 6 e 7](TROUBLESHOOTING.md#problema-6--runner-auto-removido-após-14-dias-offline) e a doc completa em [`guides/siscan-runner-recover.md`](guides/siscan-runner-recover.md).
 
 ---
 

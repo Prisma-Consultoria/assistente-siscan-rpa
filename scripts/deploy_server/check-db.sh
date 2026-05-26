@@ -165,7 +165,7 @@ if [ -n "$SISCAN_PRODUCT" ] && product_validate >/dev/null 2>&1 && product_has_e
 
         # Veredito específico desta categoria
         if [ "$FAIL_COUNT" -gt 0 ]; then
-            print_category_guidance fail "Container 'sync' do dashboard NÃO vai conseguir importar exames do RPA. AÇÃO: confirmar VLAN do servidor parceiro permite tráfego 5432 entre a VM do dashboard e a VM do RPA (chat do servidor parceiro 27/03 — RPA_DATABASE_URL foi configurado com formato errado, esse specialist captura isso via check-env + esse check)."
+            print_category_guidance fail "Container 'sync' do dashboard NÃO vai conseguir importar exames do RPA. AÇÃO: confirmar VLAN do servidor parceiro permite tráfego 5432 entre a VM do dashboard e a VM do RPA (registro interno 27/03 — RPA_DATABASE_URL foi configurado com formato errado, esse specialist captura isso via check-env + esse check)."
         else
             print_category_guidance ok "Dashboard consegue ler dados do RPA. Próximo passo: sync_exames vai funcionar (re-rode 'docker compose exec app python -m src.commands.sync_exames --full' após restauração de backup)."
         fi

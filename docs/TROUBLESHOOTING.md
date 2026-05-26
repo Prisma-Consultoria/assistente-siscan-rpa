@@ -41,7 +41,7 @@ bash scripts/deploy_server/check-<nome>.sh
 
 A coluna **não substitui** o passo-a-passo manual — ela sinaliza o que já tem versão automatizada que vale rodar primeiro como pré-diagnóstico, antes de ir manual. Quando aparece `—`, é passo manual ou ação corretiva sem cobertura automatizada (esperado para a maioria dos casos do modo HOST/Windows).
 
-Referência completa de cada specialist: [`docs/siscan-server-doctor/index.md`](siscan-server-doctor/index.md).
+Referência completa de cada specialist: [`docs/guides/siscan-server-doctor/index.md`](guides/siscan-server-doctor/index.md).
 
 ---
 
@@ -203,7 +203,7 @@ Sintoma: conflito de permissão ou dado não aparece onde esperado.
 ### Problema 3 — Caminhos Windows/UNC com caracteres especiais
 
 Sintomas:
-- `\\172.19.222.100\siscan_laudos&\Config is not valid windows path`
+- `\\198.51.100.10\siscan_laudos&\Config is not valid windows path`
 - `Error response from daemon: invalid mount config`
 
 **Causa:** Docker Desktop no Windows não monta volumes com caminhos contendo `&`, `%`, `!`, `$`, `` ` ``, `"` ou `'`.
@@ -212,10 +212,10 @@ Sintomas:
 
 ```powershell
 # Mapear o compartilhamento com letra de unidade
-net use Z: \\172.19.222.100\siscan_laudos /persistent:yes
+net use Z: \\198.51.100.10\siscan_laudos /persistent:yes
 
 # Atualizar .env
-# Antes: HOST_CONFIG_DIR=\\172.19.222.100\siscan_laudos&\Config
+# Antes: HOST_CONFIG_DIR=\\198.51.100.10\siscan_laudos&\Config
 # Depois: HOST_CONFIG_DIR=Z:\Config
 ```
 
@@ -245,6 +245,26 @@ HOST_LOG_DIR=C:/siscan-rpa/logs
 - [ ] Aplicou correção e atualizou `.env`
 - [ ] Testou com `docker compose -f docker-compose.prd.host.yml up -d`
 - [ ] Verificou que container iniciou sem erros
+
+---
+
+### Problema 4 — Sintomas do assistente interativo (`siscan-assistente.sh` / `.ps1`)
+
+Mensagens vistas durante o uso do assistente interativo no modo HOST.
+
+| Sintoma | Causa provável | Ação |
+|---|---|---|
+| `Arquivo de configuração não encontrado: docker-compose.prd.host.yml` | Você não está no diretório certo, ou o `git pull` falhou | `cd` para a raiz do repo e confira `ls docker-compose.prd.host.yml` |
+| `CONFIGURAÇÃO INCOMPLETA` listando `HOST_LOG_DIR` etc. | Variáveis obrigatórias vazias no `.env` | Use a opção 3 do menu e preencha; o assistente lista exatamente o que falta |
+| `DOCKER NÃO ESTÁ FUNCIONANDO` | Docker Desktop não iniciou (Windows/macOS); serviço Docker parado (Linux) | Abra o Docker Desktop ou `sudo systemctl start docker`; teste com `docker ps` |
+| `FALHA NO LOGIN` no GHCR | Token vencido, sem scope `read:packages`, ou usuário errado (e-mail em vez do username) | Gere novo PAT em GitHub Settings → Developer settings → Tokens (classic) com scope `read:packages`; teste: `echo $TOKEN \| docker login ghcr.io -u $USER --password-stdin` |
+| Pull falha com timeout em `ghcr.io` | Proxy corporativo bloqueando porta 443 | Configure proxy no Docker Desktop; teste `curl -I https://ghcr.io` |
+| Path Windows num assistente Linux (`C:\...`) | `.env` veio de instalação anterior em outro SO | Use a opção 3 — a validação detecta e oferece o caminho equivalente em Linux |
+| Opção 7 (Atualizar Assistente) falha após download | Arquivo baixado corrompido ou shebang ausente | O backup é restaurado automaticamente pelo próprio assistente; verifique conectividade com `raw.githubusercontent.com` |
+| Opção 4 (Coleta manual) diz "container não encontrado" | A stack não está rodando | Use a opção 1 primeiro; depois confira `docker ps` |
+| `jq: command not found` (warning silencioso) | `jq` não instalado | `apt install jq` (Debian/Ubuntu) ou `brew install jq` (macOS). Sem `jq`, os textos de ajuda do `.env` ficam reduzidos aos defaults embutidos |
+
+Referência completa do utilitário em [`guides/siscan-assistente.md`](guides/siscan-assistente.md).
 
 ---
 
@@ -347,7 +367,7 @@ cd /app/assistente-siscan-rpa
 docker compose -f docker-compose.prd.dashboard.yml config 2>&1 | grep DATABASE_URL
 ```
 
-Se a URL mostrar algo como `...senha@P@172.19...`, a senha tem `@`.
+Se a URL mostrar algo como `...senha@P@198.51.100...`, a senha tem `@`.
 
 **Solução:** trocar a senha no PostgreSQL para uma sem caracteres especiais (`@`, `%`, `/`, `#`, `:`):
 
@@ -376,7 +396,7 @@ Sintoma: deploys via GitHub Actions ficam aguardando runner; GitHub mostra runne
 | 3 | Se aparecer `SSL connection could not be established` | O runner perdeu conectividade SSL. Reiniciar o serviço: `sudo ~/actions-runner/svc.sh stop && sudo ~/actions-runner/svc.sh start` | `check-network` (detecta firewall) + `siscan-runner-recover.sh` (Cenário A — reinicia serviço como parte do re-registro) |
 | 4 | Se `start` não resolver SSL | Testar conectividade da VM: `curl -Iv https://github.com`. Se falhar, é problema de rede/firewall — envolver infra | `check-network` |
 | 5 | Verificar conectividade com GitHub | `curl -s https://api.github.com` deve retornar JSON | `check-network` (cobre `api.github.com` entre os 22 endpoints) |
-| 6 | Re-registrar o runner (token expirado) | Obter novo token de registro no GitHub → Settings → Actions → Runners → `./config.sh` com o novo token | `siscan-runner-recover.sh` (detecta auto-removal via API + cuida do re-registro completo, ver [doc](siscan-server-doctor/scripts/siscan-runner-recover.md)) |
+| 6 | Re-registrar o runner (token expirado) | Obter novo token de registro no GitHub → Settings → Actions → Runners → `./config.sh` com o novo token | `siscan-runner-recover.sh` (detecta auto-removal via API + cuida do re-registro completo, ver [doc](guides/siscan-runner-recover.md)) |
 
 > O runner pode mostrar `Active (running)` no systemd mas estar desconectado do GitHub (loop de erro SSL). Nesse caso, `svc.sh status` mostra ativo mas o GitHub mostra Offline. A solução é `stop` + `start` para forçar reconexão.
 
@@ -502,13 +522,13 @@ docker compose -f docker-compose.prd.rpa.yml exec -T -e PGPASSWORD='SENHA' app \
 
 Sintoma: deploys via GitHub Actions ficam aguardando indefinidamente; na UI do GitHub, a página `Settings → Actions → Runners` mostra **runner ausente** (não está nem `Idle` nem `Offline` — simplesmente sumiu). Localmente o `.runner` e `~/actions-runner/` continuam presentes.
 
-Causa: política do GitHub remove automaticamente self-hosted runners offline há mais de 14 dias. Caso real: VMPRDAPP-RPADASHBOARD entre 15/04 e 25/05/2026 (40 dias).
+Causa: política do GitHub remove automaticamente self-hosted runners offline há mais de 14 dias. Caso real: <HOST-DASHBOARD> entre 15/04 e 25/05/2026 (40 dias).
 
 | Passo | O que Fazer | Como Fazer | Coberto por |
 |---|---|---|---|
 | 1 | Confirmar diagnóstico via API | `gh api repos/<owner>/<repo>/actions/runners --jq '.total_count'` — `<owner>/<repo>` vem de `scripts/data/products.json` conforme `$SISCAN_PRODUCT` (`siscan-rpa`, `siscan-dashboard`, ou ambos no `full`). Precisa `GH_TOKEN` ou `gh auth status`. Em geral, deixe o `check-runner` resolver automaticamente via manifesto | `check-runner` (resolve repo via manifesto + faz a query quando há auth) |
 | 2 | Cruzar com estado local | `ls -la ~/actions-runner/.runner ~/actions-runner/.runner_migrated` — se presentes mas API retorna `total_count: 0`, é Cenário A do recover | `check-runner` |
-| 3 | Executar a recuperação cirúrgica | `bash siscan-runner-recover.sh` (do `$COMPOSE_DIR`, ou com `--product` explícito) | `siscan-runner-recover.sh` ✅ — ver [doc](siscan-server-doctor/scripts/siscan-runner-recover.md) |
+| 3 | Executar a recuperação cirúrgica | `bash siscan-runner-recover.sh` (do `$COMPOSE_DIR`, ou com `--product` explícito) | `siscan-runner-recover.sh` ✅ — ver [doc](guides/siscan-runner-recover.md) |
 | 4 | Quando o script pedir `Token:` | Admin do repo gera novo token em `Settings → Actions → Runners → New self-hosted runner` (token expira rapidamente — gere logo antes de colar) | — (ação no GitHub UI, requer permissão admin no repo) |
 | 5 | Validar pós-recovery | O script roda `check-runner --quiet` no final; ou rode manual: `bash siscan-server-doctor.sh --only check-runner` | `check-runner` |
 
@@ -525,7 +545,7 @@ Causa: [regra dos 30 dias do GitHub](https://docs.github.com/en/actions/referenc
 | Passo | O que Fazer | Como Fazer | Coberto por |
 |---|---|---|---|
 | 1 | Verificar idade da última auto-atualização | `stat -c '%y' ~/actions-runner/.runner_migrated` (mtime renovado a cada upgrade) | `check-runner` (detecta 25-29d como warn, ≥30d como fail) |
-| 2 | Forçar auto-update | `bash siscan-runner-recover.sh` — detecta Cenário B e roda `./run.sh --check` (não pede token) | `siscan-runner-recover.sh` (Cenário B) |
+| 2 | Forçar auto-update | `bash siscan-runner-recover.sh` — detecta Cenário B e roda `./run.sh --check` (pede PAT, não token de registro) | `siscan-runner-recover.sh` (Cenário B) |
 | 3 | Validar pós-update | `bash siscan-server-doctor.sh --only check-runner` deve mostrar idade resetada | `check-runner` |
 
 ---
@@ -537,7 +557,7 @@ Sintoma (caso real, siscan-dashboard 27/03/2026): container `sync` falha no boot
 | Passo | O que Fazer | Como Fazer | Coberto por |
 |---|---|---|---|
 | 1 | Validar formato | `bash siscan-server-doctor.sh --only check-env` (rejeita `RPA_DATABASE_URL` que não case com `^postgresql://user:pass@host:port/db$`) | `check-env` ✅ |
-| 2 | Corrigir o `.env` | `RPA_DATABASE_URL=postgresql://siscan_rpa:SENHA@172.19.225.22:5432/siscan_rpa` (sintaxe completa) | — (ação corretiva) |
+| 2 | Corrigir o `.env` | `RPA_DATABASE_URL=postgresql://siscan_rpa:SENHA@198.51.100.20:5432/siscan_rpa` (sintaxe completa) | — (ação corretiva) |
 | 3 | Restart do dashboard | `docker compose -f docker-compose.prd.dashboard.yml restart sync` | — (ação corretiva) |
 
 ---
