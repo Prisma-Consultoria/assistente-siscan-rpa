@@ -16,7 +16,7 @@ Os problemas estão organizados em três grupos:
 | Passo | O que Fazer | Como Fazer | Coberto por |
 |---|---|---|---|
 | 1 | Registrar o incidente | Anotar data, hora, usuário e passos executados antes do erro | — |
-| 2 | Coletar evidências antes de alterar qualquer configuração | `docker info`, `docker compose ps`, logs do serviço afetado | `check-docker` + `check-stack` |
+| 2 | Coletar evidências antes de alterar qualquer configuração | `docker info`, `docker compose ps`, logs do serviço afetado | parcial — `check-docker` cobre `docker info` e `check-stack` cobre `compose ps`; **coleta de logs é manual** |
 | 3 | Executar diagnósticos com privilégios adequados | **Windows:** PowerShell como Administrador. **Linux:** `sudo` quando indicado | — |
 
 ---
@@ -58,7 +58,7 @@ Sintomas:
 
 | Passo | O que Fazer | Como Fazer | Coberto por |
 |---|---|---|---|
-| 1 | Verificar formato do token | Token válido começa com `ghp_` (classic PAT), `gho_` (OAuth) ou `ghs_` (server) e tem 40+ caracteres | — (ação no GitHub UI) |
+| 1 | Verificar formato do token | Prefixos comuns: `ghp_` (classic PAT), `github_pat_` (fine-grained PAT), `gho_` (OAuth) ou `ghs_` (server). Comprimento varia (40+ pra classic, ~80+ pra fine-grained) | — (ação no GitHub UI) |
 | 2 | Confirmar scope do token | Token deve ter `read:packages`. GitHub → Settings → Developer settings → Personal access tokens → verificar scopes | — (ação no GitHub UI) |
 | 3 | Verificar expiração | GitHub → Settings → Developer settings → Personal access tokens → coluna "Expires" | — (ação no GitHub UI) |
 | 4 | Testar login manualmente | `echo SEU_TOKEN \| docker login ghcr.io -u SEU_USERNAME --password-stdin` — deve retornar `Login Succeeded` | `check-network` (parcial — valida TLS pra `ghcr.io`, não o login) |
@@ -76,8 +76,8 @@ No modo HOST: apagar `credenciais.txt` e executar novamente o assistente — ele
 
 #### Checklist rápido de validação de token
 
-- [ ] Token começa com `ghp_`, `gho_` ou `ghs_`
-- [ ] Token tem 40+ caracteres
+- [ ] Token tem prefixo conhecido: `ghp_`, `github_pat_`, `gho_` ou `ghs_`
+- [ ] Token tem comprimento esperado (40+ pra `ghp_/gho_/ghs_`, ~80+ pra `github_pat_`)
 - [ ] Token não está expirado
 - [ ] Token tem scope `read:packages`
 - [ ] Username é o correto (não email)
@@ -506,10 +506,10 @@ Causa: política do GitHub remove automaticamente self-hosted runners offline h�
 
 | Passo | O que Fazer | Como Fazer | Coberto por |
 |---|---|---|---|
-| 1 | Confirmar diagnóstico via API | `gh api repos/Prisma-Consultoria/siscan-dashboard/actions/runners --jq '.total_count'` (precisa `GH_TOKEN` ou `gh auth status`) | `check-runner` (faz essa query quando há auth disponível) |
+| 1 | Confirmar diagnóstico via API | `gh api repos/<owner>/<repo>/actions/runners --jq '.total_count'` — `<owner>/<repo>` vem de `scripts/data/products.json` conforme `$SISCAN_PRODUCT` (`siscan-rpa`, `siscan-dashboard`, ou ambos no `full`). Precisa `GH_TOKEN` ou `gh auth status`. Em geral, deixe o `check-runner` resolver automaticamente via manifesto | `check-runner` (resolve repo via manifesto + faz a query quando há auth) |
 | 2 | Cruzar com estado local | `ls -la ~/actions-runner/.runner ~/actions-runner/.runner_migrated` — se presentes mas API retorna `total_count: 0`, é Cenário A do recover | `check-runner` |
 | 3 | Executar a recuperação cirúrgica | `bash siscan-runner-recover.sh` (do `$COMPOSE_DIR`, ou com `--product` explícito) | `siscan-runner-recover.sh` ✅ — ver [doc](siscan-server-doctor/scripts/siscan-runner-recover.md) |
-| 4 | Quando o script pedir `Token:` | Admin do repo gera novo token em `Settings → Actions → Runners → New self-hosted runner` (expira em ~1h) | — (ação no GitHub UI, requer permissão admin no repo) |
+| 4 | Quando o script pedir `Token:` | Admin do repo gera novo token em `Settings → Actions → Runners → New self-hosted runner` (token expira rapidamente — gere logo antes de colar) | — (ação no GitHub UI, requer permissão admin no repo) |
 | 5 | Validar pós-recovery | O script roda `check-runner --quiet` no final; ou rode manual: `bash siscan-server-doctor.sh --only check-runner` | `check-runner` |
 
 > O recover é **idempotente** — `svc.sh uninstall` (passo 2 da sequência interna do recover) emite warn se o serviço já estava ausente; cobre o caso da VM ter `.runner` presente + serviço systemd ausente.

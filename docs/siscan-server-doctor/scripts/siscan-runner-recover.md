@@ -97,11 +97,17 @@ Diagnóstico em 4 passos:
 
 ## Ações por cenário (o que o script faz na VM)
 
-A tabela acima mostra **qual** ação é tomada por cenário, mas não detalha **o que** cada ação muda no host. Esta seção lista os comandos exatos, em ordem, com a propriedade idempotente de cada um e a necessidade de sudo. Útil pra entender o blast radius antes de rodar — especialmente porque o Cenário A consome um token de admin que expira em ~1h.
+A tabela abaixo lista a sequência de comandos que o script executa internamente, na ordem exata, com idempotência e necessidade de sudo. **Não é um runbook copy/paste** — as variáveis (`$TOKEN`, `$REPO`, etc.) são resolvidas pelo próprio script via prompt + `products.json`; mostradas aqui pra você entender o blast radius antes de rodar — especialmente porque o Cenário A consome um token de admin que expira rapidamente (o script avisa "expira em ~5 min" ao pedir o token).
 
 ### Cenário A / A' (Auto-removal, Offline, ou Nome mismatch) — re-registro completo
 
-Todos rodam em `~/actions-runner/`.
+Todos rodam em `~/actions-runner/`. As variáveis no comando vêm do script:
+
+- `$TOKEN` — pedido interativamente quando o script roda
+- `$REPO` — `https://github.com/<owner>/<repo>` derivado de `products.json[<product>].repo`
+- `$EXPECTED_NAME` — `<hostname>-<runner_name_suffix>` (sufixo do manifesto)
+- `$RUNNER_LABEL` — `products.json[<product>].runner_label`
+- `$CURRENT_USER` — saída de `whoami`
 
 | # | Comando | Idempotente? | Sudo? |
 |---|---|---|---|
