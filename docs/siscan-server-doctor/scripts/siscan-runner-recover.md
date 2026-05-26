@@ -1,8 +1,25 @@
-# `siscan-runner-recover.sh` — Recuperação cirúrgica do runner
+# `siscan-runner-recover.sh` — Recuperação idempotente do runner
 
-Recupera o GitHub Actions self-hosted runner em **dois cenários** descobertos no incidente no servidor parceiro (15/04 → 25/05/2026):
+Recupera o GitHub Actions self-hosted runner em **9 cenários auto-resolvíveis** (OK, N/A, 1, 2, C, A, A2, B, WARN) + 1 estado inconclusivo (UNKNOWN, que orienta passos manuais) — desde "serviço systemd ausente" até "bootstrap do zero". A lógica de download/registro/instalação é compartilhada com `siscan-server-setup.sh` via o módulo `scripts/deploy_server/_runner.sh` (issue #51).
 
-## Cenário A — Auto-removal após 14 dias offline
+Os 2 cenários originais (A e B) foram descobertos no incidente no servidor parceiro (15/04 → 25/05/2026); o cenário C foi descoberto na VMPRDAPP-RPADASHBOARD em 26/05/2026.
+
+## Cenários cobertos (matriz rápida)
+
+| Cenário | Trigger | Token? | Re-registra? | Instala systemd? |
+|---|---|---|---|---|
+| **OK** | tudo online + idade <25d | não | não | não |
+| **N/A** | `~/actions-runner/` não existe | **sim** | sim (bootstrap) | sim |
+| **1** | dir existe mas binários ausentes | **sim** | sim (bootstrap incremental) | sim |
+| **2** | binários OK, `.runner` ausente | **sim** | sim | sim |
+| **C** | `.runner` OK, systemd unit ausente | **não** | não | sim (cirúrgico) |
+| **A** | API `total_count=0` (auto-removed >14d) | **sim** | sim (uninstall + remove + register) | sim |
+| **A2** | API: runner `offline` ou nome mismatch | **sim** | sim (idem A) | sim |
+| **B** | idade ≥30d | não | não | não (só `run.sh --check` + start) |
+| **WARN** | idade 25-29d | não | não | preventivo (idem B) |
+| **UNKNOWN** | sem gh/`GH_TOKEN`/`--token` + estado inconclusivo | — | — | — (orienta) |
+
+### Cenário A — Auto-removal após 14 dias offline
 
 GitHub remove runners offline há > 14 dias. Diagnóstico:
 ```
@@ -10,7 +27,7 @@ gh api repos/<owner>/<repo>/actions/runners → total_count: 0
 ```
 Resolução: re-registrar (precisa token novo).
 
-## Cenário B — Regra dos 30 dias de auto-update
+### Cenário B — Regra dos 30 dias de auto-update
 
 Runner online + serviço ativo, mas GitHub recusa jobs porque o runner ficou > 30 dias sem atualizar sua versão.
 [GitHub docs](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#runner-software-updates-on-self-hosted-runners):
@@ -18,6 +35,21 @@ Runner online + serviço ativo, mas GitHub recusa jobs porque o runner ficou > 3
 > "If you do not perform a software update within 30 days, the GitHub Actions service will not queue jobs to your runner."
 
 Resolução: `sudo -u siscan ./run.sh --check` (**não** precisa token).
+
+### Cenário C — Serviço systemd ausente (novo em #51)
+
+`.runner` continua válido remotamente, mas o systemd unit `actions.runner.*.service` foi desinstalado ou nunca instalado. Detecção é 100% local — não precisa de gh/`GH_TOKEN`. Resolução: `svc.sh install $USER` + `svc.sh start`. **Não pede token** porque o `.runner` ainda é aceito pelo GitHub.
+
+Descoberto na VMPRDAPP-RPADASHBOARD em 26/05/2026: alguém rodou `svc.sh uninstall` (intencional ou não), o `.runner` ficou válido localmente, mas o serviço sumiu do systemd.
+
+### Cenários N/A, 1, 2 — Bootstrap incremental (novos em #51)
+
+Antes de #51, o recover abortava se `~/actions-runner/` não existisse. Após #51, o recover faz o que for necessário pra alcançar estado 4:
+- **N/A**: cria dir + baixa tarball + registra + instala + inicia
+- **1**: baixa + registra + instala + inicia (dir existia mas binários sumiram — limpeza parcial rara)
+- **2**: registra + instala + inicia (binários OK, mas `.runner` foi removido)
+
+Todos os 3 requerem token. Use `--token TOKEN` na CLI ou aguarde o prompt interativo.
 
 ## Sinopse
 
@@ -28,8 +60,17 @@ bash siscan-runner-recover.sh --product dashboard
 bash siscan-runner-recover.sh --product full               # VM que hospeda RPA + Dashboard
 bash siscan-runner-recover.sh --env-file /path/to/.env     # apontar pra um .env em outro caminho
 bash siscan-runner-recover.sh --skip-doctor                # pula pré-flight (debug)
+bash siscan-runner-recover.sh --token ghr_xxx...           # token via CLI (sobrescreve prompt interativo)
 bash siscan-runner-recover.sh --help
 ```
+
+### Flag `--token`
+
+Quando fornecida, sobrescreve o prompt interativo `read -srp "Token: "` dos cenários que precisam de token (N/A, 1, 2, A, A2). Útil para:
+- **Automação** (CI/scripts sem TTY interativo)
+- **UNKNOWN defensivo**: se `gh`/`GH_TOKEN` ausentes e estado local OK + idade <30d, fornecer `--token` força o cenário **A2** (re-registro defensivo, assumindo que o GitHub pode ter auto-removido o runner sem possibilidade de detectar via API)
+
+Sem `--token`, o comportamento histórico do prompt interativo é preservado.
 
 > **Pré-requisito**: o script precisa saber o produto antes de qualquer ação. Resolução em ordem:
 > 1. `--product VALOR` explícito vence sempre.
@@ -85,15 +126,21 @@ Diagnóstico em 4 passos:
 3. **Cruza** os dois pra decidir o cenário
 4. **Executa** a ação correspondente
 
-| Estado da API | Idade local | Cenário | Ação |
-|---|---|---|---|
-| `total_count: 0` | qualquer | **A** Auto-removed | Re-registrar (pede token) |
-| Runner ausente do nome esperado | qualquer | **A'** Nome mismatch | Re-registrar |
-| Runner presente, `offline` | qualquer | **A'** Offline | Re-registrar |
-| Runner presente, `online`, ≥ 30d | ≥ 30d | **B** Regra dos 30d | `run.sh --check` |
-| Runner presente, `online`, 25-29d | 25-29d | **WARN** | `run.sh --check` (preventivo) |
-| Runner presente, `online`, < 25d | < 25d | **OK** | Nada — exit 0 |
-| `~/actions-runner/` ausente | — | **N/A** | Orienta `siscan-server-setup.sh` |
+Detecção é feita por `runner_diagnose` (em `scripts/deploy_server/_runner.sh`), que combina estado local (via `runner_get_state`) e remoto (via `runner_query_api`). Ordem de precedência:
+
+| Estado local | Estado remoto | Idade | Cenário | Ação |
+|---|---|---|---|---|
+| dir ausente | — | — | **N/A** | Bootstrap completo (pede token) |
+| dir OK, binários ausentes | — | — | **1** | Bootstrap incremental (pede token) |
+| binários OK, `.runner` ausente | — | — | **2** | Register + install + start (pede token) |
+| binários + `.runner` OK, systemd unit ausente | — | — | **C** | Install + start (sem token) |
+| tudo local OK | `total_count: 0` | qualquer | **A** | Uninstall + remove + re-register + install + start |
+| tudo local OK | runner offline ou nome mismatch | qualquer | **A2** | Idem A |
+| tudo local OK | runner online | ≥ 30d | **B** | `run.sh --check` + start |
+| tudo local OK | runner online | 25-29d | **WARN** | Idem B (preventivo) |
+| tudo local OK | runner online | < 25d | **OK** | Nada — exit 0 |
+| tudo local OK | API indisponível | < 30d, `--token` setado | **A2** (defensivo) | Idem A |
+| tudo local OK | API indisponível | < 30d, sem `--token` | **UNKNOWN** | Orienta `--token` ou `gh` |
 
 ## Ações por cenário (o que o script faz na VM)
 
@@ -189,9 +236,28 @@ Depois da ação, espera 5s e roda `bash scripts/deploy_server/check-runner.sh -
 ## Comportamento
 
 - **Idempotente**: rodar duas vezes seguidas — a segunda detecta runner OK e sai com exit 0
-- **Não é instalação**: assume `~/actions-runner/` existe. Para VM nova, use `siscan-server-setup.sh`
+- **Cobre instalação do zero** (a partir de #51): cenários N/A, 1 e 2 fazem bootstrap incremental usando as funções do módulo `_runner.sh`. Não é mais necessário chamar `siscan-server-setup.sh` separadamente apenas para o runner.
 - **Reusa identidade**: mantém nome + label do runner conforme manifesto
-- **Cenário B não pede token**: economiza ida ao GitHub UI quando só falta auto-update
+- **Cenário B/WARN/C não pedem token**: economiza ida ao GitHub UI quando só falta auto-update ou só o systemd unit
+- **`--token` sobrescreve prompt**: util para automação e para forçar A2 defensivo quando API não está consultável
+
+## Relação com `siscan-server-setup.sh`
+
+A Fase 7 do setup e o recover compartilham as **mesmas funções** do módulo `scripts/deploy_server/_runner.sh`:
+
+```
+runner_download_binaries  → baixa tarball (estado 1→2)
+runner_register           → config.sh --token (estado 2→3)
+runner_install_service    → svc.sh install (estado 3→4)
+runner_start_service      → svc.sh start
+runner_stop_service       → svc.sh stop (idempotente)
+runner_uninstall_service  → svc.sh uninstall (idempotente)
+runner_remove_registration → config.sh remove (idempotente)
+runner_get_state          → echo N/A|1|2|3|4
+runner_diagnose           → echo OK|N/A|1|2|C|A|A2|B|WARN|UNKNOWN
+```
+
+Por isso, bugs ou melhorias na lógica de runner se propagam automaticamente para ambos os scripts.
 
 ## Exemplo — incidente real no servidor parceiro (25/05/2026)
 
@@ -218,4 +284,5 @@ e valida com `check-runner` no final.
 - [`check-network.md`](check-network.md) — primeiro specialist invocado no pré-flight
 - [`../../TROUBLESHOOTING.md`](../../TROUBLESHOOTING.md) — sintomas e diagnóstico manual
 - [Self-hosted runners reference (GitHub docs)](https://docs.github.com/en/actions/reference/runners/self-hosted-runners)
-- [Task #31](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/31)
+- [Task #31](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/31) — entrega original (cenários A e B)
+- [Task #51](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/51) — refatoração `_runner.sh` + cenários C/N/A/1/2 + flag `--token`
