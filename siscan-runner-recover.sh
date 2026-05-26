@@ -82,6 +82,8 @@ Opções:
 Cenários detectados automaticamente:
   OK   ) Runner saudável                                   → exit 0, nada a fazer
   N/A  ) ~/actions-runner não existe                       → bootstrap completo (pede token)
+  1    ) dir existe mas binários ausentes                  → bootstrap incremental (pede token)
+  2    ) binários OK, .runner ausente                      → register + install + start (pede token)
   C    ) .runner OK + systemd unit ausente                 → svc.sh install + start (sem token)
   A    ) total_count=0 na API (auto-removal >14d)          → uninstall + register + install (pede token)
   A2   ) runner offline ou nome mismatch na API            → uninstall + register + install (pede token)
@@ -93,16 +95,28 @@ Exit code: 0 = OK · 1 = falha no recovery · 2 = pré-condição/uso
 EOF
 }
 
+# _require_value FLAG VALUE — valida que flag --foo tem argumento de valor.
+# Usado pelos flags que esperam VALUE (--product, --env-file, --runner-dir, --token).
+# Sem essa validação, "--flag" no fim da linha (sem valor) causaria loop infinito
+# no while, pois `shift 2` falha silenciosamente quando só resta 1 argumento.
+_require_value() {
+    if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+        printf "erro: %s requer um valor\n" "$1" >&2
+        usage >&2
+        exit 2
+    fi
+}
+
 while [ $# -gt 0 ]; do
     case "$1" in
-        --product)      SISCAN_PRODUCT="${2:-}"; shift 2 ;;
+        --product)      _require_value "$@"; SISCAN_PRODUCT="$2"; shift 2 ;;
         --product=*)    SISCAN_PRODUCT="${1#*=}"; shift ;;
-        --env-file)     ENV_FILE="${2:-}"; shift 2 ;;
+        --env-file)     _require_value "$@"; ENV_FILE="$2"; shift 2 ;;
         --env-file=*)   ENV_FILE="${1#*=}"; shift ;;
-        --runner-dir)   RUNNER_DIR="${2:-}"; shift 2 ;;
+        --runner-dir)   _require_value "$@"; RUNNER_DIR="$2"; shift 2 ;;
         --runner-dir=*) RUNNER_DIR="${1#*=}"; shift ;;
         --skip-doctor)  SKIP_DOCTOR=true; shift ;;
-        --token)        TOKEN_ARG="${2:-}"; shift 2 ;;
+        --token)        _require_value "$@"; TOKEN_ARG="$2"; shift 2 ;;
         --token=*)      TOKEN_ARG="${1#*=}"; shift ;;
         -h|--help)      usage; exit 0 ;;
         *) echo "argumento desconhecido: $1" >&2; usage >&2; exit 2 ;;
@@ -232,8 +246,8 @@ prompt_token_if_needed() {
         TOKEN="$TOKEN_ARG"
         info "Token fornecido via --token"
     else
-        printf "${YELLOW}Token de registro requerido (expira em ~5 min).${NC}\n"
-        printf "${WHITE}Gere agora em:${NC} ${CYAN}%s/settings/actions/runners/new${NC}\n\n" "$REPO_URL"
+        printf "${YELLOW}Token de registro requerido — expira em poucos minutos; gere agora.${NC}\n"
+        printf "${WHITE}URL:${NC} ${CYAN}%s/settings/actions/runners/new${NC}\n\n" "$REPO_URL"
         # shellcheck disable=SC2162
         read -srp "Token: " TOKEN
         echo ""
@@ -293,7 +307,7 @@ case "$scenario" in
         runner_uninstall_service "$RUNNER_DIR"
         runner_remove_registration "$RUNNER_DIR" "$TOKEN"
         runner_register "$RUNNER_DIR" "$REPO_URL" "$TOKEN" "$EXPECTED_NAME" "$RUNNER_LABEL" \
-            || fail "Falha no config.sh — verifique o token (expira em ~5min) e a URL do repo."
+            || fail "Falha no config.sh — verifique o token (expira em poucos minutos) e a URL do repo."
         runner_install_service "$RUNNER_DIR" "$CURRENT_USER" \
             || fail "svc.sh install falhou."
         runner_start_service "$RUNNER_DIR" \

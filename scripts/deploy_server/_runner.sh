@@ -49,22 +49,42 @@ runner_validate_dot_runner() {
     [ -f "$dir/.runner" ]
 }
 
-# runner_systemd_present
-#   Retorna 0 se há um systemd unit file 'actions.runner.*.service'
-#   (presença do unit file, não necessariamente serviço ativo).
-runner_systemd_present() {
-    command -v systemctl >/dev/null 2>&1 || return 1
-    systemctl list-unit-files 'actions.runner.*.service' --no-legend 2>/dev/null | grep -q .
+# runner_unit_name RUNNER_DIR
+#   Ecoa o nome da systemd unit associada a este RUNNER_DIR, ou vazio se
+#   não houver. O svc.sh do GitHub grava o nome da unit (ex.:
+#   'actions.runner.OWNER-REPO.NAME.service') no marker `$dir/.service`
+#   durante `svc.sh install`. Esse marker é o único vínculo confiável
+#   entre um diretório de runner e sua unit específica em hosts com
+#   múltiplos runners.
+runner_unit_name() {
+    local dir="$1"
+    [ -f "$dir/.service" ] || { echo ""; return 0; }
+    tr -d '[:space:]' < "$dir/.service" 2>/dev/null
 }
 
-# runner_systemd_active
-#   Retorna 0 se há um serviço actions.runner.* com state=active.
-runner_systemd_active() {
+# runner_systemd_present RUNNER_DIR
+#   Retorna 0 se a systemd unit *deste* RUNNER_DIR está instalada.
+#   Usa o marker `$dir/.service` (escrito por `svc.sh install`) — em VMs
+#   com múltiplos runners, isso garante que detectemos só a unit do dir
+#   passado, não qualquer `actions.runner.*.service` do host.
+runner_systemd_present() {
+    local dir="$1"
     command -v systemctl >/dev/null 2>&1 || return 1
-    local svc
-    svc=$(systemctl list-units --type=service 'actions.runner.*' --no-legend 2>/dev/null | head -1 | awk '{print $1}')
-    [ -n "$svc" ] || return 1
-    [ "$(systemctl is-active "$svc" 2>/dev/null)" = "active" ]
+    local unit
+    unit=$(runner_unit_name "$dir")
+    [ -n "$unit" ] || return 1
+    systemctl list-unit-files "$unit" --no-legend 2>/dev/null | grep -q .
+}
+
+# runner_systemd_active RUNNER_DIR
+#   Retorna 0 se a unit *deste* RUNNER_DIR está com state=active.
+runner_systemd_active() {
+    local dir="$1"
+    command -v systemctl >/dev/null 2>&1 || return 1
+    local unit
+    unit=$(runner_unit_name "$dir")
+    [ -n "$unit" ] || return 1
+    [ "$(systemctl is-active "$unit" 2>/dev/null)" = "active" ]
 }
 
 # runner_get_state RUNNER_DIR
@@ -86,7 +106,7 @@ runner_get_state() {
     if ! runner_validate_dot_runner "$dir"; then
         echo "2"; return 0
     fi
-    if ! runner_systemd_present; then
+    if ! runner_systemd_present "$dir"; then
         echo "3"; return 0
     fi
     echo "4"
@@ -253,7 +273,7 @@ runner_register() {
             --name "$name" \
             --unattended \
             --replace); then
-        printf "Falha ao registrar o runner. Verifique URL e token (tokens expiram em ~5min).\n" >&2
+        printf "Falha ao registrar o runner. Verifique URL e token (tokens expiram em poucos minutos).\n" >&2
         return 1
     fi
     ok "Runner registrado: $name [$label]"

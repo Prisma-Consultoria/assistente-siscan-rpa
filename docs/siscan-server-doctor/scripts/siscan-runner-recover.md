@@ -1,6 +1,6 @@
 # `siscan-runner-recover.sh` — Recuperação idempotente do runner
 
-Recupera o GitHub Actions self-hosted runner em **8 cenários** — desde "serviço systemd ausente" até "bootstrap do zero". A lógica de download/registro/instalação é compartilhada com `siscan-server-setup.sh` via o módulo `scripts/deploy_server/_runner.sh` (issue #51).
+Recupera o GitHub Actions self-hosted runner em **9 cenários auto-resolvíveis** (OK, N/A, 1, 2, C, A, A2, B, WARN) + 1 estado inconclusivo (UNKNOWN, que orienta passos manuais) — desde "serviço systemd ausente" até "bootstrap do zero". A lógica de download/registro/instalação é compartilhada com `siscan-server-setup.sh` via o módulo `scripts/deploy_server/_runner.sh` (issue #51).
 
 Os 2 cenários originais (A e B) foram descobertos no incidente no servidor parceiro (15/04 → 25/05/2026); o cenário C foi descoberto na VMPRDAPP-RPADASHBOARD em 26/05/2026.
 
