@@ -103,11 +103,10 @@ Fluxo:
 
 1. Solicita usuário GitHub e token PAT (`read:packages`) — não persistidos em disco por padrão.
 2. Tenta `docker login ghcr.io` via `--password-stdin`.
-3. Executa `docker pull ghcr.io/prisma-consultoria/siscan-rpa-rpa:main` com spinner ASCII animado.
-4. No modo `full`, também baixa `ghcr.io/prisma-consultoria/siscan-dashboard:main`.
-5. Se o pull falhar, tenta credenciais salvas (`credenciais.txt`), pede novas credenciais, e por fim cai para `docker compose pull` como último recurso.
-6. Após o pull, valida se `.env` está completo. Se não estiver, oferece abrir o editor (opção 3) e só depois sobe os containers (`docker compose down && up -d`).
-7. No final, exibe a URL para acesso: `http://localhost:5001` (RPA) — o Dashboard fica em `http://localhost:5000`.
+3. Executa `docker pull` das imagens declaradas no compose do modo HOST (RPA + Dashboard) com spinner ASCII animado. Os repositórios/tags concretos vivem no `docker-compose.prd.host.yml`.
+4. Se o pull falhar, tenta credenciais salvas (`credenciais.txt`), pede novas credenciais, e por fim cai para `docker compose pull` como último recurso.
+5. Após o pull, valida se `.env` está completo. Se não estiver, oferece abrir o editor (opção 3) e só depois sobe os containers (`docker compose down && up -d`).
+6. No final, exibe as URLs locais de acesso (portas declaradas em `HOST_APP_EXTERNAL_PORT` e equivalentes no `.env`).
 
 ### Opção 3 — Editar configurações (.env)
 

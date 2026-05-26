@@ -5,7 +5,7 @@ status: aceita
 confidencialidade: interno
 owner: Jailton Carlos de Paiva
 updated: 2026-05-26
-versao: "2.0"
+versao: "2.1"
 related:
   - docs/DEPLOY_SERVER.md
   - docs/TROUBLESHOOTING.md

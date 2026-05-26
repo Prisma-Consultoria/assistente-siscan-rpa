@@ -5,7 +5,7 @@ status: aceita
 confidencialidade: interno
 owner: Time DevOps SISCAN
 updated: 2026-05-26
-versao: "1.0"
+versao: "1.1"
 related:
   - docs/DEPLOY_SERVER.md
   - docs/TROUBLESHOOTING.md

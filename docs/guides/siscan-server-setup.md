@@ -5,7 +5,7 @@ status: aceita
 confidencialidade: interno
 owner: Jailton Carlos de Paiva
 updated: 2026-05-26
-versao: "1.0"
+versao: "1.1"
 related:
   - docs/DEPLOY_SERVER.md
   - docs/TROUBLESHOOTING.md
@@ -161,20 +161,12 @@ Procura e/ou copia para `COMPOSE_DIR` os arquivos obrigatórios:
    - Para `dashboard`: gera `SESSION_SECRET` (64 hex chars) se ausente.
    - Para `rpa` e `full`: gera `SECRET_KEY`.
    - Função `_generate_secret` usa `openssl rand -hex 32` (fallback `python3` ou `/dev/urandom`).
-4. **Prompt interativo** para variáveis-chave (cada uma só pergunta se faltar ou estiver com valor inválido):
-   - `DATABASE_HOST` — rejeita valor literal `db` (não há container de banco; banco é externo).
-   - `DATABASE_PASSWORD` — pergunta silenciosamente (`read -rs`); alerta se valor atual = `siscan_rpa` (default a substituir).
-   - `ADMIN_PASSWORD` — apenas para `dashboard`. Se vazia, o app gerará senha temporária nos logs.
-   - `RPA_DATABASE_URL` — apenas para `dashboard`. Validada por regex `^postgresql://[^@]+@[^/]+/.+`. Se inválida, o operador pode confirmar para salvar mesmo assim (com warn).
-5. **Variáveis `HOST_*`** — caminhos que viram bind mounts. A lista varia por produto:
-
-| Produto | Variáveis `HOST_*` solicitadas |
-|---|---|
-| `rpa` | `HOST_LOG_DIR`, `HOST_SISCAN_REPORTS_INPUT_DIR`, `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR`, `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR`, `HOST_CONFIG_DIR` |
-| `dashboard` | `HOST_LOG_DIR` |
-| `full` | as 5 do RPA + `HOST_DASHBOARD_LOG_DIR` |
-
-   Para cada variável, o script mostra o valor atual e oferece manter (`Enter`) ou substituir. **Caminhos no formato Windows** (drive letter `C:\`, UNC `\\server\share`, ou backslash como separador) disparam warn da função `_validate_linux_path`, e o operador precisa confirmar explicitamente (`S/N`) para gravá-los assim mesmo.
+4. **Prompt interativo** para variáveis-chave (cada uma só pergunta se faltar ou estiver com valor inválido). As perguntas e validações específicas variam por produto — a lista canônica por produto (`DATABASE_HOST`, `DATABASE_PASSWORD`, `ADMIN_PASSWORD`, `RPA_DATABASE_URL` etc.) está em [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md) (seção *Instalação*). Em geral o script:
+   - Rejeita valores-padrão de dev (ex.: `DATABASE_HOST=db`).
+   - Lê senhas silenciosamente (`read -rs`).
+   - Detecta passwords default declaradas no manifesto (`default_passwords_to_detect`) e dispara warn.
+   - Valida formato de URLs declaradas como obrigatórias (ex.: regex `^postgresql://[^@]+@[^/]+/.+`).
+5. **Variáveis `HOST_*`** — caminhos que viram bind mounts. A lista por produto vem do campo `host_dir_vars` do manifesto `products.json`. Os valores típicos sugeridos para cada produto estão tabulados em [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md) (seção *Instalação*). Para cada variável declarada no manifesto, o script mostra o valor atual e oferece manter (`Enter`) ou substituir. **Caminhos no formato Windows** (drive letter `C:\`, UNC `\\server\share`, ou backslash como separador) disparam warn da função `_validate_linux_path`, e o operador precisa confirmar explicitamente (`S/N`) para gravá-los assim mesmo.
 
 ### Fase 6 — Criação dos diretórios HOST_*
 
@@ -198,19 +190,10 @@ A detecção de "systemd unit instalada" usa o marker `${RUNNER_DIR}/.service` (
 
 Quando atinge o estado `2`, o script solicita interativamente:
 
-- **URL do repositório** (default por produto):
-  - `rpa` → `https://github.com/Prisma-Consultoria/siscan-rpa`
-  - `dashboard` → `https://github.com/Prisma-Consultoria/siscan-dashboard`
-  - `full` → `https://github.com/Prisma-Consultoria/siscan-rpa`
+- **URL do repositório** — default derivado de `products.json[<product>].repo`. A URL específica por produto (`siscan-rpa`, `siscan-dashboard` etc.) está em [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md) (seção *Instalação*).
 - **Token de registro** (`read -rs` — não ecoa). Gerado em `Settings → Actions → Runners → New self-hosted runner`. **Expira em ~5 min**.
 
-O registro chama `./config.sh --url <URL> --token <TOKEN> --labels <LABEL> --name <NAME> --unattended --replace`. Label e nome derivam do produto:
-
-| Produto | `RUNNER_LABEL` | `RUNNER_NAME` |
-|---|---|---|
-| `rpa` | `producao-rpa` | `<hostname>-siscan-rpa` |
-| `dashboard` | `producao-dashboard` | `<hostname>-siscan-dashboard` |
-| `full` | `producao-cliente` | `<hostname>-siscan-full` |
+O registro chama `./config.sh --url <URL> --token <TOKEN> --labels <LABEL> --name <NAME> --unattended --replace`. `LABEL` vem do campo `runner_label` do manifesto e `NAME` é montado como `<hostname>-<runner_name_suffix>`. Os valores por produto estão em [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md).
 
 O download (`runner_download_binaries`) detecta arquitetura automaticamente (`x86_64` → `x64`, `aarch64` → `arm64`; outras arches abortam) e consulta `api.github.com/repos/actions/runner/releases/latest` para baixar a versão mais recente.
 
