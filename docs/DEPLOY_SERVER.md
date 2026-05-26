@@ -1,7 +1,7 @@
 # Guia de Deploy — Modo Servidor (Ubuntu Server)
 <a name="deploy-server"></a>
 
-Versão: 2.4
+Versão: 2.5
 Data: 2026-05-26
 
 Deploy em Ubuntu Server com PostgreSQL externo. O deploy de novas versões é automático via GitHub Actions com self-hosted runner. O assistente suporta dois produtos (`rpa` e `dashboard`), cada um instalado em sua própria VM.
@@ -73,11 +73,22 @@ flowchart TD
 O fluxo de deploy e a infraestrutura funcionam assim:
 
 1. Quando um desenvolvedor faz merge na branch `main` de qualquer um dos repositórios (siscan-rpa ou siscan-dashboard), o GitHub Actions inicia automaticamente o pipeline de CI/CD. O pipeline compila a imagem Docker do produto alterado e publica no GitHub Container Registry (GHCR).
-2. Em seguida, o pipeline dispara um job de deploy direcionado ao runner self-hosted da VM correspondente. Cada VM de aplicação possui seu próprio runner registrado no GitHub — o merge no siscan-rpa aciona apenas o runner da VM 1, e o merge no siscan-dashboard aciona apenas o runner da VM 3. Os deploys são independentes.
+2. Em seguida, o pipeline dispara o workflow `cd_imagem_certificada_selfhosted.yml` direcionado ao runner self-hosted da VM correspondente. Cada VM de aplicação possui seu próprio runner registrado no GitHub — o merge no siscan-rpa aciona apenas o runner da VM 1, e o merge no siscan-dashboard aciona apenas o runner da VM 3. Os deploys são independentes.
 3. A **VM 1 (siscan-rpa)** hospeda o produto de coleta automatizada. O container `app` (porta 5001) oferece o painel administrativo do RPA, e o `rpa-scheduler` executa as coletas no portal SISCAN em intervalos configuráveis. Ambos conectam ao PostgreSQL na VM 2.
 4. A **VM 2 (Banco de dados)** é um PostgreSQL dedicado que hospeda dois bancos: `siscan_rpa` (dados da coleta) e `siscan_dashboard` (dados analíticos). Essa VM não tem runner nem assistente — é gerenciada separadamente.
 5. A **VM 3 (siscan-dashboard)** hospeda o painel analítico. O container `app` (porta 5000) serve a interface web via Gunicorn, e o `sync` importa dados do banco do RPA para o banco do dashboard a cada 30 minutos. O Redis roda como container local nessa mesma VM, servindo como cache operacional compartilhado entre os workers do Gunicorn e como armazenamento dos payloads pré-calculados que aceleram a carga inicial do dashboard.
 6. As setas em <span style="color:#336791">**azul**</span> representam conexões com o PostgreSQL (TCP 5432). As setas em <span style="color:#d97706">**âmbar**</span> representam conexões com o Redis (cache local na VM 3).
+
+### Workflows GitHub Actions envolvidos
+
+Como os repositórios `siscan-rpa` e `siscan-dashboard` são **privados**, operadores externos não conseguem inspecionar os arquivos `.github/workflows/*.yml` diretamente. Os guias abaixo descrevem em prosa o que cada workflow faz:
+
+| Workflow | Repositório | Visibilidade | Guia de referência |
+|---|---|---|---|
+| `cd_imagem_certificada_selfhosted.yml` | `siscan-rpa` e `siscan-dashboard` | privado | [`guides/workflows/cd-imagem-certificada-selfhosted.md`](guides/workflows/cd-imagem-certificada-selfhosted.md) — 3 jobs (pre-deploy → deploy → post-deploy) com ~12-19 steps |
+| `test.yml` | `assistente-siscan-rpa` (este repo) | **público** | [`guides/workflows/test.md`](guides/workflows/test.md) — CI dos testes `bats` do próprio assistente |
+
+O workflow de CD nos produtos consome `siscan-server-doctor.sh` como gate em **pre-deploy** (validação pré) e **post-deploy** (validação pós) — espelhando o gate da Fase 0 do `siscan-server-setup.sh`.
 
 ---
 
@@ -380,49 +391,46 @@ git pull origin main
 
 ---
 
-## Comandos úteis
+## Operações cotidianas
 
-Os comandos a seguir cobrem as operações mais comuns. Substitua o compose file e a porta conforme o sistema instalado na VM.
+Esta seção lista apenas as operações **manuais** que o operador realmente executa no dia a dia — para tudo o mais (status de containers, logs, health endpoint, debug profundo), use o doctor e a seção [Coleta de artefatos](TROUBLESHOOTING.md#coleta-de-artefatos-para-suporte-avançado) do TROUBLESHOOTING.
 
-### siscan-rpa
+### Diagnóstico geral da VM
 
 ```bash
-# Status dos containers
-docker compose -f docker-compose.prd.rpa.yml ps
+bash siscan-server-doctor.sh                    # validação completa (9/9 OK esperado)
+bash siscan-server-doctor.sh --only check-stack # só containers + healthcheck
+bash siscan-server-doctor.sh --json             # saída estruturada (cron / integração)
+```
 
-# Logs em tempo real
-docker compose -f docker-compose.prd.rpa.yml logs -f
+Detalhes de cada specialist, modos de saída e schema JSON em [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md).
 
-# Testar health endpoint
-curl -s http://localhost:5001/health | python3 -m json.tool
+### Status do runner (debug rápido sem rodar o doctor inteiro)
 
-# Status do runner
+```bash
 sudo ~/actions-runner/svc.sh status
 ```
 
-### siscan-dashboard
+Para recuperação cirúrgica do runner (auto-removed, regra dos 30 dias, serviço ausente etc.), ver [`guides/siscan-runner-recover.md`](guides/siscan-runner-recover.md).
+
+### Sync manual do dashboard (caso operacional real)
+
+O serviço `sync` do dashboard roda a cada 30 minutos automaticamente. Manual só é necessário em **2 cenários**:
+
+- **Pós-restore de backup**: o `sync_control` ficou com timestamps inconsistentes; um `--full` re-importa do zero
+- **Re-sincronização forçada**: depuração de divergência entre RPA e Dashboard
 
 ```bash
-# Status dos containers
-docker compose -f docker-compose.prd.dashboard.yml ps
-
-# Logs em tempo real
-docker compose -f docker-compose.prd.dashboard.yml logs -f
-
-# Testar health endpoint
-curl -s http://localhost:5000/health | python3 -m json.tool
-
-# Sync full (re-importa todos os registros do RPA)
+# Sync full — re-importa todos os registros do RPA
 docker compose -f docker-compose.prd.dashboard.yml exec app \
   python -m src.commands.sync_exames --full
 
-# Sync incremental (apenas registros novos desde o último sync)
+# Sync incremental — só registros novos desde o último sync
 docker compose -f docker-compose.prd.dashboard.yml exec app \
   python -m src.commands.sync_exames
-
-# Status do runner
-sudo ~/actions-runner/svc.sh status
 ```
+
+> Para coleta de logs, status de containers e debug profundo, ver [TROUBLESHOOTING.md — Coleta de artefatos](TROUBLESHOOTING.md#coleta-de-artefatos-para-suporte-avançado).
 
 ---
 
@@ -470,5 +478,8 @@ O sync incremental (sem `--full`) roda automaticamente a cada 30 minutos via con
 - [`guides/siscan-server-setup.md`](guides/siscan-server-setup.md) — referência operacional completa do `siscan-server-setup.sh` (11 fases, flags, exit codes, manifesto `products.json`).
 - [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md) — referência completa do doctor + de cada specialist (opções, exit codes, schema JSON, exemplos).
 - [`guides/siscan-runner-recover.md`](guides/siscan-runner-recover.md) — recuperação cirúrgica do runner em 9 cenários auto-resolvíveis + UNKNOWN.
+- [`guides/workflows/cd-imagem-certificada-selfhosted.md`](guides/workflows/cd-imagem-certificada-selfhosted.md) — workflow de deploy contínuo (3 jobs, ~12-19 steps) executado pelo runner self-hosted dos repos privados de cada produto.
+- [`guides/workflows/test.md`](guides/workflows/test.md) — workflow de CI dos testes `bats` do próprio assistente (repo público).
 - [`CHECKLISTS.md`](CHECKLISTS.md) — checklist operacional pós-setup.
 - [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — sintomas observados em campo, com a coluna "Coberto por" indicando qual script automatiza cada caso.
+- [`ERRORS_TABLE.md`](ERRORS_TABLE.md) — incidentes históricos observados em deploys reais.
