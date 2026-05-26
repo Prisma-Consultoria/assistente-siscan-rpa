@@ -12,7 +12,7 @@ related:
   - docs/CHECKLISTS.md
   - docs/guides/siscan-server-doctor.md
   - docs/guides/siscan-runner-recover.md
-  - docs/siscan-server-doctor/products-manifest.md
+  - docs/guides/siscan-server-doctor/products-manifest.md
 tags:
   - deploy
   - server-setup
@@ -259,7 +259,7 @@ A lista completa de variáveis obrigatórias por produto está no manifesto decl
 | `required_env_vars` | Validadas pelo doctor (check-env) pós-setup. |
 | `default_passwords_to_detect` | Valores que disparam warn na Fase 5. |
 
-Schema completo: [`docs/siscan-server-doctor/products-manifest.md`](../siscan-server-doctor/products-manifest.md).
+Schema completo: [`docs/guides/siscan-server-doctor/products-manifest.md`](./siscan-server-doctor/products-manifest.md).
 
 > Importante: o setup **não** lê o manifesto diretamente — ele tem seus próprios `case "${SISCAN_PRODUCT}"` em `siscan-server-setup.sh`. O manifesto é consumido pelos specialists do doctor. Em divergências entre os dois, o manifesto é a fonte canônica; ajustes no setup ficam para refactor futuro.
 
@@ -293,4 +293,4 @@ O script **não** usa `set -e` (errexit) intencionalmente — comandos como `rea
 - [`docs/CHECKLISTS.md`](../CHECKLISTS.md) — checklist operacional pós-setup.
 - [`./siscan-server-doctor.md`](./siscan-server-doctor.md) — diagnóstico automatizado (gate da Fase 0 e validação pós-deploy).
 - [`./siscan-runner-recover.md`](./siscan-runner-recover.md) — recovery do runner (compartilha `_runner.sh` com a Fase 7).
-- [`docs/siscan-server-doctor/products-manifest.md`](../siscan-server-doctor/products-manifest.md) — schema do manifesto `products.json`.
+- [`docs/guides/siscan-server-doctor/products-manifest.md`](./siscan-server-doctor/products-manifest.md) — schema do manifesto `products.json`.

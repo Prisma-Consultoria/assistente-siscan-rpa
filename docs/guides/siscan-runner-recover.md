@@ -10,7 +10,7 @@ related:
   - docs/DEPLOY_SERVER.md
   - docs/TROUBLESHOOTING.md
   - docs/CHECKLISTS.md
-  - docs/siscan-server-doctor/scripts/check-network.md
+  - docs/guides/siscan-server-doctor/specialists/check-network.md
 tags:
   - runner
   - github-actions
@@ -625,7 +625,7 @@ fi
 - [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md) — guia completo de deploy + atualização da VM
 - [`../TROUBLESHOOTING.md`](../TROUBLESHOOTING.md) — sintomas e diagnóstico manual (problemas 6 e 7 cobrem auto-removal e regra dos 30d)
 - [`../CHECKLISTS.md`](../CHECKLISTS.md) — checklists operacionais
-- [`../siscan-server-doctor/scripts/check-network.md`](../siscan-server-doctor/scripts/check-network.md) — primeiro specialist invocado no pré-flight
+- [`./siscan-server-doctor/specialists/check-network.md`](./siscan-server-doctor/specialists/check-network.md) — primeiro specialist invocado no pré-flight
 - [Self-hosted runners reference (GitHub docs)](https://docs.github.com/en/actions/reference/runners/self-hosted-runners)
 - [Issue #31](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/31) — entrega original (cenários A e B)
 - [Issue #51](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/51) — refatoração `_runner.sh` + cenários C/N/A/1/2 ([comment 4545084925](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/51#issuecomment-4545084925) descreve outputs detalhados por cenário)

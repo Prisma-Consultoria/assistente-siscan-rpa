@@ -293,5 +293,5 @@ O script **não usa `set -e`** intencionalmente — funções como `check_servic
 - `../TROUBLESHOOTING.md` — Catálogo de problemas observados em campo (12+ entradas) com diagnóstico e ação.
 - `../CHECKLISTS.md` — Checklists operacionais (pré-deploy, pós-deploy, validação periódica).
 - `../ERRORS_TABLE.md` — Erros conhecidos do RPA com causa e remediação.
-- `../siscan-server-doctor/` — Suite de diagnóstico para o **modo SERVIDOR** (Ubuntu + runner self-hosted). Contraste: o assistente é para HOST/PC local; o doctor/runner-recover é para servidor de produção.
+- `./siscan-server-doctor/` — Suite de diagnóstico para o **modo SERVIDOR** (Ubuntu + runner self-hosted). Contraste: o assistente é para HOST/PC local; o doctor/runner-recover é para servidor de produção.
 - `.env.host.sample` (raiz do repositório) — Template anotado de todas as variáveis disponíveis no modo HOST.

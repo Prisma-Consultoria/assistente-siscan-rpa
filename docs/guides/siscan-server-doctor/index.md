@@ -382,15 +382,22 @@ Qualquer FAIL aparece em `journalctl -t siscan-doctor` e no `/var/log/siscan-doc
 
 > **Cuidado**: a cada 5 min com `check-network` completo = 22 probes HTTPS/TCP a cada execução = ~6 mil/dia. Para janelas de produção, considere `*/15` ou alternar `--only check-network` (5 min) com diagnóstico completo (`30 * * * *`).
 
+## Estado atual do uso do manifesto (#42)
+
+| Componente | Usa `products.json`? | Status |
+|---|---|---|
+| `scripts/deploy_server/check-*.sh` (5 specialists product-aware) | ✅ | Concluído na task #45 |
+| `siscan-server-doctor.sh` | — | Product-agnostic por design (não precisa) |
+| `siscan-server-setup.sh` | ❌ | Pendente (próxima task da feature [#42](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/42)) |
+
 ## Veja também
 
-- [`docs/DEPLOY_SERVER.md`](../DEPLOY_SERVER.md) — guia narrativo do deploy completo (Fases 0-5).
-- [`docs/TROUBLESHOOTING.md`](../TROUBLESHOOTING.md) — sintomas conhecidos e resolução manual + matriz "coberto por <specialist>".
-- [`docs/siscan-server-doctor/index.md`](../siscan-server-doctor/index.md) — overview de alto nível (entrada arquitetural).
-- [`docs/siscan-server-doctor/products-manifest.md`](../siscan-server-doctor/products-manifest.md) — schema do `products.json` e checklist para adicionar produto.
-- [`docs/siscan-server-doctor/scripts/check-network.md`](../siscan-server-doctor/scripts/check-network.md) — referência detalhada do `check-network` + manifesto de endpoints.
-- [`docs/guides/siscan-server-setup.md`](./siscan-server-setup.md) — guia paralelo (instalação inicial — invoca o doctor como gate na Fase 0).
-- [`docs/guides/siscan-runner-recover.md`](./siscan-runner-recover.md) — guia paralelo (recuperação cirúrgica do runner — diagnostica via doctor antes de agir).
-- [`scripts/deploy_server/`](../../scripts/deploy_server/) — código dos specialists + `_common.sh`.
-- [`scripts/data/products.json`](../../scripts/data/products.json) — manifesto declarativo dos produtos.
-- [`scripts/data/network-endpoints.json`](../../scripts/data/network-endpoints.json) — manifesto declarativo dos endpoints externos.
+- [`docs/DEPLOY_SERVER.md`](../../DEPLOY_SERVER.md) — guia narrativo do deploy completo (Fases 0-5).
+- [`docs/TROUBLESHOOTING.md`](../../TROUBLESHOOTING.md) — sintomas conhecidos e resolução manual + matriz "coberto por <specialist>".
+- [`./products-manifest.md`](./products-manifest.md) — schema do `products.json` e checklist para adicionar produto.
+- [`./specialists/check-network.md`](./specialists/check-network.md) — referência detalhada do `check-network` + manifesto de endpoints.
+- [`../siscan-server-setup.md`](../siscan-server-setup.md) — guia paralelo (instalação inicial — invoca o doctor como gate na Fase 0).
+- [`../siscan-runner-recover.md`](../siscan-runner-recover.md) — guia paralelo (recuperação cirúrgica do runner — diagnostica via doctor antes de agir).
+- [`scripts/deploy_server/`](../../../scripts/deploy_server/) — código dos specialists + `_common.sh`.
+- [`scripts/data/products.json`](../../../scripts/data/products.json) — manifesto declarativo dos produtos.
+- [`scripts/data/network-endpoints.json`](../../../scripts/data/network-endpoints.json) — manifesto declarativo dos endpoints externos.

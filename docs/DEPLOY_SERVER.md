@@ -89,7 +89,7 @@ cd assistente-siscan-rpa
 bash siscan-server-doctor.sh --pre-setup
 ```
 
-Saída esperada: `6/6 specialists OK` (os 3 specialists excluídos só fazem sentido **depois** do setup — runner ainda não foi instalado, stack não foi subida, `.env` ainda não tem DATABASE_HOST). Cada specialist FAIL traz mensagem com ação corretiva específica. Referência completa do que cada specialist verifica: [`siscan-server-doctor/index.md`](siscan-server-doctor/index.md).
+Saída esperada: `6/6 specialists OK` (os 3 specialists excluídos só fazem sentido **depois** do setup — runner ainda não foi instalado, stack não foi subida, `.env` ainda não tem DATABASE_HOST). Cada specialist FAIL traz mensagem com ação corretiva específica. Referência completa do que cada specialist verifica: [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md).
 
 > A partir desta versão do assistente, o próprio `siscan-server-setup.sh` invoca o doctor como **Fase 0** (gate pré-flight) antes de executar qualquer ação destrutiva. Use `--skip-doctor` no setup para pular este gate em cenários de debugging.
 
@@ -175,7 +175,7 @@ bash scripts/deploy_server/check-network.sh               # standalone
 
 > **Monitoramento contínuo (recomendação 12.8 do PDF de whitelist):** programe `siscan-server-doctor.sh --quiet` em cron a cada 5 minutos. Exit != 0 dispara alerta. Isso evita que uma nova expiração de regra de firewall — ou outras regressões — passem despercebidas por semanas, como aconteceu em 15/04/2026.
 
-Referência completa do doctor + de cada specialist (opções, exit codes, schema, exemplos): [`siscan-server-doctor/`](siscan-server-doctor/index.md).
+Referência completa do doctor + de cada specialist (opções, exit codes, schema, exemplos): [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md).
 
 ---
 

@@ -41,7 +41,7 @@ bash scripts/deploy_server/check-<nome>.sh
 
 A coluna **não substitui** o passo-a-passo manual — ela sinaliza o que já tem versão automatizada que vale rodar primeiro como pré-diagnóstico, antes de ir manual. Quando aparece `—`, é passo manual ou ação corretiva sem cobertura automatizada (esperado para a maioria dos casos do modo HOST/Windows).
 
-Referência completa de cada specialist: [`docs/siscan-server-doctor/index.md`](siscan-server-doctor/index.md).
+Referência completa de cada specialist: [`docs/guides/siscan-server-doctor/index.md`](guides/siscan-server-doctor/index.md).
 
 ---
 
