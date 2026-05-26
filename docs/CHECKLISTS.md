@@ -134,7 +134,7 @@ Quando o doctor sinaliza problema em `check-runner` (ou jobs ficam `queued` mesm
 
 ```bash
 cd $COMPOSE_DIR
-bash siscan-runner-recover.sh        # detecta cenário e age (auto-removed → re-registro com token; stale 30d → run.sh --check sem token)
+bash siscan-runner-recover.sh        # detecta cenário e age (auto-removed → re-registro com token; stale 30d → run.sh --check (pede PAT))
 bash siscan-server-doctor.sh --only check-runner   # valida ao final
 ```
 

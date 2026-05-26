@@ -545,7 +545,7 @@ Causa: [regra dos 30 dias do GitHub](https://docs.github.com/en/actions/referenc
 | Passo | O que Fazer | Como Fazer | Coberto por |
 |---|---|---|---|
 | 1 | Verificar idade da última auto-atualização | `stat -c '%y' ~/actions-runner/.runner_migrated` (mtime renovado a cada upgrade) | `check-runner` (detecta 25-29d como warn, ≥30d como fail) |
-| 2 | Forçar auto-update | `bash siscan-runner-recover.sh` — detecta Cenário B e roda `./run.sh --check` (não pede token) | `siscan-runner-recover.sh` (Cenário B) |
+| 2 | Forçar auto-update | `bash siscan-runner-recover.sh` — detecta Cenário B e roda `./run.sh --check` (pede PAT, não token de registro) | `siscan-runner-recover.sh` (Cenário B) |
 | 3 | Validar pós-update | `bash siscan-server-doctor.sh --only check-runner` deve mostrar idade resetada | `check-runner` |
 
 ---

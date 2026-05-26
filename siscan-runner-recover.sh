@@ -31,8 +31,11 @@
 #
 # Exit code:
 #   0  runner saudável (nada a fazer) OU recovery bem-sucedido
-#   1  falha em alguma etapa do recovery
-#   2  uso inválido / pré-condição não atendida
+#   1  reservado (atualmente não usado — ver nota)
+#   2  qualquer falha — uso inválido, pré-condição não atendida, OU
+#      falha em etapa do recovery. O helper fail() de _common.sh sempre
+#      sai com 2; automações que precisam distinguir "erro de invocação"
+#      de "falha de recovery" devem inspecionar stderr.
 #
 # Referência: docs/guides/siscan-runner-recover.md
 # -------------------------------------------
@@ -91,11 +94,11 @@ Cenários detectados automaticamente:
   C    ) .runner OK + systemd unit ausente                 → svc.sh install + start (sem token)
   A    ) total_count=0 na API (auto-removal >14d)          → uninstall + register + install (pede token)
   A2   ) runner offline ou nome mismatch na API            → uninstall + register + install (pede token)
-  B    ) idade >=30d                                       → run.sh --check (sem token)
-  WARN ) idade 25-29d                                      → run.sh --check preventivo (sem token)
+  B    ) idade >=30d                                       → run.sh --check (pede PAT)
+  WARN ) idade 25-29d                                      → run.sh --check preventivo (pede PAT)
   UNKNOWN) sem gh/GH_TOKEN/--token + estado inconclusivo   → orienta passos manuais
 
-Exit code: 0 = OK · 1 = falha no recovery · 2 = pré-condição/uso
+Exit code: 0 = OK · 2 = qualquer falha (uso / pré-cond / recovery) · 1 = reservado
 EOF
 }
 

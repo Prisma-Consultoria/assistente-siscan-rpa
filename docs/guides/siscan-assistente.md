@@ -1,3 +1,33 @@
+---
+title: "siscan-assistente.sh — Assistente interativo (modo HOST/PC local)"
+type: guide
+status: aceita
+confidencialidade: público
+owner: Time DevOps SISCAN
+updated: 2026-05-26
+versao: "1.0"
+related:
+  - docs/DEPLOY_HOST.md
+  - docs/TROUBLESHOOTING.md
+  - docs/CHECKLISTS.md
+  - docs/guides/siscan-server-setup.md
+tags:
+  - assistente
+  - host
+  - docker-desktop
+  - menu-interativo
+  - powershell
+tldr: |
+  Guia operacional do assistente interativo SISCAN para modo HOST/PC
+  local — único utilitário com menu interativo do projeto, voltado para
+  usuários operacionais (não-DevOps). Suporta Linux/macOS (siscan-assistente.sh)
+  e Windows (siscan-assistente.ps1 + execute.ps1 wrapper). Oferece 8
+  opções: reiniciar/instalar stack, editar .env, executar coleta RPA,
+  sincronizar dashboard, ver histórico, auto-atualizar o próprio
+  assistente. Modo HOST = SISCAN_PRODUCT=full (RPA + dashboard juntos
+  via docker-compose.prd.host.yml).
+---
+
 # siscan-assistente.sh — Assistente interativo (modo HOST/PC local)
 
 `siscan-assistente.sh` (Linux/macOS) e `siscan-assistente.ps1` (Windows) são o **menu único** de operação do SISCAN no modo HOST — o cenário em que o RPA e o Dashboard rodam **juntos em um PC local** via Docker Desktop. O assistente cuida do ciclo completo: instalar, configurar, iniciar/reiniciar, coletar, sincronizar, atualizar e diagnosticar.
