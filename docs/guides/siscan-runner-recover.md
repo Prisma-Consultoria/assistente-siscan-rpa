@@ -3,7 +3,7 @@ title: "siscan-runner-recover.sh — Recuperação cirúrgica do runner"
 type: guide
 status: aceita
 confidencialidade: interno
-owner: Jailton Carlos de Paiva
+owner: Time DevOps SISCAN
 updated: 2026-05-26
 versao: "2.1"
 related:
@@ -35,7 +35,7 @@ Recupera o GitHub Actions self-hosted runner em **9 cenários auto-resolvíveis*
 Histórico de cenários cobertos:
 - **A e B** descobertos no servidor parceiro (incidente 15/04 → 25/05/2026, issue [#31](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/31)).
 - **C, N/A, 1, 2** + flag `--token` adicionados em [#51](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/51).
-- **4 bugs** corrigidos em [#53](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/53) — observados na VMPRDAPP-RPADASHBOARD em 26/05/2026.
+- **4 bugs** corrigidos em [#53](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/53) — observados na <HOST-DASHBOARD> em 26/05/2026.
 
 ## Pré-requisitos
 
@@ -198,7 +198,7 @@ bash siscan-runner-recover.sh --token <novo>
 
 **Quando aparece**: `.runner` presente, `config.sh`/`svc.sh` presentes, mas `systemctl list-unit-files 'actions.runner.*.service'` retorna vazio. Detecção 100% local — não precisa de gh/`GH_TOKEN`.
 
-**Origem real**: VMPRDAPP-RPADASHBOARD em 26/05/2026 — alguém rodou `sudo svc.sh uninstall` (intencional ou não); o `.runner` ficou íntegro localmente, mas o serviço sumiu do systemd. Antes de #51, isso caía em UNKNOWN.
+**Origem real**: <HOST-DASHBOARD> em 26/05/2026 — alguém rodou `sudo svc.sh uninstall` (intencional ou não); o `.runner` ficou íntegro localmente, mas o serviço sumiu do systemd. Antes de #51, isso caía em UNKNOWN.
 
 **Ações** (sem token):
 1. `runner_install_service` → `sudo svc.sh install $USER`
@@ -371,7 +371,7 @@ PAT classic com scope `repo` é necessário para `run.sh --check` autenticar com
 1. Acessar `https://github.com/settings/tokens` (ou Account menu → Settings → Developer settings → Personal access tokens → Tokens (classic)).
 2. Clicar em **Generate new token (classic)**.
 3. (Se solicitado) confirmar senha do GitHub.
-4. **Note**: descrição livre, ex.: `siscan-runner-recover · VMPRDAPP-RPADASHBOARD`.
+4. **Note**: descrição livre, ex.: `siscan-runner-recover · <HOST-DASHBOARD>`.
 5. **Expiration**: escolher janela (recomenda-se 90 dias para reduzir rotação; ou No expiration se for usado por automação em VM dedicada com proteção adequada).
 6. **Select scopes**: marcar apenas **`repo`** (acesso ao repositório — suficiente para `run.sh --check`).
 7. Clicar em **Generate token** no fim da página.
@@ -538,7 +538,7 @@ Sintomas observáveis ao usar este utilitário estão catalogados em [`../TROUBL
 
 **Bug 1 — Precedência `--token` vs faixa de idade**
 
-Antes: idade 25-29d vencia o `--token` fornecido, fazendo cair em WARN (run.sh --check) em vez de A2 (re-registro). Observado em campo na VMPRDAPP-RPADASHBOARD 26/05/2026.
+Antes: idade 25-29d vencia o `--token` fornecido, fazendo cair em WARN (run.sh --check) em vez de A2 (re-registro). Observado em campo na <HOST-DASHBOARD> 26/05/2026.
 
 Agora: `--token` tem **precedência absoluta** sobre faixa de idade quando a API não está consultável. Implementado em `_runner.sh:188`:
 

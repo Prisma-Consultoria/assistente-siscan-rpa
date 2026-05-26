@@ -8,7 +8,7 @@
 #   - docker compose config valida (parsing OK)
 #   - Imagem esperada disponível localmente (products.json: image)
 #   - Serviços esperados rodando (products.json: expected_services)
-#   - Nenhum container em "Restarting (n)" loop (chat do servidor parceiro 20/03)
+#   - Nenhum container em "Restarting (n)" loop (registro interno 20/03)
 #   - Containers com healthcheck reportam "healthy"
 #   - Portas externas livres (products.json: expected_external_ports)
 # -------------------------------------------
@@ -163,7 +163,7 @@ done
 # ────────────────────────────────────────────────────────────────────────────
 # 5. Restart loop + healthcheck
 # ────────────────────────────────────────────────────────────────────────────
-print_category_header "$CAT_HEALTH" "Detecta containers em 'Restarting (n)' loop (chat do servidor parceiro 20/03 — jinja2 ausente) e healthchecks unhealthy."
+print_category_header "$CAT_HEALTH" "Detecta containers em 'Restarting (n)' loop (registro interno 20/03 — jinja2 ausente) e healthchecks unhealthy."
 
 restart_count=$(echo "$services_json" | jq '[.[] | select(.State == "restarting")] | length' 2>/dev/null || echo "0")
 if [ "$restart_count" -gt 0 ]; then
@@ -184,7 +184,7 @@ fi
 # ────────────────────────────────────────────────────────────────────────────
 # 6. Port collision
 # ────────────────────────────────────────────────────────────────────────────
-print_category_header "$CAT_PORTS" "Portas externas do produto (expected_external_ports no manifesto) não devem estar ocupadas por outro processo (chat do servidor parceiro 27/03)."
+print_category_header "$CAT_PORTS" "Portas externas do produto (expected_external_ports no manifesto) não devem estar ocupadas por outro processo (registro interno 27/03)."
 
 for port in "${EXTERNAL_PORTS[@]}"; do
     if command -v ss >/dev/null 2>&1; then

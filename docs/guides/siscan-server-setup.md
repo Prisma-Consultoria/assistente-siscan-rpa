@@ -3,7 +3,7 @@ title: siscan-server-setup.sh — Setup automatizado do servidor SISCAN
 type: guide
 status: aceita
 confidencialidade: interno
-owner: Jailton Carlos de Paiva
+owner: Time DevOps SISCAN
 updated: 2026-05-26
 versao: "1.1"
 related:

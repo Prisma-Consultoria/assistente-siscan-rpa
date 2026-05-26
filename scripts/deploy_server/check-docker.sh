@@ -4,7 +4,7 @@
 # Summary: Daemon Docker, grupo, pool de redes + teste real network create/rm
 # -------------------------------------------
 # Valida saúde do Docker daemon e capacidade de criar redes — cobre o problema
-# mais recorrente do chat do servidor parceiro (apareceu em 2 VMs distintas, 19/03 e 27/03):
+# mais recorrente do registro interno (apareceu em 2 VMs distintas, 19/03 e 27/03):
 # daemon.json com default-address-pools de uma /24 única, esgotando o pool.
 #
 # Checks:
@@ -102,9 +102,9 @@ else
 fi
 
 # Pool de redes via daemon.json
-# Caso real (chat do servidor parceiro 19/03 + 27/03): { "default-address-pools": [{"base": "192.168.4.0/24", "size": 24}] }
+# Caso real (registro interno 19/03 + 27/03): { "default-address-pools": [{"base": "192.168.4.0/24", "size": 24}] }
 # Esse pool tem 1 subnet só, já ocupada pela bridge bip → falha ao criar redes novas.
-print_category_header "$CAT_POOL" "Verifica config do daemon.json — pool /24 único é o problema mais recorrente do chat do servidor parceiro (TROUBLESHOOTING Servidor #1)."
+print_category_header "$CAT_POOL" "Verifica config do daemon.json — pool /24 único é o problema mais recorrente do registro interno (TROUBLESHOOTING Servidor #1)."
 DAEMON_JSON=/etc/docker/daemon.json
 if [ -f "$DAEMON_JSON" ]; then
     if command -v jq >/dev/null 2>&1 && jq -e . "$DAEMON_JSON" >/dev/null 2>&1; then
@@ -155,7 +155,7 @@ done < <(docker network ls -q 2>/dev/null)
 [ "$net_count" -eq 0 ] && add_ok "$CAT_NETLIST" net 0 "(nenhuma)" "nenhuma rede encontrada"
 
 # TESTE REAL: criar e remover network. Esse é o gold standard — passa exatamente
-# o cenário do chat do servidor parceiro (docker network create teste falhando com address pool esgotado).
+# o cenário do registro interno (docker network create teste falhando com address pool esgotado).
 print_category_header "$CAT_NETWORK" "Gold standard: cria e remove uma rede de teste. Se passar aqui, o pool funciona; se falhar, o erro real aparece embaixo."
 TEST_NET="siscan-check-$$"
 # Captura stdout+stderr da PRIMEIRA tentativa pra evitar duplicar a operação

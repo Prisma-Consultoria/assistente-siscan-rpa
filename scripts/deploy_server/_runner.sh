@@ -184,7 +184,7 @@ runner_diagnose() {
         # suspeito) > idade ≥30d > faixa de aviso 25-29d > UNKNOWN.
         # Fix #53/Bug 1: antes, idade 25-29d vencia o has_token e ignorava o
         # --token fornecido, fazendo cair em WARN (run.sh --check) em vez de A2
-        # (re-registro). Observado em campo na VMPRDAPP-RPADASHBOARD 26/05/2026.
+        # (re-registro). Observado em campo na <HOST-DASHBOARD> 26/05/2026.
         if [ "$has_token" = "true" ]; then
             echo "A2"; return 0
         elif [ "$age_days" -ge 30 ]; then

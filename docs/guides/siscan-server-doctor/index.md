@@ -171,7 +171,7 @@ Cada specialist é callable standalone (`bash scripts/deploy_server/check-<nome>
 
 **Por que importa**: critério do PDF v2.0 §11.4 — qualquer resposta HTTP (`200`, `301`, `403`, `404`, `405`, …) confirma que **TLS subiu** = firewall liberado. Só `000`/timeout indica bloqueio real. OCSP/CRL roda em HTTP/80 por design do PKIX — esquecer disso é o **erro #1** em whitelist (release de regra apenas para 443 deixa validação intermitente).
 
-**Sintomas que detecta**: requisição 753315 de whitelist incompleta; firewall liberando 443 mas não 80; bloqueio de `*.actions.githubusercontent.com` causando runner offline em 14 dias.
+**Sintomas que detecta**: chamado interno de firewall de whitelist incompleta; firewall liberando 443 mas não 80; bloqueio de `*.actions.githubusercontent.com` causando runner offline em 14 dias.
 
 > Documentação detalhada de manifesto + critério: [`siscan-server-doctor/scripts/check-network.md`](../siscan-server-doctor/scripts/check-network.md).
 
@@ -185,7 +185,7 @@ Cada specialist é callable standalone (`bash scripts/deploy_server/check-<nome>
 - **OS**: lê `/etc/os-release` — `ubuntu 24.04` é o alvo; `22.04` aceita com aviso de "Docker/Compose podem estar desatualizados"; distros não-Ubuntu ou `< 22.04` viram FAIL.
 - **Sincronização de tempo (NTP)**: `timedatectl status` — clock dessincronizado é registrado como `add_ok` com label `(warn)` (não derruba o gate, mas alerta para `SSL_ERROR_SYSCALL` em TLS). Se `timedatectl` indisponível (WSL, containers), pula com `warn()`.
 
-**Por que importa**: espelha a Fase 1 do `siscan-server-setup.sh` sem duplicar a lógica de correção. Clock fora de sync foi sintoma real relatado em 06/05 no chat do servidor parceiro.
+**Por que importa**: espelha a Fase 1 do `siscan-server-setup.sh` sem duplicar a lógica de correção. Clock fora de sync foi sintoma real relatado em 06/05 no registro interno.
 
 ### `check-env` — `.env` preenchido conforme manifesto
 

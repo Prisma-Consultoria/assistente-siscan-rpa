@@ -10,7 +10,7 @@ Para entender **quando** rodar diagnósticos no ciclo de vida de uma VM, consult
 |---|---|---|
 | 1.2 | 2026-05-25 | UX: header explicativo de escopo (validação de firewall) + reescrita por linha como "código esperado · porquê" + guidance por categoria com próximo passo concreto. |
 | 1.1 | 2026-05-25 | Refatorado para usar `_common.sh` (cores, helpers, renderização compartilhados entre specialists). Mesma cobertura (22 endpoints). |
-| 1.0 | 2026-05-25 | Versão inicial — 22 endpoints (req 753315 v2.0 + GitHub docs *self-hosted-runners#communication*). Automatiza o item *Conectividade HTTPS* da tabela de pré-requisitos do `DEPLOY_SERVER.md`, que antes era um `curl -Iv https://github.com` manual. |
+| 1.0 | 2026-05-25 | Versão inicial — 22 endpoints (<chamado-firewall> v2.0 + GitHub docs *self-hosted-runners#communication*). Automatiza o item *Conectividade HTTPS* da tabela de pré-requisitos do `DEPLOY_SERVER.md`, que antes era um `curl -Iv https://github.com` manual. |
 
 ## Origem e relação com outros scripts
 
@@ -55,7 +55,7 @@ bash siscan-server-doctor.sh --only check-network
 
 ## Critério de aceitação
 
-Conforme seção 11.4 do PDF *Reativação de whitelist v2.0* (req 753315):
+Conforme seção 11.4 do PDF *Reativação de whitelist v2.0* (<chamado-firewall>):
 
 > **Qualquer resposta HTTP do servidor (200, 301, 302, 400, 403, 404, 405, ...) indica que o TLS subiu** — esse é o critério de sucesso para os checks HTTPS/443.
 
@@ -78,7 +78,7 @@ Não exige root.
 
 A lista verificada vive em [`../../../scripts/data/network-endpoints.json`](../../../scripts/data/network-endpoints.json) e combina duas fontes:
 
-1. Documento **Reativação de whitelist — VMs siscan-dashboard e siscan-rpa v2.0** (requisição 753315), seções 3 a 7.
+1. Documento **Reativação de whitelist — VMs siscan-dashboard e siscan-rpa v2.0** (chamado interno de firewall), seções 3 a 7.
 2. [Referência oficial atual do GitHub](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication) — seção *Communication*.
 
 Para atualizar a lista, edite o JSON diretamente. O schema é:

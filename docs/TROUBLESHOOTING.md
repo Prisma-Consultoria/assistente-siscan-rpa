@@ -203,7 +203,7 @@ Sintoma: conflito de permissão ou dado não aparece onde esperado.
 ### Problema 3 — Caminhos Windows/UNC com caracteres especiais
 
 Sintomas:
-- `\\172.19.222.100\siscan_laudos&\Config is not valid windows path`
+- `\\198.51.100.10\siscan_laudos&\Config is not valid windows path`
 - `Error response from daemon: invalid mount config`
 
 **Causa:** Docker Desktop no Windows não monta volumes com caminhos contendo `&`, `%`, `!`, `$`, `` ` ``, `"` ou `'`.
@@ -212,10 +212,10 @@ Sintomas:
 
 ```powershell
 # Mapear o compartilhamento com letra de unidade
-net use Z: \\172.19.222.100\siscan_laudos /persistent:yes
+net use Z: \\198.51.100.10\siscan_laudos /persistent:yes
 
 # Atualizar .env
-# Antes: HOST_CONFIG_DIR=\\172.19.222.100\siscan_laudos&\Config
+# Antes: HOST_CONFIG_DIR=\\198.51.100.10\siscan_laudos&\Config
 # Depois: HOST_CONFIG_DIR=Z:\Config
 ```
 
@@ -367,7 +367,7 @@ cd /app/assistente-siscan-rpa
 docker compose -f docker-compose.prd.dashboard.yml config 2>&1 | grep DATABASE_URL
 ```
 
-Se a URL mostrar algo como `...senha@P@172.19...`, a senha tem `@`.
+Se a URL mostrar algo como `...senha@P@198.51.100...`, a senha tem `@`.
 
 **Solução:** trocar a senha no PostgreSQL para uma sem caracteres especiais (`@`, `%`, `/`, `#`, `:`):
 
@@ -522,7 +522,7 @@ docker compose -f docker-compose.prd.rpa.yml exec -T -e PGPASSWORD='SENHA' app \
 
 Sintoma: deploys via GitHub Actions ficam aguardando indefinidamente; na UI do GitHub, a página `Settings → Actions → Runners` mostra **runner ausente** (não está nem `Idle` nem `Offline` — simplesmente sumiu). Localmente o `.runner` e `~/actions-runner/` continuam presentes.
 
-Causa: política do GitHub remove automaticamente self-hosted runners offline há mais de 14 dias. Caso real: VMPRDAPP-RPADASHBOARD entre 15/04 e 25/05/2026 (40 dias).
+Causa: política do GitHub remove automaticamente self-hosted runners offline há mais de 14 dias. Caso real: <HOST-DASHBOARD> entre 15/04 e 25/05/2026 (40 dias).
 
 | Passo | O que Fazer | Como Fazer | Coberto por |
 |---|---|---|---|
@@ -557,7 +557,7 @@ Sintoma (caso real, siscan-dashboard 27/03/2026): container `sync` falha no boot
 | Passo | O que Fazer | Como Fazer | Coberto por |
 |---|---|---|---|
 | 1 | Validar formato | `bash siscan-server-doctor.sh --only check-env` (rejeita `RPA_DATABASE_URL` que não case com `^postgresql://user:pass@host:port/db$`) | `check-env` ✅ |
-| 2 | Corrigir o `.env` | `RPA_DATABASE_URL=postgresql://siscan_rpa:SENHA@172.19.225.22:5432/siscan_rpa` (sintaxe completa) | — (ação corretiva) |
+| 2 | Corrigir o `.env` | `RPA_DATABASE_URL=postgresql://siscan_rpa:SENHA@198.51.100.20:5432/siscan_rpa` (sintaxe completa) | — (ação corretiva) |
 | 3 | Restart do dashboard | `docker compose -f docker-compose.prd.dashboard.yml restart sync` | — (ação corretiva) |
 
 ---
