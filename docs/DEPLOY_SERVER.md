@@ -181,7 +181,21 @@ O script configura automaticamente:
 | Chave de sessão | `SECRET_KEY` (auto-gerada) |
 | Diretórios HOST_* | 5 (logs, downloads, consolidated, PDFs, config) |
 
-Durante a execução (Fase 5 e Fase 7) o script solicita `DATABASE_HOST`, `DATABASE_PASSWORD`, os 5 caminhos `HOST_*`, a URL do repositório e o token de registro. A `SECRET_KEY` é gerada via `openssl rand -hex 32` — não pergunta.
+Durante a execução, o script solicita interativamente os seguintes valores:
+
+| Fase | Pergunta | Valor esperado |
+|---|---|---|
+| 5 | `DATABASE_HOST` | IP ou hostname do PostgreSQL externo (ex.: `192.168.1.10`) |
+| 5 | `DATABASE_PASSWORD` | Senha do banco PostgreSQL |
+| 5 | `HOST_LOG_DIR` | `/opt/siscan-rpa/logs` |
+| 5 | `HOST_SISCAN_REPORTS_INPUT_DIR` | `/opt/siscan-rpa/media/downloads` |
+| 5 | `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR` | `/opt/siscan-rpa/media/reports/mamografia/consolidated` |
+| 5 | `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR` | `/opt/siscan-rpa/media/reports/mamografia/consolidated/laudos` |
+| 5 | `HOST_CONFIG_DIR` | `/opt/siscan-rpa/config` |
+| 7 | URL do repositório | Enter para aceitar `https://github.com/Prisma-Consultoria/siscan-rpa` |
+| 7 | Token de registro | Token copiado da tela do GitHub |
+
+> `SECRET_KEY` é gerada automaticamente via `openssl rand -hex 32` — não pergunta.
 
 ### Instalação do siscan-dashboard (VM 3)
 
@@ -206,7 +220,21 @@ O script configura automaticamente:
 | Diretórios HOST_* | 1 (logs) |
 | Serviço extra | Redis (cache, criado automaticamente pelo compose) |
 
-A principal diferença em relação ao RPA é a variável `RPA_DATABASE_URL`, que permite ao serviço `sync` ler o banco do RPA. Sem ela, o dashboard sobe mas o sync não funciona. Além disso, o script pergunta `ADMIN_PASSWORD` (admin do painel).
+A principal diferença em relação ao RPA é a variável `RPA_DATABASE_URL`, que permite ao serviço `sync` ler o banco do RPA. Sem ela, o dashboard sobe mas o sync não funciona.
+
+Durante a execução, o script solicita interativamente os seguintes valores:
+
+| Fase | Pergunta | Valor esperado |
+|---|---|---|
+| 5 | `DATABASE_HOST` | IP ou hostname do PostgreSQL (ex.: `192.168.1.10`) |
+| 5 | `DATABASE_PASSWORD` | Senha do banco do dashboard |
+| 5 | `ADMIN_PASSWORD` | Senha do administrador do dashboard |
+| 5 | `RPA_DATABASE_URL` | `postgresql://siscan_rpa:senha@192.168.1.10:5432/siscan_rpa` |
+| 5 | `HOST_LOG_DIR` | `/opt/siscan-dashboard/logs` |
+| 7 | URL do repositório | Enter para aceitar `https://github.com/Prisma-Consultoria/siscan-dashboard` |
+| 7 | Token de registro | Token copiado da tela do GitHub |
+
+> `SESSION_SECRET` é gerada automaticamente via `openssl rand -hex 32` — não pergunta.
 
 ---
 
