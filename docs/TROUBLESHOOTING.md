@@ -13,11 +13,35 @@ Os problemas estão organizados em três grupos:
 
 ## Regra de Ouro — Antes de agir
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | Registrar o incidente | Anotar data, hora, usuário e passos executados antes do erro |
-| 2 | Coletar evidências antes de alterar qualquer configuração | `docker info`, `docker compose ps`, logs do serviço afetado |
-| 3 | Executar diagnósticos com privilégios adequados | **Windows:** PowerShell como Administrador. **Linux:** `sudo` quando indicado |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Registrar o incidente | Anotar data, hora, usuário e passos executados antes do erro | — |
+| 2 | Coletar evidências antes de alterar qualquer configuração | `docker info`, `docker compose ps`, logs do serviço afetado | parcial — `check-docker` cobre `docker info` e `check-stack` cobre `compose ps`; **coleta de logs é manual** |
+| 3 | Executar diagnósticos com privilégios adequados | **Windows:** PowerShell como Administrador. **Linux:** `sudo` quando indicado | — |
+
+---
+
+## Diagnóstico automatizado
+
+Antes de mergulhar em qualquer problema específico, rode o doctor para um diagnóstico amplo da VM (apenas modo Servidor Linux):
+
+```bash
+bash siscan-server-doctor.sh
+```
+
+Saída esperada: `9/9 specialists OK`. Cada FAIL traz a categoria, o alvo, o erro real e a ação corretiva — leia o resumo antes de seguir pra um passo-a-passo manual.
+
+A coluna **`Coberto por`** em cada tabela abaixo indica qual specialist (em `scripts/deploy_server/check-*.sh`) verifica aquele passo. Para rodar isoladamente:
+
+```bash
+bash siscan-server-doctor.sh --only check-<nome>
+# ou diretamente:
+bash scripts/deploy_server/check-<nome>.sh
+```
+
+A coluna **não substitui** o passo-a-passo manual — ela sinaliza o que já tem versão automatizada que vale rodar primeiro como pré-diagnóstico, antes de ir manual. Quando aparece `—`, é passo manual ou ação corretiva sem cobertura automatizada (esperado para a maioria dos casos do modo HOST/Windows).
+
+Referência completa de cada specialist: [`docs/siscan-server-doctor/index.md`](siscan-server-doctor/index.md).
 
 ---
 
@@ -32,13 +56,13 @@ Sintomas:
 
 #### Diagnóstico
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | Verificar formato do token | Token válido começa com `ghp_` (classic PAT), `gho_` (OAuth) ou `ghs_` (server) e tem 40+ caracteres |
-| 2 | Confirmar scope do token | Token deve ter `read:packages`. GitHub → Settings → Developer settings → Personal access tokens → verificar scopes |
-| 3 | Verificar expiração | GitHub → Settings → Developer settings → Personal access tokens → coluna "Expires" |
-| 4 | Testar login manualmente | `echo SEU_TOKEN \| docker login ghcr.io -u SEU_USERNAME --password-stdin` — deve retornar `Login Succeeded` |
-| 5 | Limpar cache de credenciais | **Windows:** Painel de Controle → Credential Manager → Windows Credentials → remover entradas `ghcr.io`. **Linux:** `docker logout ghcr.io` |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Verificar formato do token | Prefixos comuns: `ghp_` (classic PAT), `github_pat_` (fine-grained PAT), `gho_` (OAuth) ou `ghs_` (server). Comprimento varia (40+ pra classic, ~80+ pra fine-grained) | — (ação no GitHub UI) |
+| 2 | Confirmar scope do token | Token deve ter `read:packages`. GitHub → Settings → Developer settings → Personal access tokens → verificar scopes | — (ação no GitHub UI) |
+| 3 | Verificar expiração | GitHub → Settings → Developer settings → Personal access tokens → coluna "Expires" | — (ação no GitHub UI) |
+| 4 | Testar login manualmente | `echo SEU_TOKEN \| docker login ghcr.io -u SEU_USERNAME --password-stdin` — deve retornar `Login Succeeded` | `check-network` (parcial — valida TLS pra `ghcr.io`, não o login) |
+| 5 | Limpar cache de credenciais | **Windows:** Painel de Controle → Credential Manager → Windows Credentials → remover entradas `ghcr.io`. **Linux:** `docker logout ghcr.io` | — (ação corretiva) |
 
 #### Gerar novo token (quando necessário)
 
@@ -52,8 +76,8 @@ No modo HOST: apagar `credenciais.txt` e executar novamente o assistente — ele
 
 #### Checklist rápido de validação de token
 
-- [ ] Token começa com `ghp_`, `gho_` ou `ghs_`
-- [ ] Token tem 40+ caracteres
+- [ ] Token tem prefixo conhecido: `ghp_`, `github_pat_`, `gho_` ou `ghs_`
+- [ ] Token tem comprimento esperado (40+ pra `ghp_/gho_/ghs_`, ~80+ pra `github_pat_`)
 - [ ] Token não está expirado
 - [ ] Token tem scope `read:packages`
 - [ ] Username é o correto (não email)
@@ -65,12 +89,12 @@ No modo HOST: apagar `credenciais.txt` e executar novamente o assistente — ele
 
 Sintoma: containers sobem mas falham com erros de configuração; logs indicam variável vazia ou caminho inválido.
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | Verificar variáveis vazias | **Windows:** `Select-String -Path .env -Pattern '^[A-Z0-9_]+=\s*$'`. **Linux:** `grep -E '^[A-Z0-9_]+=$' .env` — qualquer saída indica variável obrigatória vazia |
-| 2 | Recriar `.env` a partir do sample | **HOST Windows:** `Copy-Item .env.host.sample .env -Force`. **HOST Linux:** `cp .env.host.sample .env`. **Servidor:** `cp .env.server-rpa.sample .env` |
-| 3 | Editar variáveis obrigatórias | Preencher `DATABASE_PASSWORD`, `SECRET_KEY` e todos os `HOST_*` |
-| 4 | Reiniciar após corrigir | Opção 1 do menu (HOST) ou `docker compose -f docker-compose.prd.rpa.yml restart` (Servidor) |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Verificar variáveis vazias | **Windows:** `Select-String -Path .env -Pattern '^[A-Z0-9_]+=\s*$'`. **Linux:** `grep -E '^[A-Z0-9_]+=$' .env` — qualquer saída indica variável obrigatória vazia | `check-env` (valida required_env_vars do manifesto + formato) |
+| 2 | Recriar `.env` a partir do sample | **HOST Windows:** `Copy-Item .env.host.sample .env -Force`. **HOST Linux:** `cp .env.host.sample .env`. **Servidor:** `cp .env.server-rpa.sample .env` | — (ação corretiva) |
+| 3 | Editar variáveis obrigatórias | Preencher `DATABASE_PASSWORD`, `SECRET_KEY` e todos os `HOST_*` | — (ação corretiva) |
+| 4 | Reiniciar após corrigir | Opção 1 do menu (HOST) ou `docker compose -f docker-compose.prd.rpa.yml restart` (Servidor) | — (ação corretiva) |
 
 ---
 
@@ -78,12 +102,12 @@ Sintoma: containers sobem mas falham com erros de configuração; logs indicam v
 
 Contexto: alto volume de logs após diagnóstico temporário.
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | Verificar o nível atual | **Windows:** `Select-String -Path .env -Pattern '^APP_LOG_LEVEL'`. **Linux:** `grep APP_LOG_LEVEL .env` |
-| 2 | Corrigir via Opção 3 do menu | Selecionar `APP_LOG_LEVEL` → definir `INFO` (modo HOST) |
-| 3 | Ou editar diretamente | **Windows:** `(Get-Content .env) -replace '^APP_LOG_LEVEL=.*','APP_LOG_LEVEL=INFO' | Set-Content .env`. **Linux:** `sed -i 's/^APP_LOG_LEVEL=.*/APP_LOG_LEVEL=INFO/' .env` |
-| 4 | Reiniciar para aplicar | Opção 1 do menu (HOST) ou `docker compose restart app rpa-scheduler` (Servidor) |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Verificar o nível atual | **Windows:** `Select-String -Path .env -Pattern '^APP_LOG_LEVEL'`. **Linux:** `grep APP_LOG_LEVEL .env` | `check-env` (emite warn quando `APP_LOG_LEVEL=DEBUG`, não FAIL) |
+| 2 | Corrigir via Opção 3 do menu | Selecionar `APP_LOG_LEVEL` → definir `INFO` (modo HOST) | — (ação corretiva) |
+| 3 | Ou editar diretamente | **Windows:** `(Get-Content .env) -replace '^APP_LOG_LEVEL=.*','APP_LOG_LEVEL=INFO' | Set-Content .env`. **Linux:** `sed -i 's/^APP_LOG_LEVEL=.*/APP_LOG_LEVEL=INFO/' .env` | — (ação corretiva) |
+| 4 | Reiniciar para aplicar | Opção 1 do menu (HOST) ou `docker compose restart app rpa-scheduler` (Servidor) | — (ação corretiva) |
 
 ---
 
@@ -91,14 +115,14 @@ Contexto: alto volume de logs após diagnóstico temporário.
 
 Sintoma: `docker pull` falha intermitentemente, timeout, conexões TLS interceptadas, runner offline, `SSL_ERROR_SYSCALL` no handshake contra `api.github.com`.
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | **Servidor Linux — validação canônica** | `bash siscan-server-doctor.sh --only check-network` (ou `bash scripts/deploy_server/check-network.sh` standalone). Cobre os 22 endpoints externos exigidos (runner, GHCR, Docker Hub, OCSP/CRL). Exit 0 = OK, 1 = pelo menos um bloqueado. Referência completa em [`docs/siscan-server-doctor/scripts/check-network.md`](siscan-server-doctor/scripts/check-network.md) |
-| 2 | Diagnóstico básico de rede | **Windows:** `Test-NetConnection ghcr.io -Port 443 -InformationLevel Detailed`. **Linux:** `curl -v https://ghcr.io/v2/` |
-| 3 | Traceroute para identificar hops problemáticos | **Windows:** `tracert ghcr.io`. **Linux:** `traceroute ghcr.io` |
-| 4 | Retry manual | **Windows:** `for ($i=0; $i -lt 3; $i++) { docker pull ghcr.io/prisma-consultoria/siscan-rpa-rpa:main; if ($?) { break }; Start-Sleep 30 }`. **Linux:** tentativas manuais com `docker pull` |
-| 5 | Se houver proxy corporativo | Configurar proxy no Docker: editar `~/.docker/config.json` com `"proxies"` ou via Docker Desktop → Settings → Resources → Proxies |
-| 6 | Envolver TI / equipe de infraestrutura | Fornecer saída de `bash siscan-server-doctor.sh --only check-network` (ou `bash scripts/deploy_server/check-network.sh` standalone) solicitando reabertura da regra de firewall. Para as VMs do servidor parceiro, referenciar requisição **753315 — Liberação para o GITHUB - Servidores SISCAN** |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | **Servidor Linux — validação canônica** | `bash siscan-server-doctor.sh --only check-network` (ou `bash scripts/deploy_server/check-network.sh` standalone). Cobre os 22 endpoints externos exigidos (runner, GHCR, Docker Hub, OCSP/CRL). Exit 0 = OK, 1 = pelo menos um bloqueado. Referência completa em [`docs/siscan-server-doctor/scripts/check-network.md`](siscan-server-doctor/scripts/check-network.md) | `check-network` ✅ |
+| 2 | Diagnóstico básico de rede | **Windows:** `Test-NetConnection ghcr.io -Port 443 -InformationLevel Detailed`. **Linux:** `curl -v https://ghcr.io/v2/` | `check-network` (substitui no servidor) |
+| 3 | Traceroute para identificar hops problemáticos | **Windows:** `tracert ghcr.io`. **Linux:** `traceroute ghcr.io` | — (debug profundo, manual) |
+| 4 | Retry manual | **Windows:** `for ($i=0; $i -lt 3; $i++) { docker pull ghcr.io/prisma-consultoria/siscan-rpa-rpa:main; if ($?) { break }; Start-Sleep 30 }`. **Linux:** tentativas manuais com `docker pull` | — (ação corretiva) |
+| 5 | Se houver proxy corporativo | Configurar proxy no Docker: editar `~/.docker/config.json` com `"proxies"` ou via Docker Desktop → Settings → Resources → Proxies | — (ação corretiva) |
+| 6 | Envolver TI / equipe de infraestrutura | Fornecer saída de `bash siscan-server-doctor.sh --only check-network` (ou `bash scripts/deploy_server/check-network.sh` standalone) solicitando reabertura da regra de firewall. Para as VMs do servidor parceiro, referenciar requisição **753315 — Liberação para o GITHUB - Servidores SISCAN** | — (escalação) |
 
 ---
 
@@ -108,13 +132,13 @@ Sintoma: assistente ou comandos `docker compose` indicam containers inexistentes
 
 > **Nota:** o SISCAN RPA roda inteiramente em containers Docker — não existe serviço Windows (`Get-Service`) associado.
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | Verificar status real | **HOST:** `docker compose -f docker-compose.prd.host.yml ps`. **Servidor:** `docker compose -f docker-compose.prd.rpa.yml ps` |
-| 2 | Docker está rodando? | **Windows:** ícone do Docker na bandeja deve estar estável. **Linux:** `systemctl status docker` |
-| 3 | Subir a stack manualmente | **HOST:** `docker compose -f docker-compose.prd.host.yml up -d`. **Servidor:** `docker compose -f docker-compose.prd.rpa.yml up -d` |
-| 4 | Verificar se `.env` está preenchido | Se `up` falhar, verificar Problema B acima |
-| 5 | Logs de inicialização | `docker compose logs --tail=50` (acrescente `-f` para o arquivo correto) |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Verificar status real | **HOST:** `docker compose -f docker-compose.prd.host.yml ps`. **Servidor:** `docker compose -f docker-compose.prd.rpa.yml ps` | `check-stack` (containers esperados, restart loop, port collision) |
+| 2 | Docker está rodando? | **Windows:** ícone do Docker na bandeja deve estar estável. **Linux:** `systemctl status docker` | `check-docker` (daemon + systemd) |
+| 3 | Subir a stack manualmente | **HOST:** `docker compose -f docker-compose.prd.host.yml up -d`. **Servidor:** `docker compose -f docker-compose.prd.rpa.yml up -d` | — (ação corretiva) |
+| 4 | Verificar se `.env` está preenchido | Se `up` falhar, verificar Problema B acima | `check-env` |
+| 5 | Logs de inicialização | `docker compose logs --tail=50` (acrescente `-f` para o arquivo correto) | — (debug) |
 
 ---
 
@@ -124,13 +148,13 @@ Sintoma: assistente ou comandos `docker compose` indicam containers inexistentes
 
 Mensagem: `.\siscan-assistente.ps1 : não pode ser carregado porque a execução de scripts foi desabilitada neste sistema.`
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | Diagnosticar a política ativa | PowerShell (Admin): `Get-ExecutionPolicy -List` — verificar por escopo |
-| 2 | Liberar para a sessão atual | `Set-ExecutionPolicy RemoteSigned -Scope Process -Force` |
-| 3 | Liberar permanentemente (se permitido) | PowerShell (Admin): `Set-ExecutionPolicy RemoteSigned -Scope LocalMachine` |
-| 4 | Verificar GPO restritiva | `gpresult /h C:\temp\gpresult.html` — procurar configurações de ExecutionPolicy. Se houver, solicitar exceção ao admin de domínio |
-| 5 | Alternativa sem mudar GPO | Usar `execute.ps1` (incluso no repositório) — contorna a restrição via wrapper |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Diagnosticar a política ativa | PowerShell (Admin): `Get-ExecutionPolicy -List` — verificar por escopo | — (Windows; specialists são Linux-only) |
+| 2 | Liberar para a sessão atual | `Set-ExecutionPolicy RemoteSigned -Scope Process -Force` | — |
+| 3 | Liberar permanentemente (se permitido) | PowerShell (Admin): `Set-ExecutionPolicy RemoteSigned -Scope LocalMachine` | — |
+| 4 | Verificar GPO restritiva | `gpresult /h C:\temp\gpresult.html` — procurar configurações de ExecutionPolicy. Se houver, solicitar exceção ao admin de domínio | — |
+| 5 | Alternativa sem mudar GPO | Usar `execute.ps1` (incluso no repositório) — contorna a restrição via wrapper | — |
 
 ---
 
@@ -145,12 +169,12 @@ Sintomas:
 
 #### Diagnóstico e solução
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | Identificar o diretório que falhou | `docker compose -f docker-compose.prd.host.yml logs app --tail=50` — procurar `PermissionError` |
-| 2 | Criar a estrutura de diretórios no Windows | PowerShell (Admin): `New-Item -ItemType Directory -Force -Path "C:\siscan-rpa\media\reports\mamografia\laudos"` e demais subpastas necessárias |
-| 3 | Verificar variáveis `HOST_*` no `.env` | Confirmar que todos os caminhos obrigatórios estão preenchidos |
-| 4 | Recriar containers | `docker compose -f docker-compose.prd.host.yml down` seguido de `docker compose -f docker-compose.prd.host.yml up -d` |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Identificar o diretório que falhou | `docker compose -f docker-compose.prd.host.yml logs app --tail=50` — procurar `PermissionError` | — (Windows) |
+| 2 | Criar a estrutura de diretórios no Windows | PowerShell (Admin): `New-Item -ItemType Directory -Force -Path "C:\siscan-rpa\media\reports\mamografia\laudos"` e demais subpastas necessárias | — (Windows) |
+| 3 | Verificar variáveis `HOST_*` no `.env` | Confirmar que todos os caminhos obrigatórios estão preenchidos | `check-env` (no servidor; cobre `HOST_*` declaradas no manifesto do produto) |
+| 4 | Recriar containers | `docker compose -f docker-compose.prd.host.yml down` seguido de `docker compose -f docker-compose.prd.host.yml up -d` | — (ação corretiva) |
 
 #### Checklist de validação de estrutura de diretórios
 
@@ -167,12 +191,12 @@ Antes de subir os containers pela primeira vez (substitua pelos caminhos do seu 
 
 Sintoma: conflito de permissão ou dado não aparece onde esperado.
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | Revisar a seção `x-app-common-volumes` no `docker-compose.prd.host.yml` | Confirmar os caminhos de cada bind mount |
-| 2 | Verificar sobreposição de caminhos | Ex.: `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR` e `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR` devem ser pastas distintas não sobrepostas pelo compose |
-| 3 | Configuração correta | `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR=C:\siscan-rpa\media\consolidated` e `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR=C:\siscan-rpa\media\consolidated\laudos` |
-| 4 | Aplicar | `docker compose -f docker-compose.prd.host.yml down` → corrigir `.env` → `docker compose -f docker-compose.prd.host.yml up -d` |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Revisar a seção `x-app-common-volumes` no `docker-compose.prd.host.yml` | Confirmar os caminhos de cada bind mount | — (revisão manual) |
+| 2 | Verificar sobreposição de caminhos | Ex.: `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR` e `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR` devem ser pastas distintas não sobrepostas pelo compose | — |
+| 3 | Configuração correta | `HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR=C:\siscan-rpa\media\consolidated` e `HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR=C:\siscan-rpa\media\consolidated\laudos` | — (ação corretiva) |
+| 4 | Aplicar | `docker compose -f docker-compose.prd.host.yml down` → corrigir `.env` → `docker compose -f docker-compose.prd.host.yml up -d` | — (ação corretiva) |
 
 ---
 
@@ -301,13 +325,13 @@ Após corrigir, acione o deploy manualmente:
 
 Sintoma: container `migrate` falha no boot; logs mostram `could not connect to server` ou `connection refused`.
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | Confirmar `DATABASE_HOST` no `.env` | `grep DATABASE_HOST .env` — deve ter o IP/hostname do PostgreSQL externo, não `db` |
-| 2 | Testar conectividade TCP com o banco | `nc -zv $DATABASE_HOST $DATABASE_PORT` ou `telnet $DATABASE_HOST $DATABASE_PORT` |
-| 3 | Testar autenticação | `psql -h $DATABASE_HOST -U $DATABASE_USER -d $DATABASE_NAME -c "SELECT 1"` |
-| 4 | Verificar firewall entre servidores | O servidor de app precisa de acesso à porta TCP 5432 do servidor do banco. Verificar regras de firewall / security group |
-| 5 | Verificar `pg_hba.conf` no PostgreSQL | O PostgreSQL externo precisa ter regra `host` permitindo o IP do servidor de app |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Confirmar `DATABASE_HOST` no `.env` | `grep DATABASE_HOST .env` — deve ter o IP/hostname do PostgreSQL externo, não `db` | `check-env` (rejeita `DATABASE_HOST=db`) |
+| 2 | Testar conectividade TCP com o banco | `nc -zv $DATABASE_HOST $DATABASE_PORT` ou `telnet $DATABASE_HOST $DATABASE_PORT` | `check-db` (TCP/5432 via `/dev/tcp` + `timeout`) |
+| 3 | Testar autenticação | `psql -h $DATABASE_HOST -U $DATABASE_USER -d $DATABASE_NAME -c "SELECT 1"` | `check-db` (parcial — usa `pg_isready` se disponível; `psql` só pra `SHOW server_version`) |
+| 4 | Verificar firewall entre servidores | O servidor de app precisa de acesso à porta TCP 5432 do servidor do banco. Verificar regras de firewall / security group | `check-db` (detecta o sintoma: TCP refused/timeout) |
+| 5 | Verificar `pg_hba.conf` no PostgreSQL | O PostgreSQL externo precisa ter regra `host` permitindo o IP do servidor de app | — (config no servidor do banco) |
 
 #### Problema 2B — Senha com caracteres especiais quebra a DATABASE_URL
 
@@ -345,14 +369,14 @@ Sintoma: deploys via GitHub Actions ficam aguardando runner; GitHub mostra runne
 
 #### 2A — Runner offline
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | Verificar status do runner | `sudo ~/actions-runner/svc.sh status` |
-| 2 | Verificar logs recentes | `journalctl -u actions.runner.* --since "1h ago" --no-pager` |
-| 3 | Se aparecer `SSL connection could not be established` | O runner perdeu conectividade SSL. Reiniciar o serviço: `sudo ~/actions-runner/svc.sh stop && sudo ~/actions-runner/svc.sh start` |
-| 4 | Se `start` não resolver SSL | Testar conectividade da VM: `curl -Iv https://github.com`. Se falhar, é problema de rede/firewall — envolver infra |
-| 5 | Verificar conectividade com GitHub | `curl -s https://api.github.com` deve retornar JSON |
-| 6 | Re-registrar o runner (token expirado) | Obter novo token de registro no GitHub → Settings → Actions → Runners → `./config.sh` com o novo token |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Verificar status do runner | `sudo ~/actions-runner/svc.sh status` | `check-runner` (`.runner` local + serviço systemd + idade) |
+| 2 | Verificar logs recentes | `journalctl -u actions.runner.* --since "1h ago" --no-pager` | — (debug) |
+| 3 | Se aparecer `SSL connection could not be established` | O runner perdeu conectividade SSL. Reiniciar o serviço: `sudo ~/actions-runner/svc.sh stop && sudo ~/actions-runner/svc.sh start` | `check-network` (detecta firewall) + `siscan-runner-recover.sh` (Cenário A — reinicia serviço como parte do re-registro) |
+| 4 | Se `start` não resolver SSL | Testar conectividade da VM: `curl -Iv https://github.com`. Se falhar, é problema de rede/firewall — envolver infra | `check-network` |
+| 5 | Verificar conectividade com GitHub | `curl -s https://api.github.com` deve retornar JSON | `check-network` (cobre `api.github.com` entre os 22 endpoints) |
+| 6 | Re-registrar o runner (token expirado) | Obter novo token de registro no GitHub → Settings → Actions → Runners → `./config.sh` com o novo token | `siscan-runner-recover.sh` (detecta auto-removal via API + cuida do re-registro completo, ver [doc](siscan-server-doctor/scripts/siscan-runner-recover.md)) |
 
 > O runner pode mostrar `Active (running)` no systemd mas estar desconectado do GitHub (loop de erro SSL). Nesse caso, `svc.sh status` mostra ativo mas o GitHub mostra Offline. A solução é `stop` + `start` para forçar reconexão.
 
@@ -360,12 +384,12 @@ Sintoma: deploys via GitHub Actions ficam aguardando runner; GitHub mostra runne
 
 Se o runner aparece como **Idle** no GitHub mas os jobs ficam **queued**, o problema é **labels incompatíveis**. O workflow espera labels que o runner não tem.
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | Verificar labels do runner | GitHub → repo → Settings → Actions → Runners → clicar no runner |
-| 2 | Verificar labels do workflow | No arquivo `.github/workflows/cd_*.yml`, procurar `runs-on:` |
-| 3 | Comparar | O runner deve ter **todas** as labels listadas no `runs-on` |
-| 4 | Adicionar label via UI | Na página do runner no GitHub, clicar em "Add label" |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Verificar labels do runner | GitHub → repo → Settings → Actions → Runners → clicar no runner | — (UI do GitHub; labels esperadas vêm do manifesto `products.json`) |
+| 2 | Verificar labels do workflow | No arquivo `.github/workflows/cd_*.yml`, procurar `runs-on:` | — (leitura manual de workflow) |
+| 3 | Comparar | O runner deve ter **todas** as labels listadas no `runs-on` | — (revisão manual) |
+| 4 | Adicionar label via UI | Na página do runner no GitHub, clicar em "Add label" | — (ação corretiva na UI do GitHub) |
 
 Labels esperadas por produto:
 
@@ -439,12 +463,12 @@ A resolução depende da infraestrutura do parceiro:
 
 Sintoma: `PermissionError` nos logs; container não consegue escrever nos diretórios bind-montados.
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | Verificar dono dos diretórios | `ls -la /opt/siscan-rpa/logs` (ou o caminho do `HOST_LOG_DIR`) |
-| 2 | Verificar o UID do processo dentro do container | `docker compose exec app id` |
-| 3 | Ajustar permissões | `sudo chown -R <UID>:<GID> /opt/siscan-rpa/logs` — ou usar permissões mais abertas: `sudo chmod -R 777 /opt/siscan-rpa/logs` (somente se não houver política de segurança contrária) |
-| 4 | Criar diretórios ausentes | O `siscan-server-setup.sh` cria os diretórios na fase 5. Se foram criados manualmente com root, ajustar dono conforme passo 3 |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Verificar dono dos diretórios | `ls -la /opt/siscan-rpa/logs` (ou o caminho do `HOST_LOG_DIR`) | `check-permissions` (owner + escrevibilidade de cada `HOST_*_DIR` declarado no manifesto) |
+| 2 | Verificar o UID do processo dentro do container | `docker compose exec app id` | — (introspecção do container; UID 1000 do appuser do RPA é validado pelo `check-permissions` em `data/.artifacts`) |
+| 3 | Ajustar permissões | `sudo chown -R <UID>:<GID> /opt/siscan-rpa/logs` — ou usar permissões mais abertas: `sudo chmod -R 777 /opt/siscan-rpa/logs` (somente se não houver política de segurança contrária) | — (ação corretiva) |
+| 4 | Criar diretórios ausentes | O `siscan-server-setup.sh` cria os diretórios na fase 5. Se foram criados manualmente com root, ajustar dono conforme passo 3 | `check-permissions` (detecta diretório ausente ou owner errado) |
 
 ---
 
@@ -471,6 +495,100 @@ docker compose -f docker-compose.prd.rpa.yml exec -T -e PGPASSWORD='SENHA' app \
 ```
 
 > Substitua `SENHA`, `<IP-VM2>`, `<USUARIO>` e `<BANCO>` conforme o ambiente. O `pg_restore --file=-` converte o dump binário para SQL no stdout, o `grep -v` remove a linha incompatível, e o `psql` aplica o SQL filtrado.
+
+---
+
+### Problema 6 — Runner auto-removido após 14 dias offline
+
+Sintoma: deploys via GitHub Actions ficam aguardando indefinidamente; na UI do GitHub, a página `Settings → Actions → Runners` mostra **runner ausente** (não está nem `Idle` nem `Offline` — simplesmente sumiu). Localmente o `.runner` e `~/actions-runner/` continuam presentes.
+
+Causa: política do GitHub remove automaticamente self-hosted runners offline há mais de 14 dias. Caso real: VMPRDAPP-RPADASHBOARD entre 15/04 e 25/05/2026 (40 dias).
+
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Confirmar diagnóstico via API | `gh api repos/<owner>/<repo>/actions/runners --jq '.total_count'` — `<owner>/<repo>` vem de `scripts/data/products.json` conforme `$SISCAN_PRODUCT` (`siscan-rpa`, `siscan-dashboard`, ou ambos no `full`). Precisa `GH_TOKEN` ou `gh auth status`. Em geral, deixe o `check-runner` resolver automaticamente via manifesto | `check-runner` (resolve repo via manifesto + faz a query quando há auth) |
+| 2 | Cruzar com estado local | `ls -la ~/actions-runner/.runner ~/actions-runner/.runner_migrated` — se presentes mas API retorna `total_count: 0`, é Cenário A do recover | `check-runner` |
+| 3 | Executar a recuperação cirúrgica | `bash siscan-runner-recover.sh` (do `$COMPOSE_DIR`, ou com `--product` explícito) | `siscan-runner-recover.sh` ✅ — ver [doc](siscan-server-doctor/scripts/siscan-runner-recover.md) |
+| 4 | Quando o script pedir `Token:` | Admin do repo gera novo token em `Settings → Actions → Runners → New self-hosted runner` (token expira rapidamente — gere logo antes de colar) | — (ação no GitHub UI, requer permissão admin no repo) |
+| 5 | Validar pós-recovery | O script roda `check-runner --quiet` no final; ou rode manual: `bash siscan-server-doctor.sh --only check-runner` | `check-runner` |
+
+> O recover é **idempotente** — `svc.sh uninstall` (passo 2 da sequência interna do recover) emite warn se o serviço já estava ausente; cobre o caso da VM ter `.runner` presente + serviço systemd ausente.
+
+---
+
+### Problema 7 — Runner offline > 30 dias (regra de auto-update)
+
+Sintoma: GitHub mostra o runner `online` (ou `Idle`) mas jobs ficam `queued` indefinidamente. Logs do runner não mostram erro de SSL nem de firewall. Caso real: VMs do servidor parceiro em 25/05/2026 antes do recover.
+
+Causa: [regra dos 30 dias do GitHub](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#runner-software-updates-on-self-hosted-runners) — se o runner ficar 30 dias sem auto-atualizar sua versão, o GitHub Actions Service deixa de enviar jobs.
+
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Verificar idade da última auto-atualização | `stat -c '%y' ~/actions-runner/.runner_migrated` (mtime renovado a cada upgrade) | `check-runner` (detecta 25-29d como warn, ≥30d como fail) |
+| 2 | Forçar auto-update | `bash siscan-runner-recover.sh` — detecta Cenário B e roda `./run.sh --check` (não pede token) | `siscan-runner-recover.sh` (Cenário B) |
+| 3 | Validar pós-update | `bash siscan-server-doctor.sh --only check-runner` deve mostrar idade resetada | `check-runner` |
+
+---
+
+### Problema 8 — `RPA_DATABASE_URL` sem prefixo `postgresql://`
+
+Sintoma (caso real, siscan-dashboard 27/03/2026): container `sync` falha no boot com `could not translate host name "siscandashboard"` ou similar. O `.env` tinha `RPA_DATABASE_URL=siscandashboard` (faltava o prefixo + credenciais + host).
+
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Validar formato | `bash siscan-server-doctor.sh --only check-env` (rejeita `RPA_DATABASE_URL` que não case com `^postgresql://user:pass@host:port/db$`) | `check-env` ✅ |
+| 2 | Corrigir o `.env` | `RPA_DATABASE_URL=postgresql://siscan_rpa:SENHA@172.19.225.22:5432/siscan_rpa` (sintaxe completa) | — (ação corretiva) |
+| 3 | Restart do dashboard | `docker compose -f docker-compose.prd.dashboard.yml restart sync` | — (ação corretiva) |
+
+---
+
+### Problema 9 — `git pull` com `dubious ownership`
+
+Sintoma (casos reais, ambas as VMs em 19/03/2026): `git pull origin main` no `$COMPOSE_DIR` falha com `fatal: detected dubious ownership in repository`. Acontece quando o repo foi clonado com outro usuário (tipicamente `root` durante setup inicial) e depois passou a ser operado por `siscan`.
+
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Verificar owner do `$COMPOSE_DIR/.git` | `stat -c '%U' $COMPOSE_DIR/.git` — se diferente do usuário corrente, dispara o "dubious ownership" do git | `check-permissions` (owner + safe.directory) |
+| 2 | Solução A — corrigir ownership | `sudo chown -R $(whoami):$(whoami) $COMPOSE_DIR` (preferível, alinha realidade com expectativa) | — (ação corretiva) |
+| 3 | Solução B — instruir git a confiar | `git config --global --add safe.directory $COMPOSE_DIR` (não corrige ownership, só silencia o warning) | — (ação corretiva) |
+
+---
+
+### Problema 10 — `PermissionError` em `data/.artifacts/auth` (UID 1000)
+
+Sintoma (RPA, 01/04/2026): container `app` do RPA falha ao escrever em `data/.artifacts/auth/` com `PermissionError [Errno 13]`. O `appuser` dentro do container tem UID 1000.
+
+Causa: o diretório foi criado por outro UID no host (tipicamente `root` durante setup, UID 0). Bind mount preserva ownership do host, então UID 1000 do container não escreve.
+
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Verificar owner do diretório | `stat -c '%u:%g' $COMPOSE_DIR/data/.artifacts` (deve ser `1000:1000`) | `check-permissions` (cobre `data/.artifacts` UID 1000 para o RPA) |
+| 2 | Corrigir ownership | `sudo chown -R 1000:1000 $COMPOSE_DIR/data` | — (ação corretiva) |
+| 3 | Reiniciar containers | `docker compose -f docker-compose.prd.rpa.yml restart app rpa-scheduler` | — (ação corretiva) |
+
+---
+
+### Problema 11 — Porta externa já em uso bloqueando `compose up`
+
+Sintoma (RPA, 27/03/2026): `docker compose up -d` falha com `bind: address already in use` na porta declarada em `HOST_APP_EXTERNAL_PORT` (5000, 5001 ou similar). Algum outro processo já segura a porta.
+
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Identificar conflito | `bash siscan-server-doctor.sh --only check-stack` — detecta porta ocupada antes do `compose up` | `check-stack` (valida `expected_external_ports` do manifesto) |
+| 2 | Listar quem usa a porta | `sudo lsof -i :5000` ou `sudo ss -tlnp \| grep :5000` | — (debug) |
+| 3 | Liberar ou trocar | (a) parar o processo conflitante; OU (b) ajustar `HOST_APP_EXTERNAL_PORT` no `.env` pra outra porta livre | — (ação corretiva) |
+
+---
+
+### Problema 12 — `excel_columns_mapping.json` ausente em `config/`
+
+Sintoma (siscan-dashboard, 27/03/2026): container `app` ou `sync` falha logo no boot com erro de parsing de Excel, citando ausência do arquivo de mapeamento de colunas.
+
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Confirmar ausência | `ls -la $COMPOSE_DIR/config/excel_columns_mapping.json` (ou cair em "No such file or directory") | `check-permissions` (cobre presença de `excel_columns_mapping.json` no produto que exige) |
+| 2 | Copiar do repo do produto | O arquivo é versionado em `siscan-dashboard/config/excel_columns_mapping.json` — clonar o repo do dashboard e copiar | — (ação corretiva) |
+| 3 | Permissão de leitura | `chmod 644 $COMPOSE_DIR/config/excel_columns_mapping.json` | — (ação corretiva) |
 
 ---
 
@@ -571,14 +689,14 @@ with e.connect() as c: print(c.execute(text('SELECT count(*) FROM exam_records')
 
 Sintoma: container `redis` não aparece no `docker compose ps`, ou o dashboard apresenta lentidão na carga inicial (cache não está funcionando).
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | Verificar se o container Redis existe | `docker compose -f docker-compose.prd.dashboard.yml ps redis` |
-| 2 | Verificar se o Redis responde | `docker compose -f docker-compose.prd.dashboard.yml exec redis redis-cli ping` — esperado: `PONG` |
-| 3 | Verificar variáveis no `.env` | `grep REDIS .env` — deve ter `REDIS_HOST=redis` e `REDIS_PORT=6379` |
-| 4 | Verificar se o compose inclui o serviço Redis | `grep -A3 'redis:' docker-compose.prd.dashboard.yml` — deve mostrar `image: redis:7-alpine` |
-| 5 | Atualizar compose se Redis ausente | O workflow de CD atualiza automaticamente. Para forçar: `curl -fsSL https://raw.githubusercontent.com/Prisma-Consultoria/siscan-dashboard/main/docker-compose.prd.dashboard.yml -o docker-compose.prd.dashboard.yml` |
-| 6 | Recriar a stack | `docker compose -f docker-compose.prd.dashboard.yml down && docker compose -f docker-compose.prd.dashboard.yml up -d --wait` |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Verificar se o container Redis existe | `docker compose -f docker-compose.prd.dashboard.yml ps redis` | `check-stack` (valida `expected_services` do manifesto; `redis` é esperado em `dashboard` e `full`) |
+| 2 | Verificar se o Redis responde | `docker compose -f docker-compose.prd.dashboard.yml exec redis redis-cli ping` — esperado: `PONG` | — (introspecção do container; healthcheck do compose já cobre) |
+| 3 | Verificar variáveis no `.env` | `grep REDIS .env` — deve ter `REDIS_HOST=redis` e `REDIS_PORT=6379` | `check-env` (`REDIS_HOST` e `REDIS_PORT` são `required_env_vars` para `dashboard`/`full`) |
+| 4 | Verificar se o compose inclui o serviço Redis | `grep -A3 'redis:' docker-compose.prd.dashboard.yml` — deve mostrar `image: redis:7-alpine` | `check-stack` (parse do compose + service presente) |
+| 5 | Atualizar compose se Redis ausente | O workflow de CD atualiza automaticamente. Para forçar: `curl -fsSL https://raw.githubusercontent.com/Prisma-Consultoria/siscan-dashboard/main/docker-compose.prd.dashboard.yml -o docker-compose.prd.dashboard.yml` | — (ação corretiva) |
+| 6 | Recriar a stack | `docker compose -f docker-compose.prd.dashboard.yml down && docker compose -f docker-compose.prd.dashboard.yml up -d --wait` | — (ação corretiva) |
 
 > O Redis é um serviço local do compose — não precisa de instalação separada. Se o compose estiver atualizado e o `.env` tiver as variáveis `REDIS_HOST` e `REDIS_PORT`, o container sobe automaticamente.
 
@@ -588,11 +706,11 @@ Sintoma: container `redis` não aparece no `docker compose ps`, ou o dashboard a
 
 Sintoma: novos recursos não funcionam após atualizar o assistente (ex.: Redis não ativo porque `REDIS_HOST` não está no `.env`).
 
-| Passo | O que Fazer | Como Fazer |
-|---|---|---|
-| 1 | Executar verificação de consistência | `bash ./siscan-server-setup.sh --product dashboard --check` |
-| 2 | O script lista variáveis faltantes | Aceitar a adição automática com valores default do sample |
-| 3 | Reiniciar a stack | `docker compose -f docker-compose.prd.dashboard.yml down && docker compose -f docker-compose.prd.dashboard.yml up -d --wait` |
+| Passo | O que Fazer | Como Fazer | Coberto por |
+|---|---|---|---|
+| 1 | Executar verificação de consistência | `bash ./siscan-server-setup.sh --product dashboard --check` | `check-env` (cobre o lado da validação; `--check` do setup é quem aplica) |
+| 2 | O script lista variáveis faltantes | Aceitar a adição automática com valores default do sample | — (ação corretiva, fluxo interativo do setup) |
+| 3 | Reiniciar a stack | `docker compose -f docker-compose.prd.dashboard.yml down && docker compose -f docker-compose.prd.dashboard.yml up -d --wait` | — (ação corretiva) |
 
 O `--check` compara o `.env` atual com o `.env.server-dashboard.sample` e identifica variáveis que existem no sample mas não no `.env`. Funciona também para o siscan-rpa com `--product rpa --check`.
 
