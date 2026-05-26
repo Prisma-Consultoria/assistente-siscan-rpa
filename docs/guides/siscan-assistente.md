@@ -4,7 +4,7 @@
 
 > **Issue de origem**: [#58](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/58).
 > **Modo coberto**: HOST (`SISCAN_PRODUCT=full`) com `docker-compose.prd.host.yml`.
-> **Para modo SERVIDOR** (Ubuntu + PostgreSQL externo), veja `./siscan-server-setup.md` (em elaboração) e `../DEPLOY_SERVER.md`.
+> **Para modo SERVIDOR** (Ubuntu + PostgreSQL externo), veja [`./siscan-server-setup.md`](./siscan-server-setup.md) e [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md).
 
 ## Quando usar
 
