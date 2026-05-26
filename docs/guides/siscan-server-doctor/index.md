@@ -173,7 +173,7 @@ Cada specialist é callable standalone (`bash scripts/deploy_server/check-<nome>
 
 **Sintomas que detecta**: chamado interno de firewall de whitelist incompleta; firewall liberando 443 mas não 80; bloqueio de `*.actions.githubusercontent.com` causando runner offline em 14 dias.
 
-> Documentação detalhada de manifesto + critério: [`siscan-server-doctor/scripts/check-network.md`](../siscan-server-doctor/scripts/check-network.md).
+> Documentação detalhada de manifesto + critério: [`./specialists/check-network.md`](./specialists/check-network.md).
 
 ### `check-deps` — Docker, Compose, curl, jq, sudo, NTP, OS
 
@@ -311,7 +311,7 @@ Schema detalhado e adicionar produto novo: [`siscan-server-doctor/products-manif
 
 Lista canônica de 22 FQDNs em 5 categorias (runner_actions, runner_self_update, ghcr, docker_hub, ocsp_crl). Cada endpoint declara `fqdn`, `protocol` (`https`|`tcp`), `port`, `purpose`, `expected` (`"<código> — <descrição>"`). Cada categoria carrega `guidance.on_all_ok` / `guidance.on_any_fail` (mensagens emitidas pelo `check-network` via `print_category_guidance`).
 
-Atualizar quando a whitelist mudar (PDF v2.0 §3-7). Detalhes: [`siscan-server-doctor/scripts/check-network.md`](../siscan-server-doctor/scripts/check-network.md).
+Atualizar quando a whitelist mudar (PDF v2.0 §3-7). Detalhes: [`./specialists/check-network.md`](./specialists/check-network.md).
 
 ## Saída JSON (schema)
 

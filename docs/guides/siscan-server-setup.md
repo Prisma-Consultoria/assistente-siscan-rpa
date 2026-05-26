@@ -10,7 +10,7 @@ related:
   - docs/DEPLOY_SERVER.md
   - docs/TROUBLESHOOTING.md
   - docs/CHECKLISTS.md
-  - docs/guides/siscan-server-doctor.md
+  - docs/guides/siscan-server-doctor/index.md
   - docs/guides/siscan-runner-recover.md
   - docs/guides/siscan-server-doctor/products-manifest.md
 tags:
@@ -269,6 +269,6 @@ O script **não** usa `set -e` (errexit) intencionalmente — comandos como `rea
 - [`docs/DEPLOY_SERVER.md`](../DEPLOY_SERVER.md) — playbook completo de deploy do servidor (contexto onde o setup é uma etapa).
 - [`docs/TROUBLESHOOTING.md`](../TROUBLESHOOTING.md) — sintomas observados em campo, com a coluna "Coberto por" indicando qual script automatiza cada caso.
 - [`docs/CHECKLISTS.md`](../CHECKLISTS.md) — checklist operacional pós-setup.
-- [`./siscan-server-doctor.md`](./siscan-server-doctor.md) — diagnóstico automatizado (gate da Fase 0 e validação pós-deploy).
+- [`./siscan-server-doctor/index.md`](./siscan-server-doctor/index.md) — diagnóstico automatizado (gate da Fase 0 e validação pós-deploy).
 - [`./siscan-runner-recover.md`](./siscan-runner-recover.md) — recovery do runner (compartilha `_runner.sh` com a Fase 7).
 - [`docs/guides/siscan-server-doctor/products-manifest.md`](./siscan-server-doctor/products-manifest.md) — schema do manifesto `products.json`.
