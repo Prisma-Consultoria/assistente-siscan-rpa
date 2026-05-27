@@ -41,8 +41,11 @@ SHELL
 }
 
 teardown() {
-    rm -rf "${RUNNER_DIR}"
-    rm -f "${CONFIG_LOG}"
+    # `command rm` ignora overrides de função (ex.: teste 7 substitui rm
+    # por no-op pra simular falha de IO — sem isso o teardown também
+    # vira no-op e acumula lixo entre execuções).
+    command rm -rf "${RUNNER_DIR}"
+    command rm -f "${CONFIG_LOG}"
 }
 
 # ────────────────────────────────────────────────────────────────────────────

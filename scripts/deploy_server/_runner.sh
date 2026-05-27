@@ -137,13 +137,18 @@ runner_local_age_days() {
 
 # runner_query_api OWNER REPO
 #   Ecoa o JSON de repos/OWNER/REPO/actions/runners (resposta da API).
-#   Usa gh CLI se autenticado; senão curl com GH_TOKEN; senão ecoa vazio.
+#   Precedência de credencial: gh CLI autenticado > GH_TOKEN > PAT.
+#   Ecoa vazio se nenhuma fonte estiver disponível.
 runner_query_api() {
     local owner="$1" repo="$2"
+    local auth
     if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
         gh api "repos/$owner/$repo/actions/runners" 2>/dev/null || echo ""
-    elif [ -n "${GH_TOKEN:-}" ]; then
-        curl -s -H "Authorization: Bearer $GH_TOKEN" \
+        return 0
+    fi
+    auth="${GH_TOKEN:-${PAT:-}}"
+    if [ -n "$auth" ]; then
+        curl -s -H "Authorization: Bearer $auth" \
             "https://api.github.com/repos/$owner/$repo/actions/runners" 2>/dev/null || echo ""
     else
         echo ""
@@ -154,20 +159,24 @@ runner_query_api() {
 #   Gera um remove-token via POST /actions/runners/remove-token e ecoa o
 #   valor do campo .token. Endpoint distinto do registration-token: o
 #   GitHub exige token específico de remoção em ./config.sh remove.
-#   Usa gh CLI se autenticado; senão curl com GH_TOKEN; senão ecoa vazio.
+#   Precedência de credencial: gh CLI autenticado > GH_TOKEN > PAT
+#   (mesma do runner_query_api — operadora pode fornecer --pat no recover).
 runner_get_remove_token() {
     local owner="$1" repo="$2"
-    local response token
+    local response token auth
     if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
         response=$(gh api -X POST "repos/$owner/$repo/actions/runners/remove-token" 2>/dev/null || echo "")
-    elif [ -n "${GH_TOKEN:-}" ]; then
-        response=$(curl -fsS -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$owner/$repo/actions/runners/remove-token" 2>/dev/null || echo "")
     else
-        echo ""
-        return 0
+        auth="${GH_TOKEN:-${PAT:-}}"
+        if [ -n "$auth" ]; then
+            response=$(curl -fsS -X POST \
+                -H "Authorization: Bearer $auth" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/$owner/$repo/actions/runners/remove-token" 2>/dev/null || echo "")
+        else
+            echo ""
+            return 0
+        fi
     fi
     if command -v jq >/dev/null 2>&1; then
         token=$(printf '%s' "$response" | jq -r '.token // empty' 2>/dev/null)
@@ -402,10 +411,13 @@ runner_remove_registration() {
                 warn "config.sh remove falhou mesmo com remove-token — caindo no fallback de limpeza local"
             fi
         else
+            # Mensagem neutra: vazio pode vir de muitas causas (sem
+            # credencial, token sem scope, rate limit, erro HTTP, rede).
+            # Operador pode investigar; o fallback local destrava de qualquer forma.
             if [ "$remote_known" = "yes" ]; then
-                warn "Sem credencial pra obter remove-token (gh/GH_TOKEN) — caindo no fallback local"
+                warn "Não foi possível obter remove-token via API (gh CLI/GH_TOKEN/PAT, scope, rate limit ou HTTP) — caindo no fallback local"
             else
-                warn "API GitHub indisponível pra checar estado remoto — caindo no fallback local"
+                warn "Não foi possível consultar estado remoto na API (gh CLI/GH_TOKEN/PAT, scope, rate limit ou HTTP) — caindo no fallback local"
             fi
         fi
     fi
