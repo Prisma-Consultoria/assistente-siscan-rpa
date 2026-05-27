@@ -199,14 +199,41 @@ runner_diagnose() {
 
     state=$(runner_get_state "$dir")
     case "$state" in
-        N/A|1|2|3)
+        N/A|1|2)
             # Estados locais antecedem qualquer consulta remota.
             # N/A, 1, 2 → caller decide (bootstrap incremental).
-            # 3        → cenário C (serviço ausente; .runner válido).
-            case "$state" in
-                3) echo "C" ;;
-                *) echo "$state" ;;
-            esac
+            echo "$state"
+            return 0
+            ;;
+        3)
+            # state=3: binários + .runner presentes, sem systemd unit.
+            # Issue #65: presunção de que .runner é válido era frágil quando
+            # o runner foi auto-removido remotamente (>14d offline). O recover
+            # caía em Cenário C (apenas install+start) e o serviço subia
+            # localmente com credencial inválida — heartbeat 401 em loop.
+            # Fix: consultar API antes de mapear; se total_count=0, redirecionar
+            # para A2 (re-registro defensivo, cobre auto-removal).
+            runners_json=$(runner_query_api "$owner" "$repo")
+            if [ -n "$runners_json" ]; then
+                if command -v jq >/dev/null 2>&1; then
+                    total=$(printf '%s' "$runners_json" | jq -r '.total_count // empty' 2>/dev/null)
+                else
+                    total=$(printf '%s' "$runners_json" | sed -n 's/.*"total_count"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)
+                fi
+                if [ "$total" = "0" ]; then
+                    echo "A2"
+                    return 0
+                fi
+            elif [ "$has_token" = "true" ]; then
+                # API indisponível mas operadora forneceu --token = sinal forte
+                # de que ela já suspeita do auto-removal. Mesma heurística
+                # defensiva do state=4 (linhas abaixo).
+                echo "A2"
+                return 0
+            fi
+            # API indisponível sem --token, OU total_count>0: comportamento
+            # original (instalar systemd + start; .runner presumido válido).
+            echo "C"
             return 0
             ;;
     esac

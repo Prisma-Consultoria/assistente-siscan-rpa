@@ -131,18 +131,22 @@ fi
 print_category_header "$CAT_REMOTE" "Mesmo com arquivos locais OK, o GitHub pode ter removido o runner após 14 dias offline (auto-removal). Sem registro remoto, o runner não recebe jobs."
 
 if [ -z "$REPO_NAME" ]; then
-    warn "SISCAN_PRODUCT não definido no .env — não dá pra inferir nome do repo, pulando check remoto"
-elif ! command -v gh >/dev/null 2>&1 && [ -z "${GH_TOKEN:-}" ]; then
-    warn "gh CLI ausente e GH_TOKEN não setado — pulando check remoto (defina GH_TOKEN ou instale gh)"
+    # Issue #66: marca como SKIPPED em vez de warn solto — antes o specialist
+    # reportava "4/4 OK" mesmo quando o check de registro remoto não rodou.
+    add_skipped "$CAT_REMOTE" env 0 "API GitHub" "SISCAN_PRODUCT não definido — defina no .env para o specialist resolver o repo via manifesto"
+elif ! command -v gh >/dev/null 2>&1 && [ -z "${GH_TOKEN:-}" ] && [ -z "${PAT:-}" ]; then
+    add_skipped "$CAT_REMOTE" api 0 "API GitHub" "sem credencial — defina GH_TOKEN/PAT ou rode 'gh auth login' para validar registro remoto"
 else
-    # Tenta usar gh CLI; fallback pra curl com GH_TOKEN
+    # Tenta usar gh CLI; fallback pra curl com GH_TOKEN ou PAT (precedência
+    # alinhada com runner_query_api/runner_get_remove_token em _runner.sh).
     if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
         runners_json=$(gh api "repos/$REPO_OWNER/$REPO_NAME/actions/runners" 2>/dev/null || echo "")
-    elif [ -n "${GH_TOKEN:-}" ]; then
-        runners_json=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+    elif [ -n "${GH_TOKEN:-}" ] || [ -n "${PAT:-}" ]; then
+        auth="${GH_TOKEN:-${PAT:-}}"
+        runners_json=$(curl -s -H "Authorization: Bearer $auth" \
             "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/actions/runners" 2>/dev/null || echo "")
     else
-        warn "gh auth status falhou e GH_TOKEN não setado — pulando check remoto"
+        add_skipped "$CAT_REMOTE" api 0 "API GitHub" "gh auth status falhou e GH_TOKEN/PAT indisponível — sem credencial pra consultar registro remoto"
         runners_json=""
     fi
 
