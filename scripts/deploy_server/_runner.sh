@@ -150,6 +150,33 @@ runner_query_api() {
     fi
 }
 
+# runner_get_remove_token OWNER REPO
+#   Gera um remove-token via POST /actions/runners/remove-token e ecoa o
+#   valor do campo .token. Endpoint distinto do registration-token: o
+#   GitHub exige token específico de remoção em ./config.sh remove.
+#   Usa gh CLI se autenticado; senão curl com GH_TOKEN; senão ecoa vazio.
+runner_get_remove_token() {
+    local owner="$1" repo="$2"
+    local response token
+    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+        response=$(gh api -X POST "repos/$owner/$repo/actions/runners/remove-token" 2>/dev/null || echo "")
+    elif [ -n "${GH_TOKEN:-}" ]; then
+        response=$(curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$owner/$repo/actions/runners/remove-token" 2>/dev/null || echo "")
+    else
+        echo ""
+        return 0
+    fi
+    if command -v jq >/dev/null 2>&1; then
+        token=$(printf '%s' "$response" | jq -r '.token // empty' 2>/dev/null)
+    else
+        token=$(printf '%s' "$response" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    fi
+    echo "$token"
+}
+
 # runner_diagnose RUNNER_DIR EXPECTED_NAME OWNER REPO [HAS_TOKEN_ARG]
 #   Detecta o cenário cruzando estado local + remoto.
 #   HAS_TOKEN_ARG (opcional, "true"|"false"): se "true", força UNKNOWN→A2
@@ -330,17 +357,66 @@ runner_uninstall_service() {
     fi
 }
 
-# runner_remove_registration RUNNER_DIR TOKEN
-#   Remove o registro local via config.sh remove. Idempotente quanto a
-#   404 (runner já foi auto-removido pelo GitHub).
+# runner_remove_registration RUNNER_DIR OWNER REPO
+#   Remove o registro do runner em três camadas, de cima pra baixo:
+#     1. Se o runner já não existe remotamente (total_count=0), pula
+#        config.sh remove — não há nada a desregistrar no GitHub.
+#     2. Caso contrário, tenta obter remove-token via API (endpoint distinto
+#        do registration-token) e usa ./config.sh remove --token <remove>.
+#     3. Sempre encerra com `rm -f` dos arquivos locais de registro
+#        (.runner, .credentials, .credentials_rsaparams). Idempotente.
+#   Sem este fallback determinístico, registration-token passado a
+#   config.sh remove falha em silêncio e deixa .runner órfão — quebra
+#   o cenário A/A2 do recover com "Cannot configure the runner because it
+#   is already configured" (issue #63).
+#
+#   Retorna 1 se .runner persistir em disco após a limpeza (caso raro de
+#   permissão/IO); 0 nos demais casos (inclusive remove remoto falhar —
+#   a limpeza local é suficiente pra destravar o re-registro).
 runner_remove_registration() {
-    local dir="$1" token="$2"
-    info "Removendo registro local (config.sh remove)..."
-    if (cd "$dir" && ./config.sh remove --token "$token") 2>/dev/null; then
-        ok "config remove"
-    else
-        warn "config remove (404 esperado se runner já foi auto-removido)"
+    local dir="$1" owner="$2" repo="$3"
+    info "Removendo registro do runner..."
+
+    # Camada 1: detectar estado remoto
+    local remote_json remote_total remote_known="no"
+    remote_json=$(runner_query_api "$owner" "$repo")
+    if [ -n "$remote_json" ]; then
+        remote_known="yes"
+        if command -v jq >/dev/null 2>&1; then
+            remote_total=$(printf '%s' "$remote_json" | jq -r '.total_count // empty' 2>/dev/null)
+        else
+            remote_total=$(printf '%s' "$remote_json" | sed -n 's/.*"total_count"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)
+        fi
     fi
+
+    if [ "$remote_known" = "yes" ] && [ "$remote_total" = "0" ]; then
+        info "Runner já removido remotamente (total_count=0) — pulando config.sh remove"
+    else
+        # Camada 2: tentar remove-token via API
+        local remove_token=""
+        remove_token=$(runner_get_remove_token "$owner" "$repo")
+        if [ -n "$remove_token" ]; then
+            if (cd "$dir" && ./config.sh remove --token "$remove_token"); then
+                ok "config.sh remove (com remove-token da API)"
+            else
+                warn "config.sh remove falhou mesmo com remove-token — caindo no fallback de limpeza local"
+            fi
+        else
+            if [ "$remote_known" = "yes" ]; then
+                warn "Sem credencial pra obter remove-token (gh/GH_TOKEN) — caindo no fallback local"
+            else
+                warn "API GitHub indisponível pra checar estado remoto — caindo no fallback local"
+            fi
+        fi
+    fi
+
+    # Camada 3: limpeza local determinística (sempre executada)
+    rm -f "$dir/.runner" "$dir/.credentials" "$dir/.credentials_rsaparams"
+    if [ -f "$dir/.runner" ]; then
+        printf "ERRO: não foi possível remover %s/.runner — verifique permissões.\n" "$dir" >&2
+        return 1
+    fi
+    ok "Registro local removido (.runner + .credentials*)"
 }
 
 # runner_service_status_active RUNNER_DIR

@@ -534,6 +534,16 @@ Causa: política do GitHub remove automaticamente self-hosted runners offline h�
 
 > O recover é **idempotente** — `svc.sh uninstall` (passo 2 da sequência interna do recover) emite warn se o serviço já estava ausente; cobre o caso da VM ter `.runner` presente + serviço systemd ausente.
 
+> **Atenção a versões antigas (anteriores à [issue #63](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/63))** — em pulls que ainda não trazem o fix, o cenário A/A2 podia travar com a mensagem `Cannot configure the runner because it is already configured. To reconfigure the runner, run 'config.cmd remove' or './config.sh remove' first.` Causa: a etapa interna de remoção do registro usava o registration-token em `config.sh remove` (que precisa de remove-token), falhava em silêncio, deixava o `.runner` órfão e o `./config.sh` subsequente abortava mesmo com `--replace`. **Workaround manual** (somente em versões antigas, sem o fix de #63 mergeado):
+>
+> ```bash
+> sudo systemctl stop 'actions.runner.*' 2>/dev/null
+> rm -f ~/actions-runner/.runner ~/actions-runner/.credentials ~/actions-runner/.credentials_rsaparams
+> bash siscan-runner-recover.sh --token <REG-TOKEN-NOVO>
+> ```
+>
+> Após o fix, o recover cobre automaticamente: detecta `total_count=0`, pula `config.sh remove`, garante limpeza local determinística do `.runner+.credentials*` e re-registra em um passo.
+
 ---
 
 ### Problema 7 — Runner offline > 30 dias (regra de auto-update)
