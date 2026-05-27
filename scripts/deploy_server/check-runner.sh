@@ -213,10 +213,17 @@ fi
 # Veredito por categoria — sem JSON externo (essa lógica é específica do specialist)
 # ────────────────────────────────────────────────────────────────────────────
 # Como os checks são heterogêneos, dou um veredito global simples.
-if [ "$FAIL_COUNT" -eq 0 ]; then
-    print_category_guidance ok "Runner saudável: instalado, ativo, registrado no GitHub, atualizado recentemente. Próximo passo: nada — o runner pega jobs normalmente."
-else
+if [ "$FAIL_COUNT" -gt 0 ]; then
     print_category_guidance fail "Pelo menos um aspecto do runner está com problema. AÇÃO: dependendo do FAIL acima, rode 'siscan-runner-recover.sh' (cobre auto-removal e regra dos 30 dias) ou 'siscan-server-setup.sh' (se runner nunca foi instalado)."
+elif [ "${SKIPPED_COUNT:-0}" -gt 0 ]; then
+    # Fix Copilot review PR #67: quando há SKIPPED + 0 FAIL, dizer "runner
+    # saudável + registrado no GitHub" é falso-positivo — o check remoto
+    # provavelmente foi pulado por falta de credencial (gh CLI/GH_TOKEN/PAT).
+    # Veredito diferenciado evita que o operador conclua erroneamente que
+    # o registro remoto foi validado quando na verdade nem foi consultado.
+    print_category_guidance warn "Runner aparentemente saudável localmente, mas $SKIPPED_COUNT check(s) foi/foram pulado(s) — provavelmente o registro remoto no GitHub não foi validado por falta de credencial. AÇÃO: defina GH_TOKEN ou PAT (com scope 'repo') e re-execute para confirmar; ou inspecione manualmente via 'gh api repos/<owner>/<repo>/actions/runners'."
+else
+    print_category_guidance ok "Runner saudável: instalado, ativo, registrado no GitHub, atualizado recentemente. Próximo passo: nada — o runner pega jobs normalmente."
 fi
 
 render_results

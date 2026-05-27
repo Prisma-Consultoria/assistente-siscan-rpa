@@ -279,10 +279,14 @@ _print_live_result() {
             esac
             ;;
         quiet)
+            # Contrato `quiet` = fail-only no stdout (cron/monitoramento espera
+            # silêncio quando tudo OK). SKIPPED é não-bloqueante → não imprime
+            # em quiet pra evitar ruído/alarmes falsos em automações que
+            # tratam qualquer saída como problema. Visibilidade do SKIPPED
+            # fica em human (resumo) e json (sumário com `"skipped": N`).
             case "$status" in
-                fail)    printf "FAIL [%s] %s/%s %s: %s\n" "$SPECIALIST_NAME" "$proto" "$port" "$target" "$detail" ;;
-                skipped) printf "SKIPPED [%s] %s/%s %s: %s\n" "$SPECIALIST_NAME" "$proto" "$port" "$target" "$detail" ;;
-                ok)      : ;;  # silenciado em quiet
+                fail)        printf "FAIL [%s] %s/%s %s: %s\n" "$SPECIALIST_NAME" "$proto" "$port" "$target" "$detail" ;;
+                ok|skipped)  : ;;
             esac
             ;;
         json)

@@ -98,10 +98,23 @@ setup() {
     assert_success
 }
 
-@test "Issue #66: emite mensagem 'SKIPPED [specialist] ...' em modo quiet" {
+@test "Modo quiet: SKIPPED silenciado (contrato fail-only honrado)" {
+    # Revisão Copilot PR #67: quiet mantém contrato "fail-only no stdout"
+    # (cron/monitoramento espera silêncio quando tudo OK). SKIPPED é
+    # não-bloqueante → não imprime em quiet pra evitar ruído/alarmes
+    # falsos em automações. Visibilidade do SKIPPED fica em human
+    # (resumo) e json (sumário com "skipped": N).
     OUTPUT_MODE=quiet
     run add_skipped "Registro remoto no GitHub" api 0 "API GitHub" "sem credencial"
     assert_success
-    assert_output --partial "SKIPPED [test-skipped]"
-    assert_output --partial "API GitHub"
+    refute_output --partial "SKIPPED"
+    refute_output --partial "API GitHub"
+}
+
+@test "Modo quiet: FAIL ainda é emitido (contrato preservado)" {
+    OUTPUT_MODE=quiet
+    run add_fail "categoria" proto 0 "alvo" "mensagem de falha"
+    assert_success
+    assert_output --partial "FAIL [test-skipped]"
+    assert_output --partial "mensagem de falha"
 }
