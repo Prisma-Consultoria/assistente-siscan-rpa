@@ -6,8 +6,13 @@
 #   2. Remove-token API — runner remoto presente + credencial disponível.
 #   3. Fallback local   — sem credencial ou config.sh remove falhou.
 #
-# A camada 3 (rm -f dos arquivos locais) é exercida em todos os cenários:
-# .runner + .credentials + .credentials_rsaparams devem terminar ausentes.
+# A camada 3 delega para runner_purge_local_config e deve deixar todos os
+# 5 artefatos locais ausentes:
+#   .runner, .runner_migrated, .credentials, .credentials_rsaparams, .path
+#
+# .runner_migrated (lab #220 — 2026-05-27): cópia gerada por auto-update do
+# runner que, quando .runner é removido manualmente, segura o flag "já
+# configurado" do Runner.Listener e faz config.sh --replace falhar.
 
 load '../test_helper/bats-support/load'
 load '../test_helper/bats-assert/load'
@@ -23,11 +28,14 @@ setup() {
     # Source da biblioteca sob teste
     source "${BATS_TEST_DIRNAME}/../../scripts/deploy_server/_runner.sh"
 
-    # Diretório de runner sintético com os 3 arquivos do registro local
+    # Diretório de runner sintético com os 5 arquivos do registro local
+    # (inclui .runner_migrated e .path — ver runner_purge_local_config)
     RUNNER_DIR="$(mktemp -d)"
     touch "${RUNNER_DIR}/.runner" \
+          "${RUNNER_DIR}/.runner_migrated" \
           "${RUNNER_DIR}/.credentials" \
-          "${RUNNER_DIR}/.credentials_rsaparams"
+          "${RUNNER_DIR}/.credentials_rsaparams" \
+          "${RUNNER_DIR}/.path"
     # Stub do config.sh — registra args recebidos em $CONFIG_LOG e fail/pass
     # controlados por CONFIG_REMOVE_EXIT (default 0)
     CONFIG_LOG="$(mktemp)"
@@ -61,8 +69,10 @@ teardown() {
     assert_success
 
     [ ! -f "${RUNNER_DIR}/.runner" ]
+    [ ! -f "${RUNNER_DIR}/.runner_migrated" ]
     [ ! -f "${RUNNER_DIR}/.credentials" ]
     [ ! -f "${RUNNER_DIR}/.credentials_rsaparams" ]
+    [ ! -f "${RUNNER_DIR}/.path" ]
     # config.sh remove não deve ter sido invocado
     [ ! -s "${CONFIG_LOG}" ]
 }
@@ -85,8 +95,10 @@ teardown() {
     grep -q '^AAAAREMOVETOKENBBBB$' "${CONFIG_LOG}"
     # Limpeza local mantida (camada 3 sempre executa)
     [ ! -f "${RUNNER_DIR}/.runner" ]
+    [ ! -f "${RUNNER_DIR}/.runner_migrated" ]
     [ ! -f "${RUNNER_DIR}/.credentials" ]
     [ ! -f "${RUNNER_DIR}/.credentials_rsaparams" ]
+    [ ! -f "${RUNNER_DIR}/.path" ]
 }
 
 @test "Camada 2: config.sh remove falha — fallback local ainda limpa arquivos" {
@@ -101,8 +113,10 @@ teardown() {
     grep -q '^remove$' "${CONFIG_LOG}"
     # E os arquivos locais foram removidos no fallback
     [ ! -f "${RUNNER_DIR}/.runner" ]
+    [ ! -f "${RUNNER_DIR}/.runner_migrated" ]
     [ ! -f "${RUNNER_DIR}/.credentials" ]
     [ ! -f "${RUNNER_DIR}/.credentials_rsaparams" ]
+    [ ! -f "${RUNNER_DIR}/.path" ]
 }
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -120,8 +134,10 @@ teardown() {
     [ ! -s "${CONFIG_LOG}" ]
     # Mas limpeza local ocorreu
     [ ! -f "${RUNNER_DIR}/.runner" ]
+    [ ! -f "${RUNNER_DIR}/.runner_migrated" ]
     [ ! -f "${RUNNER_DIR}/.credentials" ]
     [ ! -f "${RUNNER_DIR}/.credentials_rsaparams" ]
+    [ ! -f "${RUNNER_DIR}/.path" ]
 }
 
 @test "Camada 3: remote presente mas sem credencial pra remove-token — limpa local" {
@@ -145,8 +161,10 @@ teardown() {
     export -f runner_query_api runner_get_remove_token
 
     rm -f "${RUNNER_DIR}/.runner" \
+          "${RUNNER_DIR}/.runner_migrated" \
           "${RUNNER_DIR}/.credentials" \
-          "${RUNNER_DIR}/.credentials_rsaparams"
+          "${RUNNER_DIR}/.credentials_rsaparams" \
+          "${RUNNER_DIR}/.path"
 
     run runner_remove_registration "${RUNNER_DIR}" "owner" "repo"
     assert_success
@@ -183,8 +201,109 @@ teardown() {
     run runner_remove_registration "${RUNNER_DIR}" "owner" "repo"
     assert_success
     [ ! -f "${RUNNER_DIR}/.runner" ]
+    [ ! -f "${RUNNER_DIR}/.runner_migrated" ]
     [ ! -f "${RUNNER_DIR}/.credentials" ]
     [ ! -f "${RUNNER_DIR}/.credentials_rsaparams" ]
+    [ ! -f "${RUNNER_DIR}/.path" ]
     # E config.sh remove (que falharia com registration-token) não foi chamado
     [ ! -s "${CONFIG_LOG}" ]
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# runner_purge_local_config — função standalone (lab #220 — 2026-05-27)
+# ────────────────────────────────────────────────────────────────────────────
+
+@test "runner_purge_local_config: remove os 5 artefatos locais" {
+    # Pré-condição: os 5 arquivos existem (criados em setup)
+    [ -f "${RUNNER_DIR}/.runner" ]
+    [ -f "${RUNNER_DIR}/.runner_migrated" ]
+    [ -f "${RUNNER_DIR}/.credentials" ]
+    [ -f "${RUNNER_DIR}/.credentials_rsaparams" ]
+    [ -f "${RUNNER_DIR}/.path" ]
+
+    run runner_purge_local_config "${RUNNER_DIR}"
+    assert_success
+
+    [ ! -f "${RUNNER_DIR}/.runner" ]
+    [ ! -f "${RUNNER_DIR}/.runner_migrated" ]
+    [ ! -f "${RUNNER_DIR}/.credentials" ]
+    [ ! -f "${RUNNER_DIR}/.credentials_rsaparams" ]
+    [ ! -f "${RUNNER_DIR}/.path" ]
+}
+
+@test "runner_purge_local_config: idempotente — diretório já limpo retorna 0" {
+    rm -f "${RUNNER_DIR}/.runner" \
+          "${RUNNER_DIR}/.runner_migrated" \
+          "${RUNNER_DIR}/.credentials" \
+          "${RUNNER_DIR}/.credentials_rsaparams" \
+          "${RUNNER_DIR}/.path"
+
+    run runner_purge_local_config "${RUNNER_DIR}"
+    assert_success
+}
+
+@test "runner_purge_local_config: preserva .env e .service (não toca em config persistido)" {
+    # .env carrega COMPOSE_DIR e flags do setup; .service é marker do
+    # systemd unit gerenciado por svc.sh. Nenhum dos dois pode ser apagado
+    # pela função (sob pena de quebrar o próximo run do recover/setup).
+    echo "COMPOSE_DIR=/srv/foo" > "${RUNNER_DIR}/.env"
+    echo "actions.runner.foo.service" > "${RUNNER_DIR}/.service"
+
+    run runner_purge_local_config "${RUNNER_DIR}"
+    assert_success
+
+    [ -f "${RUNNER_DIR}/.env" ]
+    [ -f "${RUNNER_DIR}/.service" ]
+    # Conteúdo intacto
+    grep -q "COMPOSE_DIR=/srv/foo" "${RUNNER_DIR}/.env"
+    grep -q "actions.runner.foo.service" "${RUNNER_DIR}/.service"
+}
+
+@test "runner_purge_local_config: cenário lab #220 — só .runner_migrated impede config.sh --replace" {
+    # Reproduz a situação real do lab: operadora apagou manualmente .runner
+    # + .credentials*, mas .runner_migrated (gerado por auto-update) ficou
+    # e fez config.sh --replace falhar com "already configured".
+    # Após o purge, o diretório fica de fato limpo pra novo register.
+    rm -f "${RUNNER_DIR}/.runner" \
+          "${RUNNER_DIR}/.credentials" \
+          "${RUNNER_DIR}/.credentials_rsaparams"
+    # .runner_migrated permanece — esse é o ponto da regressão
+    [ -f "${RUNNER_DIR}/.runner_migrated" ]
+
+    run runner_purge_local_config "${RUNNER_DIR}"
+    assert_success
+    [ ! -f "${RUNNER_DIR}/.runner_migrated" ]
+}
+
+@test "runner_purge_local_config: RUNNER_DIR vazio retorna 1 (guarda contra option injection)" {
+    # Revisão Copilot PR #69: dir vazio em rm -f sem `--` poderia interpretar
+    # próximos args como flags. A guarda explícita curto-circuita antes.
+    run runner_purge_local_config ""
+    assert_failure
+    assert_output --partial "RUNNER_DIR não informado"
+}
+
+@test "runner_purge_local_config: falha de IO em .path também é detectada (contrato 5 arquivos)" {
+    # Revisão Copilot PR #69: header diz "purga 5 artefatos"; antes só .runner
+    # e .runner_migrated eram checados — .path/.credentials* falhando
+    # silenciosamente retornava 0. Agora os 5 são verificados.
+    rm() { :; }
+    export -f rm
+
+    [ -f "${RUNNER_DIR}/.path" ]
+    run runner_purge_local_config "${RUNNER_DIR}"
+    assert_failure
+    assert_output --partial ".path"
+}
+
+@test "runner_purge_local_config: falha de IO em .runner_migrated retorna 1" {
+    # Override de rm como no-op: simula falha de permissão/IO. A função
+    # deve detectar e retornar 1 em vez de silenciar.
+    rm() { :; }
+    export -f rm
+
+    [ -f "${RUNNER_DIR}/.runner_migrated" ]
+
+    run runner_purge_local_config "${RUNNER_DIR}"
+    assert_failure
 }

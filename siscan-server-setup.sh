@@ -721,6 +721,14 @@ esac
 
 # Estado 2 → 3: registro com URL + token interativo.
 if [ "${RUNNER_STATE}" = "2" ]; then
+    # Pré-purge defensiva: runner_get_state olha só .runner, mas auto-update
+    # cria .runner_migrated (cópia 1:1 do .runner). Se .runner_migrated
+    # persistir, config.sh --unattended --replace falha com "already
+    # configured". Cenário possível em reinstalação (volume reaproveitado).
+    # Idempotente — seguro mesmo numa instalação greenfield.
+    runner_purge_local_config "${RUNNER_DIR}" \
+        || fail "Falha ao limpar artefatos residuais (.runner_migrated/.path) — verifique permissões em ${RUNNER_DIR}."
+
     printf "\n${WHITE}  Registro do runner no repositório GitHub${NC}\n\n"
     printf "  O token de registro é gerado em:\n"
     printf "  ${CYAN}Settings → Actions → Runners → New self-hosted runner${NC}\n\n"

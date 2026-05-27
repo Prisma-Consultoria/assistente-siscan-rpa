@@ -393,14 +393,64 @@ runner_uninstall_service() {
     fi
 }
 
+# runner_purge_local_config RUNNER_DIR
+#   Apaga TODOS os artefatos locais de configuração do runner que podem
+#   ser lidos pelo Runner.Listener como "ainda configurado". Lista
+#   exaustiva (5 arquivos):
+#     - .runner                — config principal (agentId, gitHubUrl, serverUrl)
+#     - .runner_migrated       — cópia gerada por auto-update (≥ 2.334 lê como
+#                                evidência de "configurado" se .runner sumiu)
+#     - .credentials           — JWT do runner
+#     - .credentials_rsaparams — chave RSA para rotação de credenciais
+#     - .path                  — work folder path (lixo residual após uninstall)
+#
+#   NÃO toca em .env (variáveis persistidas via setup, ex.: COMPOSE_DIR) nem
+#   em .service (marker da unit systemd — gerenciado por svc.sh install/uninstall).
+#
+#   Idempotente: silencioso quando arquivos já estão ausentes.
+#   Retorna 1 se RUNNER_DIR vier vazio, ou se algum dos 5 artefatos persistir
+#   em disco após a limpeza (caso raro de permissão/IO), permitindo fail-fast
+#   no caller.
+runner_purge_local_config() {
+    local dir="$1"
+    # Guarda contra invocação sem RUNNER_DIR ou com path começando com "-"
+    # (rm interpretaria como flag): mensagem neutra, prefixo "ERRO:" é
+    # responsabilidade do fail() do caller.
+    if [ -z "$dir" ]; then
+        printf "runner_purge_local_config: RUNNER_DIR não informado\n" >&2
+        return 1
+    fi
+    # `--` impede que valores começando com `-` virem option para rm.
+    rm -f -- "$dir/.runner" \
+             "$dir/.runner_migrated" \
+             "$dir/.credentials" \
+             "$dir/.credentials_rsaparams" \
+             "$dir/.path"
+    # Verifica os 5 artefatos — contrato é "todos foram apagados",
+    # então qualquer resíduo (ex.: .path sem permissão) é falha.
+    local f leftover=""
+    for f in .runner .runner_migrated .credentials .credentials_rsaparams .path; do
+        if [ -e "$dir/$f" ]; then
+            leftover="${leftover:+$leftover, }$f"
+        fi
+    done
+    if [ -n "$leftover" ]; then
+        printf "não foi possível remover artefatos do runner em %s: %s — verifique permissões.\n" \
+            "$dir" "$leftover" >&2
+        return 1
+    fi
+    return 0
+}
+
 # runner_remove_registration RUNNER_DIR OWNER REPO
 #   Remove o registro do runner em três camadas, de cima pra baixo:
 #     1. Se o runner já não existe remotamente (total_count=0), pula
 #        config.sh remove — não há nada a desregistrar no GitHub.
 #     2. Caso contrário, tenta obter remove-token via API (endpoint distinto
 #        do registration-token) e usa ./config.sh remove --token <remove>.
-#     3. Sempre encerra com `rm -f` dos arquivos locais de registro
-#        (.runner, .credentials, .credentials_rsaparams). Idempotente.
+#     3. Sempre encerra com `runner_purge_local_config` — apaga os 5
+#        artefatos locais (.runner, .runner_migrated, .credentials,
+#        .credentials_rsaparams, .path).
 #   Sem este fallback determinístico, registration-token passado a
 #   config.sh remove falha em silêncio e deixa .runner órfão — quebra
 #   o cenário A/A2 do recover com "Cannot configure the runner because it
@@ -449,13 +499,12 @@ runner_remove_registration() {
         fi
     fi
 
-    # Camada 3: limpeza local determinística (sempre executada)
-    rm -f "$dir/.runner" "$dir/.credentials" "$dir/.credentials_rsaparams"
-    if [ -f "$dir/.runner" ]; then
-        printf "ERRO: não foi possível remover %s/.runner — verifique permissões.\n" "$dir" >&2
-        return 1
-    fi
-    ok "Registro local removido (.runner + .credentials*)"
+    # Camada 3: limpeza local determinística (sempre executada).
+    # Inclui .runner_migrated (cópia gerada por auto-update do runner que,
+    # se permanecer, faz config.sh --replace falhar com "already configured")
+    # e .path (resíduo de svc.sh uninstall). Ver runner_purge_local_config.
+    runner_purge_local_config "$dir" || return 1
+    ok "Registro local removido (.runner + .runner_migrated + .credentials* + .path)"
 }
 
 # runner_service_status_active RUNNER_DIR
