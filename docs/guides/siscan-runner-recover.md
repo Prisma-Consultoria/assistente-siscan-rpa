@@ -233,10 +233,18 @@ gh api repos/<owner>/<repo>/actions/runners → total_count: 0
 |---|---|---|---|
 | 1 | `./svc.sh stop` | sim — `warn` se já parado | sim |
 | 2 | `./svc.sh uninstall` | sim — `warn` se já desinstalado | sim |
-| 3 | `./config.sh remove --token "$TOKEN"` | sim — `warn` se 404 (esperado) | não |
+| 3 | `runner_remove_registration` — estratégia em 3 camadas (ver detalhes abaixo) | sim — sempre encerra com `.runner` ausente | não |
 | 4 | `./config.sh --url $REPO --token $TOKEN --name $EXPECTED_NAME --labels $RUNNER_LABEL --unattended --replace` | sim — `--replace` sobrescreve | não |
 | 5 | `./svc.sh install $CURRENT_USER` | recria | sim |
 | 6 | `./svc.sh start` | recria | sim |
+
+> **Detalhe do passo 3 — `runner_remove_registration`** (corrigido na [issue #63](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/63)):
+>
+> 1. **Camada 1 — atalho remoto**: consulta `gh api repos/<owner>/<repo>/actions/runners`. Se `total_count == 0`, o runner já não existe no GitHub (auto-removal); o `config.sh remove` é pulado.
+> 2. **Camada 2 — remove-token via API**: se o runner ainda existe remotamente e há credencial disponível (`gh` autenticado ou `GH_TOKEN`/`PAT`), o script obtém um **remove-token dedicado** via `POST /actions/runners/remove-token` (endpoint distinto do registration-token) e usa-o em `./config.sh remove --token <remove-token>`.
+> 3. **Camada 3 — limpeza local determinística**: sempre executa `rm -f .runner .credentials .credentials_rsaparams` ao final. Garante que o `.runner` nunca fica órfão (sintoma do bug original: *"Cannot configure the runner because it is already configured"* na etapa 4 seguinte, com `--replace` ignorado).
+>
+> Antes do fix, o passo 3 usava o registration-token em `config.sh remove` (endpoint errado), a remoção falhava em silêncio, e o passo 4 abortava — cenário A/A2 nunca destravava automaticamente.
 
 **Estado da VM após sucesso**:
 - `~/actions-runner/.runner` regenerado com `id` novo e timestamp atual.
@@ -254,7 +262,7 @@ gh api repos/<owner>/<repo>/actions/runners → total_count: 0
         Token: ****
         →  Parando serviço do runner...                  → svc.sh stop
         →  Desinstalando serviço systemd...              → svc.sh uninstall
-        →  Removendo registro local (config.sh remove)...→ config remove
+        →  Removendo registro do runner...               → Registro local removido (.runner + .credentials*)
         →  Registrando runner (name=..., label=...)...   → Runner registrado
         →  Instalando runner como serviço systemd...     → svc.sh install
         →  Iniciando serviço do runner...                → svc.sh start

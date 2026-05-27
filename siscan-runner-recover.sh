@@ -340,7 +340,11 @@ case "$scenario" in
         prompt_token_if_needed
         runner_stop_service "$RUNNER_DIR"
         runner_uninstall_service "$RUNNER_DIR"
-        runner_remove_registration "$RUNNER_DIR" "$TOKEN"
+        # Issue #63: passar OWNER+REPO em vez do registration-token. A função
+        # detecta estado remoto, obtém remove-token via API quando aplicável,
+        # e sempre garante limpeza local de .runner+.credentials*.
+        runner_remove_registration "$RUNNER_DIR" "$REPO_OWNER" "$REPO_NAME" \
+            || fail "Não foi possível limpar o registro local do runner em $RUNNER_DIR. Verifique permissões em .runner / .credentials* e re-execute."
         runner_register "$RUNNER_DIR" "$REPO_URL" "$TOKEN" "$EXPECTED_NAME" "$RUNNER_LABEL" \
             || fail "Falha no config.sh — verifique o token (expira em poucos minutos) e a URL do repo."
         runner_install_service "$RUNNER_DIR" "$CURRENT_USER" \
