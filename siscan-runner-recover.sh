@@ -318,7 +318,15 @@ case "$scenario" in
         ;;
 
     2)
-        # Binários presentes, .runner ausente
+        # Binários presentes, .runner ausente.
+        # Pré-purge: o runner_get_state olha só .runner, mas auto-update
+        # cria .runner_migrated (cópia 1:1 do .runner). Se .runner_migrated
+        # persistir, config.sh --unattended --replace falha com "already
+        # configured" porque o Runner.Listener lê o migrated como evidência
+        # de configuração ativa. Purge é idempotente — seguro mesmo quando
+        # os artefatos já estão ausentes.
+        runner_purge_local_config "$RUNNER_DIR" \
+            || fail "Falha ao limpar artefatos residuais (.runner_migrated/.path) — verifique permissões em $RUNNER_DIR."
         prompt_token_if_needed
         runner_register "$RUNNER_DIR" "$REPO_URL" "$TOKEN" "$EXPECTED_NAME" "$RUNNER_LABEL" \
             || fail "Falha ao registrar o runner."
