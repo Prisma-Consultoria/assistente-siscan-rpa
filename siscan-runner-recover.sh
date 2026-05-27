@@ -197,6 +197,16 @@ if [ "$FORCE_DOWNLOAD_BINARIES" = "true" ] && [ "$LOCAL_STATE" != "N/A" ] && [ "
     LOCAL_STATE=1
 fi
 
+# Auto-detecção de obsolescência via mtime (TSK00.04.02). Só dispara se
+# a flag manual não promoveu pra 1 ainda e o classificador disse que tem
+# binários. Threshold default 30 dias — ajustável via RUNNER_OBSOLETE_DAYS.
+if [ "$LOCAL_STATE" != "N/A" ] && [ "$LOCAL_STATE" != "1" ]; then
+    if runner_binaries_likely_obsolete "$RUNNER_DIR"; then
+        warn "Binários do runner aparentam obsoletos (mtime > ${RUNNER_OBSOLETE_DAYS:-30}d) — forçando re-download"
+        LOCAL_STATE=1
+    fi
+fi
+
 # ────────────────────────────────────────────────────────────────────────────
 # 3. Pré-flight via doctor (não inclui check-runner — é o que vamos consertar)
 # ────────────────────────────────────────────────────────────────────────────

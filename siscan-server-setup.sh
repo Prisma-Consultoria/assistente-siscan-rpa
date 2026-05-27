@@ -717,6 +717,16 @@ if [ "${FORCE_DOWNLOAD_BINARIES}" = "true" ] && [ "${RUNNER_STATE}" != "N/A" ] &
     RUNNER_STATE=1
 fi
 
+# Auto-detecção de obsolescência via mtime (TSK00.04.02). Reinstalação em
+# volume com binários antigos no disco — pega o mesmo caso da flag manual,
+# mas sem precisar o operador decidir explicitamente. Default 30d.
+if [ "${RUNNER_STATE}" != "N/A" ] && [ "${RUNNER_STATE}" != "1" ]; then
+    if runner_binaries_likely_obsolete "${RUNNER_DIR}"; then
+        warn "Binários do runner aparentam obsoletos (mtime > ${RUNNER_OBSOLETE_DAYS:-30}d) — forçando re-download"
+        RUNNER_STATE=1
+    fi
+fi
+
 # Bootstrap incremental: N/A e 1 precisam de download.
 case "${RUNNER_STATE}" in
     N/A|1)

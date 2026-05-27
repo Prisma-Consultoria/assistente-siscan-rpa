@@ -64,6 +64,46 @@ runner_validate_binaries() {
     return 0
 }
 
+# runner_binaries_likely_obsolete RUNNER_DIR [THRESHOLD_DAYS]
+#   Heurística mtime-based para sinalizar que os binários do runner
+#   podem estar fora da janela de TLS suportada por api.github.com.
+#
+#   Retorna 0 (= obsoleto) se mtime de bin/Runner.Listener é mais antigo
+#   que THRESHOLD_DAYS dias. Retorna 1 (= fresco ou indeterminado) caso
+#   contrário, ou se o arquivo não existe.
+#
+#   Resolução do threshold (precedência decrescente):
+#     1. Argumento posicional THRESHOLD_DAYS (se passado e não-vazio)
+#     2. Variável de ambiente RUNNER_OBSOLETE_DAYS
+#     3. Default 30
+#
+#   Critério adotado em TSK00.04.02 (opção A — mtime, ver comentário
+#   da issue para análise de A/B/C/D com prós e contras). Default 30d
+#   ancorado na evidência operacional do lab 2026-05-27: Runner.Listener
+#   com mtime de ~36d falhou TLS handshake mesmo com curl do sistema OK.
+#
+#   Limitações conscientes:
+#     - mtime é proxy imperfeito: rsync -t, cp -p, tar --preserve-times,
+#       e restore de snapshot preservam o mtime original → falso positivo
+#       em VMs restauradas
+#     - Falso positivo custa 1 download extra (~50MB, ~30s) — idempotente
+#     - Falso negativo se algum processo `touch`-ou o arquivo recentemente
+#
+#   Escapes operacionais:
+#     - Flag --force-download-binaries (TSK00.04.01) override total
+#     - Env RUNNER_OBSOLETE_DAYS pra ajustar threshold sem code change
+runner_binaries_likely_obsolete() {
+    local dir="$1"
+    local threshold="${2:-${RUNNER_OBSOLETE_DAYS:-30}}"
+    local file="$dir/bin/Runner.Listener"
+    [ -f "$file" ] || return 1
+    local mtime now age_days
+    mtime=$(stat -c %Y "$file" 2>/dev/null) || return 1
+    now=$(date +%s)
+    age_days=$(( (now - mtime) / 86400 ))
+    [ "$age_days" -gt "$threshold" ]
+}
+
 # runner_validate_dot_runner RUNNER_DIR
 #   Retorna 0 se .runner existe (sinal de runner já registrado no GitHub).
 runner_validate_dot_runner() {
