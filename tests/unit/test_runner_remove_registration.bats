@@ -275,9 +275,30 @@ teardown() {
     [ ! -f "${RUNNER_DIR}/.runner_migrated" ]
 }
 
+@test "runner_purge_local_config: RUNNER_DIR vazio retorna 1 (guarda contra option injection)" {
+    # Revisão Copilot PR #69: dir vazio em rm -f sem `--` poderia interpretar
+    # próximos args como flags. A guarda explícita curto-circuita antes.
+    run runner_purge_local_config ""
+    assert_failure
+    assert_output --partial "RUNNER_DIR não informado"
+}
+
+@test "runner_purge_local_config: falha de IO em .path também é detectada (contrato 5 arquivos)" {
+    # Revisão Copilot PR #69: header diz "purga 5 artefatos"; antes só .runner
+    # e .runner_migrated eram checados — .path/.credentials* falhando
+    # silenciosamente retornava 0. Agora os 5 são verificados.
+    rm() { :; }
+    export -f rm
+
+    [ -f "${RUNNER_DIR}/.path" ]
+    run runner_purge_local_config "${RUNNER_DIR}"
+    assert_failure
+    assert_output --partial ".path"
+}
+
 @test "runner_purge_local_config: falha de IO em .runner_migrated retorna 1" {
     # Override de rm como no-op: simula falha de permissão/IO. A função
-    # deve detectar via `[ -e ... ]` e retornar 1 em vez de silenciar.
+    # deve detectar e retornar 1 em vez de silenciar.
     rm() { :; }
     export -f rm
 

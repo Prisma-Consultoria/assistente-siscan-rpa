@@ -408,17 +408,35 @@ runner_uninstall_service() {
 #   em .service (marker da unit systemd — gerenciado por svc.sh install/uninstall).
 #
 #   Idempotente: silencioso quando arquivos já estão ausentes.
-#   Retorna 1 se .runner persistir em disco após a limpeza (caso raro de
-#   permissão/IO), permitindo fail-fast no caller.
+#   Retorna 1 se RUNNER_DIR vier vazio, ou se algum dos 5 artefatos persistir
+#   em disco após a limpeza (caso raro de permissão/IO), permitindo fail-fast
+#   no caller.
 runner_purge_local_config() {
     local dir="$1"
-    rm -f "$dir/.runner" \
-          "$dir/.runner_migrated" \
-          "$dir/.credentials" \
-          "$dir/.credentials_rsaparams" \
-          "$dir/.path"
-    if [ -e "$dir/.runner" ] || [ -e "$dir/.runner_migrated" ]; then
-        printf "ERRO: não foi possível remover .runner/.runner_migrated em %s — verifique permissões.\n" "$dir" >&2
+    # Guarda contra invocação sem RUNNER_DIR ou com path começando com "-"
+    # (rm interpretaria como flag): mensagem neutra, prefixo "ERRO:" é
+    # responsabilidade do fail() do caller.
+    if [ -z "$dir" ]; then
+        printf "runner_purge_local_config: RUNNER_DIR não informado\n" >&2
+        return 1
+    fi
+    # `--` impede que valores começando com `-` virem option para rm.
+    rm -f -- "$dir/.runner" \
+             "$dir/.runner_migrated" \
+             "$dir/.credentials" \
+             "$dir/.credentials_rsaparams" \
+             "$dir/.path"
+    # Verifica os 5 artefatos — contrato é "todos foram apagados",
+    # então qualquer resíduo (ex.: .path sem permissão) é falha.
+    local f leftover=""
+    for f in .runner .runner_migrated .credentials .credentials_rsaparams .path; do
+        if [ -e "$dir/$f" ]; then
+            leftover="${leftover:+$leftover, }$f"
+        fi
+    done
+    if [ -n "$leftover" ]; then
+        printf "não foi possível remover artefatos do runner em %s: %s — verifique permissões.\n" \
+            "$dir" "$leftover" >&2
         return 1
     fi
     return 0
