@@ -36,10 +36,32 @@ _RUNNER_SH_LOADED=1
 # ════════════════════════════════════════════════════════════════════════════
 
 # runner_validate_binaries RUNNER_DIR
-#   Retorna 0 se config.sh e svc.sh presentes e executáveis.
+#   Retorna 0 se a instalação do runner está COMPLETA o suficiente pra
+#   register/install/start funcionarem. Checa quatro artefatos:
+#
+#     - config.sh        — launcher do registro (raiz do RUNNER_DIR)
+#     - svc.sh           — launcher do systemd unit (raiz)
+#     - bin/Runner.Listener — runtime .NET que config.sh exec'a
+#     - externals/       — runtime de actions (node*/bin/node)
+#
+#   Antes do hotfix (lab 2026-05-27, F00.04), a função checava apenas
+#   config.sh + svc.sh. Resultado: `rm -rf bin/ externals/` (workaround
+#   clássico pra forçar re-download) deixava o classificador em state 2
+#   ("binários presentes"), pulando runner_download_binaries — mas
+#   config.sh quebrava em seguida com `./bin/Runner.Listener: No such
+#   file or directory`. Checar o entry-point real fecha esse buraco.
+#
+#   Mantém-se shallow no nome — não valida versão/idade dos binários.
+#   Esse caso (binários completos mas obsoletos) é coberto pela
+#   auto-detecção da TSK00.04.02 e pela flag --force-download-binaries
+#   da TSK00.04.01.
 runner_validate_binaries() {
     local dir="$1"
-    [ -x "$dir/config.sh" ] && [ -x "$dir/svc.sh" ]
+    [ -x "$dir/config.sh" ]           || return 1
+    [ -x "$dir/svc.sh" ]              || return 1
+    [ -x "$dir/bin/Runner.Listener" ] || return 1
+    [ -d "$dir/externals" ]           || return 1
+    return 0
 }
 
 # runner_validate_dot_runner RUNNER_DIR

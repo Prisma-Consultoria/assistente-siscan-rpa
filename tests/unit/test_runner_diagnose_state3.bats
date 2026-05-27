@@ -1,8 +1,11 @@
 #!/usr/bin/env bats
 # Testes para o tratamento de state=3 no runner_diagnose (issue #65).
 #
-# Estado 3 = binários (config.sh + svc.sh) + .runner presentes,
-#            mas systemd unit ausente (`.service` marker não existe).
+# Estado 3 = binários completos + .runner presentes, mas systemd unit
+#            ausente (`.service` marker não existe).
+#
+# "Binários completos" depois do hotfix de F00.04 inclui: config.sh,
+# svc.sh, bin/Runner.Listener e externals/ — ver runner_validate_binaries.
 #
 # Antes do fix: state=3 mapeava sempre para Cenário C, sem consultar API.
 #               Quando o runner já tinha sido auto-removido remotamente
@@ -23,9 +26,13 @@ setup() {
     source "${BATS_TEST_DIRNAME}/../../scripts/deploy_server/_runner.sh"
 
     RUNNER_DIR="$(mktemp -d)"
-    # State 3: binários + .runner OK, sem .service marker
-    : > "${RUNNER_DIR}/config.sh"; chmod +x "${RUNNER_DIR}/config.sh"
-    : > "${RUNNER_DIR}/svc.sh";    chmod +x "${RUNNER_DIR}/svc.sh"
+    # State 3: binários completos + .runner OK, sem .service marker.
+    # `runner_validate_binaries` exige config.sh + svc.sh + bin/Runner.Listener
+    # + externals/ (hotfix F00.04, 2026-05-27). Faltar qualquer um devolve state 1.
+    : > "${RUNNER_DIR}/config.sh";          chmod +x "${RUNNER_DIR}/config.sh"
+    : > "${RUNNER_DIR}/svc.sh";             chmod +x "${RUNNER_DIR}/svc.sh"
+    mkdir -p "${RUNNER_DIR}/bin" "${RUNNER_DIR}/externals"
+    : > "${RUNNER_DIR}/bin/Runner.Listener"; chmod +x "${RUNNER_DIR}/bin/Runner.Listener"
     : > "${RUNNER_DIR}/.runner"
     # Sanity: state efetivamente é 3
     [ "$(runner_get_state "${RUNNER_DIR}")" = "3" ]
