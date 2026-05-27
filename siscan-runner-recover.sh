@@ -68,6 +68,7 @@ SISCAN_PRODUCT=""
 SKIP_DOCTOR=false
 TOKEN_ARG=""
 PAT_ARG=""
+FORCE_DOWNLOAD_BINARIES=false
 CURRENT_USER="$(whoami)"
 
 usage() {
@@ -84,6 +85,12 @@ Opções:
   --pat PAT                      Personal Access Token (scope 'repo') usado pelo
                                  'run.sh --check' nos ramos B/WARN. Se omitido,
                                  tenta resolver via 'gh auth token' ou prompt interativo.
+  --force-download-binaries      Força re-download dos binários do runner mesmo
+                                 que runner_validate_binaries diga que estão
+                                 presentes. Use quando suspeitar de obsolescência
+                                 (VM long-offline + SSL error em config.sh).
+                                 Equivalente operacional a 'rm -rf bin/ externals/'
+                                 antes de rodar o recover.
   -h, --help                     Esta ajuda
 
 Cenários detectados automaticamente:
@@ -127,6 +134,7 @@ while [ $# -gt 0 ]; do
         --token=*)      TOKEN_ARG="${1#*=}"; shift ;;
         --pat)          _require_value "$@"; PAT_ARG="$2"; shift 2 ;;
         --pat=*)        PAT_ARG="${1#*=}"; shift ;;
+        --force-download-binaries) FORCE_DOWNLOAD_BINARIES=true; shift ;;
         -h|--help)      usage; exit 0 ;;
         *) echo "argumento desconhecido: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -179,6 +187,15 @@ case "$LOCAL_STATE" in
     3)   ok "Binários + .runner OK; systemd unit ausente (estado 3 — cenário decidido em 4/6 com consulta à API)" ;;
     4)   ok "Instalação local completa em $RUNNER_DIR" ;;
 esac
+
+# Override do classificador via --force-download-binaries (TSK00.04.01).
+# Quando o operador suspeita de binários obsoletos (ex.: VM long-offline +
+# SSL error em config.sh), força entrada no caminho de download. Para
+# state N/A o bootstrap já baixa de qualquer forma — não precisa override.
+if [ "$FORCE_DOWNLOAD_BINARIES" = "true" ] && [ "$LOCAL_STATE" != "N/A" ] && [ "$LOCAL_STATE" != "1" ]; then
+    warn "--force-download-binaries ativo: state $LOCAL_STATE → 1 (forçando re-download)"
+    LOCAL_STATE=1
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # 3. Pré-flight via doctor (não inclui check-runner — é o que vamos consertar)
