@@ -425,12 +425,17 @@ runner_install_runtime_deps() {
         return 0
     fi
     info "Instalando runtime deps do SO (libssl/libicu/libkrb5) via installdependencies.sh — requer sudo..."
-    if sudo "$script" >/dev/null 2>&1; then
+    # Silenciamos stdout pra não poluir log do recover com progresso verboso
+    # do apt/yum/dnf ("Reading package lists...", etc.), mas mantemos stderr
+    # visível: quando o install falha em ambiente restritivo (sem rede, proxy
+    # apt quebrado, repositório indisponível, sudo sem permissão), o motivo
+    # real vai pro stderr do apt — operador precisa ver pra remediar.
+    if sudo "$script" >/dev/null; then
         ok "Runtime deps do SO instaladas/validadas"
         return 0
     fi
     warn "installdependencies.sh falhou — config.sh pode quebrar em TLS handshake."
-    warn "  Diagnóstico sugerido: sudo $script (sem redirect, ver mensagem completa)"
+    warn "  Mensagem de erro acima (stderr do apt/yum/dnf) indica a causa."
     return 1
 }
 

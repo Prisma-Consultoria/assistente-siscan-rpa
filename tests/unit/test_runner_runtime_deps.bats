@@ -135,22 +135,78 @@ teardown() {
 # ────────────────────────────────────────────────────────────────────────────
 # Integração — runner_download_binaries chama install + verify
 # ────────────────────────────────────────────────────────────────────────────
+# Revisão Copilot PR #81: teste anterior era tautológico (chamava as 2
+# funções diretamente sem exercitar runner_download_binaries). Esta versão
+# stuba curl + tar pra executar o download de verdade e validar que as
+# callees ficam encadeadas no fluxo. Pega regressão se as linhas pós-
+# extração de _runner.sh forem removidas.
 
-@test "download_binaries chama install_runtime_deps + verify_runtime_deps após extração" {
-    # Testamos só o callback final. Stubamos as funções para registrar
-    # invocação sem precisar simular download/curl/tar reais.
-    INSTALL_CALLED=0
-    VERIFY_CALLED=0
-    runner_install_runtime_deps() { INSTALL_CALLED=1; }
-    runner_verify_runtime_deps()  { VERIFY_CALLED=1; }
+@test "integração: runner_download_binaries chama install + verify após extração com sucesso" {
+    # Markers via tempfile — sobrevivem ao subshell de `run`
+    INSTALL_FLAG="$(mktemp)"; rm -f "$INSTALL_FLAG"
+    VERIFY_FLAG="$(mktemp)"; rm -f "$VERIFY_FLAG"
+    export INSTALL_FLAG VERIFY_FLAG
+
+    runner_install_runtime_deps() { touch "$INSTALL_FLAG"; return 0; }
+    runner_verify_runtime_deps()  { touch "$VERIFY_FLAG";  return 0; }
     export -f runner_install_runtime_deps runner_verify_runtime_deps
 
-    # Substitui o corpo de runner_download_binaries por uma chamada direta
-    # ao trecho que importa: as 2 funções pós-extração. Equivalente a
-    # rodar o final do download.
-    runner_install_runtime_deps "${RUNNER_DIR}" || true
-    runner_verify_runtime_deps "${RUNNER_DIR}" || true
+    # Stub curl: primeira chamada (sem -o) retorna JSON com version pro
+    # pipe grep/sed/head extrair; segunda chamada (com -o tarball) cria
+    # arquivo placeholder.
+    curl() {
+        local out=""
+        while [ $# -gt 0 ]; do
+            if [ "$1" = "-o" ]; then
+                out="$2"; shift 2
+            else
+                shift
+            fi
+        done
+        if [ -n "$out" ]; then
+            : > "$out"
+        else
+            printf '"tag_name": "v2.334.0"\n'
+        fi
+        return 0
+    }
+    export -f curl
 
-    [ "$INSTALL_CALLED" -eq 1 ]
-    [ "$VERIFY_CALLED" -eq 1 ]
+    # Stub tar: extração no-op (não precisa criar arquivo nenhum — as
+    # callees stubadas não verificam conteúdo do dir)
+    tar() { return 0; }
+    export -f tar
+
+    run runner_download_binaries "${RUNNER_DIR}"
+    assert_success
+
+    [ -f "$INSTALL_FLAG" ] || { echo "runner_install_runtime_deps NÃO foi invocado"; return 1; }
+    [ -f "$VERIFY_FLAG" ]  || { echo "runner_verify_runtime_deps NÃO foi invocado"; return 1; }
+
+    rm -f "$INSTALL_FLAG" "$VERIFY_FLAG"
+}
+
+@test "integração: download falha no curl → install/verify NÃO são invocados" {
+    # Confirma que as callees só rodam quando extração foi bem-sucedida.
+    # Sem isso, regressão "deixar install + verify rodarem mesmo em falha"
+    # passaria despercebida.
+    INSTALL_FLAG="$(mktemp)"; rm -f "$INSTALL_FLAG"
+    VERIFY_FLAG="$(mktemp)"; rm -f "$VERIFY_FLAG"
+    export INSTALL_FLAG VERIFY_FLAG
+
+    runner_install_runtime_deps() { touch "$INSTALL_FLAG"; return 0; }
+    runner_verify_runtime_deps()  { touch "$VERIFY_FLAG";  return 0; }
+    export -f runner_install_runtime_deps runner_verify_runtime_deps
+
+    # curl falha em todas as invocações
+    curl() { return 1; }
+    export -f curl
+
+    run runner_download_binaries "${RUNNER_DIR}"
+    assert_failure
+
+    [ ! -f "$INSTALL_FLAG" ] || { echo "regressão: install foi invocado em falha de download"; return 1; }
+    [ ! -f "$VERIFY_FLAG" ]  || { echo "regressão: verify foi invocado em falha de download"; return 1; }
+
+    rm -f "$INSTALL_FLAG" "$VERIFY_FLAG"
 }
