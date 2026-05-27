@@ -134,7 +134,10 @@ Matriz completa — 10 estados possíveis após o diagnóstico:
 | dir ausente | — | — | **N/A** | Bootstrap completo (pede token) |
 | dir OK, binários ausentes | — | — | **1** | Bootstrap incremental (pede token) |
 | binários OK, `.runner` ausente | — | — | **2** | Register + install + start (pede token) |
-| binários + `.runner` OK, systemd ausente | — | — | **C** | Install + start (sem token) |
+| binários + `.runner` OK, systemd ausente | `total_count: 0` | — | **A2** | Re-registro defensivo (refinado em [#65](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/65) — pede token) |
+| binários + `.runner` OK, systemd ausente | `total_count > 0` | — | **C** | Install + start (sem token) |
+| binários + `.runner` OK, systemd ausente | API indisponível, `--token` setado | — | **A2** (defensivo) | Idem A |
+| binários + `.runner` OK, systemd ausente | API indisponível, sem `--token` | — | **C** | Install + start (sem token; pressuposto otimista) |
 | tudo local OK | `total_count: 0` | qualquer | **A** | Uninstall + remove + re-register + install + start |
 | tudo local OK | runner offline ou nome mismatch | qualquer | **A2** | Idem A |
 | tudo local OK | runner online | ≥30d | **B** | `run.sh --check` + start |
@@ -194,11 +197,14 @@ bash siscan-runner-recover.sh --token <novo>
 3. `runner_install_service`
 4. `runner_start_service`
 
-### Cenário C — systemd unit ausente, sem token (novo em #51)
+### Cenário C — systemd unit ausente, runner ainda registrado remotamente (novo em #51, refinado em #65)
 
-**Quando aparece**: `.runner` presente, `config.sh`/`svc.sh` presentes, mas `systemctl list-unit-files 'actions.runner.*.service'` retorna vazio. Detecção 100% local — não precisa de gh/`GH_TOKEN`.
+**Quando aparece**: `.runner` presente, `config.sh`/`svc.sh` presentes, `systemctl list-unit-files 'actions.runner.*.service'` retorna vazio E:
 
-**Origem real**: <HOST-DASHBOARD> em 26/05/2026 — alguém rodou `sudo svc.sh uninstall` (intencional ou não); o `.runner` ficou íntegro localmente, mas o serviço sumiu do systemd. Antes de #51, isso caía em UNKNOWN.
+- **Caso 1 — API confirma**: `gh api .../actions/runners` retorna `total_count > 0` (runner ainda existe no GitHub).
+- **Caso 2 — API indisponível**: sem `gh`/`GH_TOKEN`/`PAT`, **e** sem `--token` passado pela operadora. O recover assume otimismo (caminho cirúrgico local).
+
+> **Refinamento #65**: antes, qualquer estado 3 (sem systemd) caía em Cenário C, mesmo com runner já auto-removido remotamente. Resultado: o serviço subia local com `.runner` órfão e ficava em loop 401. A partir de #65 (PR #67), o diagnóstico consulta a API em estado 3. Se `total_count: 0`, redireciona para **A2** (re-registro defensivo). Se a API responde com `total_count > 0` (ou é inconsultável **sem** `--token`), mantém Cenário C original.
 
 **Ações** (sem token):
 1. `runner_install_service` → `sudo svc.sh install $USER`
@@ -206,6 +212,7 @@ bash siscan-runner-recover.sh --token <novo>
 
 **Como reproduzir**:
 ```bash
+# Pressuposto: runner registrado no GitHub recentemente (não auto-removido)
 sudo ~/actions-runner/svc.sh stop
 sudo ~/actions-runner/svc.sh uninstall
 bash siscan-runner-recover.sh
@@ -214,9 +221,12 @@ bash siscan-runner-recover.sh
 **Saída esperada** (recorte da Fase 4):
 ```
 4/6 — Diagnóstico do estado do runner
-        ⚠  systemd unit ausente para 'actions.runner.*'
-        →  Cenário C (serviço ausente): .runner OK mas systemd unit não existe
+        →  Cenário C: systemd unit ausente, .runner aceito (API confirmou registro remoto ou API indisponível) — install + start (sem token)
 ```
+
+**Quando estado 3 NÃO cai em C** (refinamento #65):
+- Estado 3 + `gh api → total_count: 0` → **Cenário A2** (re-registro defensivo, exige `--token`).
+- Estado 3 + API indisponível + `--token` fornecido → **Cenário A2** (heurística defensiva — operadora sinaliza desconfiança de auto-removal).
 
 ### Cenário A — Auto-removal após 14 dias offline
 

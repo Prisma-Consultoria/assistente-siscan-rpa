@@ -176,7 +176,7 @@ case "$LOCAL_STATE" in
     N/A) info "Diretório do runner ausente — será criado pelo bootstrap (cenário N/A)" ;;
     1)   info "Diretório existe mas binários ausentes — bootstrap incremental" ;;
     2)   info ".runner ausente — registro necessário" ;;
-    3)   ok "Binários + .runner OK; systemd unit ausente (cenário C provável)" ;;
+    3)   ok "Binários + .runner OK; systemd unit ausente (estado 3 — cenário decidido em 4/6 com consulta à API)" ;;
     4)   ok "Instalação local completa em $RUNNER_DIR" ;;
 esac
 
@@ -225,7 +225,7 @@ case "$scenario" in
     N/A) info "→ Cenário N/A: $RUNNER_DIR não existe — bootstrap completo" ;;
     1)   info "→ Cenário 1: binários ausentes — bootstrap incremental (download + register + install + start)" ;;
     2)   info "→ Cenário 2: .runner ausente — register + install + start" ;;
-    C)   info "→ Cenário C: systemd unit ausente, .runner válido — install + start (sem token)" ;;
+    C)   info "→ Cenário C: systemd unit ausente, .runner aceito (API confirmou registro remoto ou API indisponível) — install + start (sem token)" ;;
     A)   info "→ Cenário A (auto-removal): total_count=0 na API — re-registro completo" ;;
     A2)
         if [ "$HAS_TOKEN_ARG" = "true" ] && ! command -v gh >/dev/null 2>&1 && [ -z "${GH_TOKEN:-}" ]; then
