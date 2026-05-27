@@ -38,6 +38,7 @@ OUTPUT_MODE="${OUTPUT_MODE:-human}"   # human | quiet | json
 TOTAL=0
 OK_COUNT=0
 FAIL_COUNT=0
+SKIPPED_COUNT=0
 RESULTS=()                              # category|protocol|port|target|status|detail
 INTERPRETATION_FOOTER=""
 
@@ -265,14 +266,28 @@ _print_live_result() {
     local cat="$1" proto="$2" port="$3" target="$4" status="$5" detail="$6"
     case "$OUTPUT_MODE" in
         human)
-            if [ "$status" = "ok" ]; then
-                printf "  ${GREEN}✔${NC}  %-54s ${GRAY}%s${NC}\n" "$target" "$detail"
-            else
-                printf "  ${RED}✘${NC}  %-54s ${RED}%s${NC}\n" "$target" "$detail"
-            fi
+            case "$status" in
+                ok)
+                    printf "  ${GREEN}✔${NC}  %-54s ${GRAY}%s${NC}\n" "$target" "$detail"
+                    ;;
+                skipped)
+                    printf "  ${YELLOW}⊘${NC}  %-54s ${YELLOW}%s${NC}\n" "$target" "$detail"
+                    ;;
+                *)  # fail
+                    printf "  ${RED}✘${NC}  %-54s ${RED}%s${NC}\n" "$target" "$detail"
+                    ;;
+            esac
             ;;
         quiet)
-            [ "$status" = "fail" ] && printf "FAIL [%s] %s/%s %s: %s\n" "$SPECIALIST_NAME" "$proto" "$port" "$target" "$detail"
+            # Contrato `quiet` = fail-only no stdout (cron/monitoramento espera
+            # silêncio quando tudo OK). SKIPPED é não-bloqueante → não imprime
+            # em quiet pra evitar ruído/alarmes falsos em automações que
+            # tratam qualquer saída como problema. Visibilidade do SKIPPED
+            # fica em human (resumo) e json (sumário com `"skipped": N`).
+            case "$status" in
+                fail)        printf "FAIL [%s] %s/%s %s: %s\n" "$SPECIALIST_NAME" "$proto" "$port" "$target" "$detail" ;;
+                ok|skipped)  : ;;
+            esac
             ;;
         json)
             : # acumula em RESULTS; renderiza no final
@@ -295,17 +310,33 @@ add_fail() {
     TOTAL=$((TOTAL + 1)); FAIL_COUNT=$((FAIL_COUNT + 1))
     _print_live_result "$1" "$2" "$3" "$4" fail "$5"
 }
+# add_skipped CATEGORY PROTOCOL PORT TARGET DETAIL
+#   Marca um check como pulado (sem credencial, dependência ausente,
+#   pré-requisito do specialist não atendido). Conta no TOTAL mas não
+#   como OK nem como FAIL. Operador vê no resumo "<ok>/<total> OK · <n>
+#   SKIPPED" — sinaliza que algo precisaria ser investigado mas não
+#   bloqueia a operação. Issue #66: corrige falso-positivo "4/4 OK"
+#   quando o specialist na verdade só rodou 3/4 (pulou silenciosamente
+#   o check mais crítico).
+add_skipped() {
+    RESULTS+=("$1|$2|$3|$4|skipped|$5")
+    TOTAL=$((TOTAL + 1)); SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+    _print_live_result "$1" "$2" "$3" "$4" skipped "$5"
+}
 
 # ────────────────────────────────────────────────────────────────────────────
 # Renderização final (resumo + JSON envelope)
 # ────────────────────────────────────────────────────────────────────────────
 _render_summary_human() {
     printf "\n${CYAN}=== Resumo (%s) ===${NC}\n" "$SPECIALIST_NAME"
-    if [ "$FAIL_COUNT" -eq 0 ]; then
-        printf "  ${GREEN}%d/%d OK${NC}\n" "$OK_COUNT" "$TOTAL"
-    else
-        printf "  ${YELLOW}%d/%d OK · %d FAIL${NC}\n" "$OK_COUNT" "$TOTAL" "$FAIL_COUNT"
-    fi
+    # Linha de resumo: sempre mostra OK; FAIL e SKIPPED só aparecem quando >0.
+    local color="$GREEN"
+    [ "$FAIL_COUNT" -gt 0 ] && color="$YELLOW"
+    local line
+    line=$(printf "%d/%d OK" "$OK_COUNT" "$TOTAL")
+    [ "$FAIL_COUNT"    -gt 0 ] && line="$line · $FAIL_COUNT FAIL"
+    [ "$SKIPPED_COUNT" -gt 0 ] && line="$line · $SKIPPED_COUNT SKIPPED"
+    printf "  ${color}%s${NC}\n" "$line"
     if [ -n "$INTERPRETATION_FOOTER" ]; then
         printf "\n${CYAN}=== Como interpretar ===${NC}\n"
         printf "%s\n" "$INTERPRETATION_FOOTER"
@@ -316,7 +347,7 @@ _render_summary_human() {
 _render_json_envelope() {
     printf '{\n'
     printf '  "specialist": "%s",\n' "$SPECIALIST_NAME"
-    printf '  "summary": {"total": %d, "ok": %d, "fail": %d},\n' "$TOTAL" "$OK_COUNT" "$FAIL_COUNT"
+    printf '  "summary": {"total": %d, "ok": %d, "fail": %d, "skipped": %d},\n' "$TOTAL" "$OK_COUNT" "$FAIL_COUNT" "$SKIPPED_COUNT"
     printf '  "checks": [\n'
     local i=0 last=$((${#RESULTS[@]} - 1))
     for entry in "${RESULTS[@]}"; do
