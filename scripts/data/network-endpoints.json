@@ -30,15 +30,64 @@
         "on_all_ok": "Runner consegue se comunicar com o GitHub. Próximo passo: rode siscan-server-setup.sh (instalação nova) ou siscan-runner-recover.sh (recuperação de runner já instalado).",
         "on_any_fail": "O firewall NÃO está deixando o runner falar com o GitHub. Sem isso, o runner fica offline; em 14 dias o GitHub o remove (auto-removal). AÇÃO: abrir requisição de reabertura da whitelist citando o doc 'Reativação de whitelist v2.0' (<chamado-firewall>), incluindo a lista de FAILs acima. IMPORTANTE: pedir wildcard *.actions.githubusercontent.com (NÃO apenas pipelines.actions.githubusercontent.com base) — o backend do GitHub Actions roteia dinamicamente para variantes regionais (pipelinesghub<region>*.actions.githubusercontent.com, results-receiverghub<region>*.actions.githubusercontent.com) que NÃO são cobertas por whitelist literal do endpoint base. Lab 2026-05-28: pipelinesghubeus6.actions.githubusercontent.com bloqueado mesmo com pipelines.actions.githubusercontent.com já liberado (req 767679)."
       },
-      "pdf_sections": ["3.1", "3.2", "3.3", "3.4"],
+      "pdf_sections": [
+        "3.1",
+        "3.2",
+        "3.3",
+        "3.4"
+      ],
       "endpoints": [
-        {"fqdn": "github.com",                                       "protocol": "https", "port": 443, "purpose": "Login, registro do runner, clone HTTPS",                                       "expected": "200 — homepage responde; login e clone funcionam"},
-        {"fqdn": "api.github.com",                                   "protocol": "https", "port": 443, "purpose": "API REST do GitHub Actions",                                                    "expected": "200 — API REST responde no root; runner consegue chamar polling de jobs"},
-        {"fqdn": "codeload.github.com",                              "protocol": "https", "port": 443, "purpose": "Download de tarballs do repositório e de actions referenciadas",                "expected": "301 — sem path, redireciona pra github.com (esperado)"},
-        {"fqdn": "pipelines.actions.githubusercontent.com",          "protocol": "https", "port": 443, "purpose": "Pickup de jobs, OIDC tokens, backend do Actions (variantes regionais: pipelinesghub<region>*.actions.githubusercontent.com são roteadas dinamicamente — wildcard necessário no firewall)", "expected": "404 — backend de jobs/OIDC: / não tem homepage, Actions usa paths específicos",   "wildcard_for": "*.actions.githubusercontent.com"},
-        {"fqdn": "results-receiver.actions.githubusercontent.com",   "protocol": "https", "port": 443, "purpose": "Receiver de resultados do Actions (variantes regionais: results-receiverghub<region>*.actions.githubusercontent.com idem ao pipelines.* acima)", "expected": "404 — receiver só aceita POST/PUT em paths específicos do Actions"},
-        {"fqdn": "productionresultssa0.blob.core.windows.net",       "protocol": "https", "port": 443, "purpose": "Azure Blob Storage (cache do Actions, artifacts, logs, job summaries)",        "expected": "400 — Azure Blob rejeita GET vazio; só responde a /<container>/<blob>",            "wildcard_for": "*.blob.core.windows.net"},
-        {"fqdn": "release-assets.githubusercontent.com",             "protocol": "https", "port": 443, "purpose": "Download de assets vinculados a releases",                                     "expected": "404 — / sem conteúdo; runner baixa assets via GET /<id>/<asset>"}
+        {
+          "fqdn": "github.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Login, registro do runner, clone HTTPS",
+          "expected": "200 — homepage responde; login e clone funcionam"
+        },
+        {
+          "fqdn": "api.github.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "API REST do GitHub Actions",
+          "expected": "200 — API REST responde no root; runner consegue chamar polling de jobs"
+        },
+        {
+          "fqdn": "codeload.github.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Download de tarballs do repositório e de actions referenciadas",
+          "expected": "301 — sem path, redireciona pra github.com (esperado)"
+        },
+        {
+          "fqdn": "pipelines.actions.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Pickup de jobs, OIDC tokens, backend do Actions (variantes regionais: pipelinesghub<region>*.actions.githubusercontent.com são roteadas dinamicamente — wildcard necessário no firewall)",
+          "expected": "404 — backend de jobs/OIDC: / não tem homepage, Actions usa paths específicos",
+          "wildcard_for": "*.actions.githubusercontent.com"
+        },
+        {
+          "fqdn": "results-receiver.actions.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Receiver de resultados do Actions (variantes regionais: results-receiverghub<region>*.actions.githubusercontent.com idem ao pipelines.* acima)",
+          "expected": "404 — receiver só aceita POST/PUT em paths específicos do Actions"
+        },
+        {
+          "fqdn": "productionresultssa0.blob.core.windows.net",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Azure Blob Storage (cache do Actions, artifacts, logs, job summaries)",
+          "expected": "400 — Azure Blob rejeita GET vazio; só responde a /<container>/<blob>",
+          "wildcard_for": "*.blob.core.windows.net"
+        },
+        {
+          "fqdn": "release-assets.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Download de assets vinculados a releases",
+          "expected": "404 — / sem conteúdo; runner baixa assets via GET /<id>/<asset>"
+        }
       ]
     },
     {
@@ -49,12 +98,38 @@
         "on_all_ok": "Runner consegue se auto-atualizar. Sem isso, em 30 dias o GitHub para de enviar jobs (sintoma: 'Waiting for a runner' indefinido). Próximo passo: nada — comportamento esperado.",
         "on_any_fail": "Runner não consegue se auto-atualizar. Em até 30 dias, o GitHub vai parar de enviar jobs (regra dos 30 dias) — o sintoma é confuso: runner online + jobs em fila não atendidos. AÇÃO: liberar os endpoints listados acima no firewall. Se já passou >30 dias, depois da liberação rode 'siscan-runner-recover.sh' (que força um 'run.sh --check' para re-atualizar agora)."
       },
-      "pdf_sections": ["4"],
+      "pdf_sections": [
+        "4"
+      ],
       "endpoints": [
-        {"fqdn": "objects.githubusercontent.com",                    "protocol": "https", "port": 443, "purpose": "Download de blobs/binários do release do runner",                              "expected": "404 — / sem conteúdo; runner baixa blobs específicos via hash"},
-        {"fqdn": "objects-origin.githubusercontent.com",             "protocol": "https", "port": 443, "purpose": "Origem dos blobs do release do runner",                                        "expected": "405 — método GET não permitido em /; só HEAD ou paths específicos"},
-        {"fqdn": "github-releases.githubusercontent.com",            "protocol": "https", "port": 443, "purpose": "Download da nova versão do runner",                                            "expected": "403 — release storage requer URL pre-signed com token"},
-        {"fqdn": "github-registry-files.githubusercontent.com",      "protocol": "https", "port": 443, "purpose": "Download de pacotes do release",                                               "expected": "403 — pacotes de release requerem URL pre-signed com token"}
+        {
+          "fqdn": "objects.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Download de blobs/binários do release do runner",
+          "expected": "404 — / sem conteúdo; runner baixa blobs específicos via hash"
+        },
+        {
+          "fqdn": "objects-origin.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Origem dos blobs do release do runner",
+          "expected": "405 — método GET não permitido em /; só HEAD ou paths específicos"
+        },
+        {
+          "fqdn": "github-releases.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Download da nova versão do runner",
+          "expected": "403 — release storage requer URL pre-signed com token"
+        },
+        {
+          "fqdn": "github-registry-files.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Download de pacotes do release",
+          "expected": "403 — pacotes de release requerem URL pre-signed com token"
+        }
       ]
     },
     {
@@ -65,11 +140,32 @@
         "on_all_ok": "Pull da imagem ghcr.io/prisma-consultoria/siscan-* funciona. Próximo passo: nada — deploy automático consegue baixar a imagem.",
         "on_any_fail": "Deploy vai falhar no 'docker compose pull' com erro do tipo 'denied' ou 'connection refused'. AÇÃO: liberar todos os 3 endpoints acima no firewall (ghcr.io + pkg-containers.githubusercontent.com + *.pkg.github.com). Os 3 trabalham em conjunto."
       },
-      "pdf_sections": ["5"],
+      "pdf_sections": [
+        "5"
+      ],
       "endpoints": [
-        {"fqdn": "ghcr.io",                                          "protocol": "https", "port": 443, "purpose": "Container registry do GitHub",                                                  "expected": "301 — redireciona pra /v2/ ou endpoint de token (esperado)"},
-        {"fqdn": "pkg-containers.githubusercontent.com",             "protocol": "https", "port": 443, "purpose": "Storage backend do GHCR",                                                      "expected": "400 — GET vazio inválido; precisa /v2/<imagem>/blobs/<digest>"},
-        {"fqdn": "npm.pkg.github.com",                               "protocol": "https", "port": 443, "purpose": "Cobertura ampla de GitHub Packages",                                            "expected": "301 — redirect pra docs (esperado)",                                              "wildcard_for": "*.pkg.github.com"}
+        {
+          "fqdn": "ghcr.io",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Container registry do GitHub",
+          "expected": "301 — redireciona pra /v2/ ou endpoint de token (esperado)"
+        },
+        {
+          "fqdn": "pkg-containers.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Storage backend do GHCR",
+          "expected": "400 — GET vazio inválido; precisa /v2/<imagem>/blobs/<digest>"
+        },
+        {
+          "fqdn": "npm.pkg.github.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Cobertura ampla de GitHub Packages",
+          "expected": "301 — redirect pra docs (esperado)",
+          "wildcard_for": "*.pkg.github.com"
+        }
       ]
     },
     {
@@ -80,11 +176,31 @@
         "on_all_ok": "Pull do redis:7-alpine funciona. Próximo passo: nada — primeiro deploy do dashboard vai conseguir subir o Redis.",
         "on_any_fail": "Pull do Redis (Docker Hub) bloqueado, MAS o impacto é limitado: só importa no PRIMEIRO deploy de uma VM nova. Verifique se a imagem já está em cache local com 'docker images | grep redis:7-alpine' — se aparecer, pode ignorar e seguir. AÇÃO se for VM nova sem cache: liberar registry-1.docker.io e auth.docker.io no firewall, OU puxar a imagem em outra rede ('docker save redis:7-alpine | ...' / 'docker load')."
       },
-      "pdf_sections": ["6"],
+      "pdf_sections": [
+        "6"
+      ],
       "endpoints": [
-        {"fqdn": "registry-1.docker.io",                             "protocol": "https", "port": 443, "purpose": "Docker Hub registry",                                                          "expected": "404 — / sem rota, mas /v2/ funciona com auth (esperado)"},
-        {"fqdn": "auth.docker.io",                                   "protocol": "https", "port": 443, "purpose": "Auth do Docker Hub",                                                            "expected": "404 — / sem rota, /token funciona com auth (esperado)"},
-        {"fqdn": "production.cloudflare.docker.com",                 "protocol": "https", "port": 443, "purpose": "CDN do Docker Hub",                                                             "expected": "403 — CDN bloqueia GET direto, serve via URLs assinadas"}
+        {
+          "fqdn": "registry-1.docker.io",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Docker Hub registry",
+          "expected": "404 — / sem rota, mas /v2/ funciona com auth (esperado)"
+        },
+        {
+          "fqdn": "auth.docker.io",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Auth do Docker Hub",
+          "expected": "404 — / sem rota, /token funciona com auth (esperado)"
+        },
+        {
+          "fqdn": "production.cloudflare.docker.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "CDN do Docker Hub",
+          "expected": "403 — CDN bloqueia GET direto, serve via URLs assinadas"
+        }
       ]
     },
     {
@@ -95,13 +211,45 @@
         "on_all_ok": "Runner consegue validar revogação de certificados online. Próximo passo: nada — comportamento esperado.",
         "on_any_fail": "Validação OCSP/CRL pode falhar intermitente — o sintoma é confuso porque parece bug aleatório do runner: ora deploy passa, ora dá erro de TLS. AÇÃO: verificar se a regra do firewall liberou PORTA 80 (não só 443) para esses domínios. OCSP/CRL roda sempre em HTTP/80 por design do PKIX — esquecer disso é o erro #1 em whitelist."
       },
-      "pdf_sections": ["7"],
+      "pdf_sections": [
+        "7"
+      ],
       "endpoints": [
-        {"fqdn": "crl3.digicert.com",                                "protocol": "tcp",   "port": 80,  "purpose": "CRL DigiCert",                                                                  "expected": "TCP/80 aberto — runner consulta lista de revogação DigiCert"},
-        {"fqdn": "crl4.digicert.com",                                "protocol": "tcp",   "port": 80,  "purpose": "CRL DigiCert",                                                                  "expected": "TCP/80 aberto — fallback/balance da CRL DigiCert"},
-        {"fqdn": "ocsp.digicert.com",                                "protocol": "tcp",   "port": 80,  "purpose": "OCSP DigiCert",                                                                 "expected": "TCP/80 aberto — query online de revogação (preferível à CRL)"},
-        {"fqdn": "crl.sectigo.com",                                  "protocol": "tcp",   "port": 80,  "purpose": "CRL Sectigo",                                                                   "expected": "TCP/80 aberto — CRL Sectigo (alternativo, usado por alguns certs)"},
-        {"fqdn": "ocsp.sectigo.com",                                 "protocol": "tcp",   "port": 80,  "purpose": "OCSP Sectigo",                                                                  "expected": "TCP/80 aberto — OCSP Sectigo (alternativo, query online)"}
+        {
+          "fqdn": "crl3.digicert.com",
+          "protocol": "tcp",
+          "port": 80,
+          "purpose": "CRL DigiCert",
+          "expected": "TCP/80 aberto — runner consulta lista de revogação DigiCert"
+        },
+        {
+          "fqdn": "crl4.digicert.com",
+          "protocol": "tcp",
+          "port": 80,
+          "purpose": "CRL DigiCert",
+          "expected": "TCP/80 aberto — fallback/balance da CRL DigiCert"
+        },
+        {
+          "fqdn": "ocsp.digicert.com",
+          "protocol": "tcp",
+          "port": 80,
+          "purpose": "OCSP DigiCert",
+          "expected": "TCP/80 aberto — query online de revogação (preferível à CRL)"
+        },
+        {
+          "fqdn": "crl.sectigo.com",
+          "protocol": "tcp",
+          "port": 80,
+          "purpose": "CRL Sectigo",
+          "expected": "TCP/80 aberto — CRL Sectigo (alternativo, usado por alguns certs)"
+        },
+        {
+          "fqdn": "ocsp.sectigo.com",
+          "protocol": "tcp",
+          "port": 80,
+          "purpose": "OCSP Sectigo",
+          "expected": "TCP/80 aberto — OCSP Sectigo (alternativo, query online)"
+        }
       ]
     },
     {
@@ -114,18 +262,90 @@
         "on_any_fail": "Variantes regionais bloqueadas detectadas (esperado em ambientes com whitelist literal do endpoint base sem wildcard). AÇÃO: abrir solicitação ao time de segurança pedindo liberação WILDCARD *.actions.githubusercontent.com (e *.blob.core.windows.net se houver blob bloqueado) em UMA ÚNICA rodada — não esperar liberações parciais que vão exigir nova solicitação na próxima vez que o GitHub rotear pra outra região. NOTA: estas falhas NÃO bloqueiam o exit code do check-network — são informativas para construção do pedido à TI."
       },
       "endpoints": [
-        {"fqdn": "pipelinesghubeus1.actions.githubusercontent.com",        "protocol": "https", "port": 443, "purpose": "Variante regional East US 1 do pickup de jobs / OIDC",                       "expected": "404 — backend de Actions; / não tem homepage"},
-        {"fqdn": "pipelinesghubeus6.actions.githubusercontent.com",        "protocol": "https", "port": 443, "purpose": "Variante regional East US 6 — bloqueada no lab #259 (2026-05-28)",           "expected": "404 — backend de Actions; / não tem homepage"},
-        {"fqdn": "pipelinesghubwestus.actions.githubusercontent.com",      "protocol": "https", "port": 443, "purpose": "Variante regional West US do pickup de jobs / OIDC",                         "expected": "404 — backend de Actions; / não tem homepage"},
-        {"fqdn": "pipelinesghubwestus2.actions.githubusercontent.com",     "protocol": "https", "port": 443, "purpose": "Variante regional West US 2 do pickup de jobs / OIDC",                       "expected": "404 — backend de Actions; / não tem homepage"},
-        {"fqdn": "pipelinesghubncus.actions.githubusercontent.com",        "protocol": "https", "port": 443, "purpose": "Variante regional North Central US do pickup de jobs / OIDC",                "expected": "404 — backend de Actions; / não tem homepage"},
-        {"fqdn": "pipelinesghubuksouth.actions.githubusercontent.com",     "protocol": "https", "port": 443, "purpose": "Variante regional UK South do pickup de jobs / OIDC",                        "expected": "404 — backend de Actions; / não tem homepage"},
-        {"fqdn": "results-receiverghubeus.actions.githubusercontent.com",  "protocol": "https", "port": 443, "purpose": "Variante regional East US do receiver de resultados",                        "expected": "404 — receiver aceita só POST/PUT em paths específicos"},
-        {"fqdn": "results-receiverghubwestus.actions.githubusercontent.com","protocol": "https", "port": 443, "purpose": "Variante regional West US do receiver de resultados",                       "expected": "404 — receiver aceita só POST/PUT em paths específicos"},
-        {"fqdn": "results-receiverghubuksouth.actions.githubusercontent.com","protocol": "https", "port": 443, "purpose": "Variante regional UK South do receiver de resultados",                     "expected": "404 — receiver aceita só POST/PUT em paths específicos"},
-        {"fqdn": "productionresultssa1.blob.core.windows.net",            "protocol": "https", "port": 443, "purpose": "Storage account 1 do Azure Blob (cache/artifacts/logs)",                      "expected": "400 — Azure Blob rejeita GET vazio"},
-        {"fqdn": "productionresultssa2.blob.core.windows.net",            "protocol": "https", "port": 443, "purpose": "Storage account 2 do Azure Blob",                                              "expected": "400 — Azure Blob rejeita GET vazio"},
-        {"fqdn": "productionresultssa5.blob.core.windows.net",            "protocol": "https", "port": 443, "purpose": "Storage account 5 do Azure Blob",                                              "expected": "400 — Azure Blob rejeita GET vazio"}
+        {
+          "fqdn": "pipelinesghubeus1.actions.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Variante regional East US 1 do pickup de jobs / OIDC",
+          "expected": "404 — backend de Actions; / não tem homepage"
+        },
+        {
+          "fqdn": "pipelinesghubeus6.actions.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Variante regional East US 6 — bloqueada no lab #259 (2026-05-28)",
+          "expected": "404 — backend de Actions; / não tem homepage"
+        },
+        {
+          "fqdn": "pipelinesghubwestus.actions.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Variante regional West US do pickup de jobs / OIDC",
+          "expected": "404 — backend de Actions; / não tem homepage"
+        },
+        {
+          "fqdn": "pipelinesghubwestus2.actions.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Variante regional West US 2 do pickup de jobs / OIDC",
+          "expected": "404 — backend de Actions; / não tem homepage"
+        },
+        {
+          "fqdn": "pipelinesghubncus.actions.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Variante regional North Central US do pickup de jobs / OIDC",
+          "expected": "404 — backend de Actions; / não tem homepage"
+        },
+        {
+          "fqdn": "pipelinesghubuksouth.actions.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Variante regional UK South do pickup de jobs / OIDC",
+          "expected": "404 — backend de Actions; / não tem homepage"
+        },
+        {
+          "fqdn": "results-receiverghubeus.actions.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Variante regional East US do receiver de resultados",
+          "expected": "404 — receiver aceita só POST/PUT em paths específicos"
+        },
+        {
+          "fqdn": "results-receiverghubwestus.actions.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Variante regional West US do receiver de resultados",
+          "expected": "404 — receiver aceita só POST/PUT em paths específicos"
+        },
+        {
+          "fqdn": "results-receiverghubuksouth.actions.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Variante regional UK South do receiver de resultados",
+          "expected": "404 — receiver aceita só POST/PUT em paths específicos"
+        },
+        {
+          "fqdn": "productionresultssa1.blob.core.windows.net",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Storage account 1 do Azure Blob (cache/artifacts/logs)",
+          "expected": "400 — Azure Blob rejeita GET vazio"
+        },
+        {
+          "fqdn": "productionresultssa2.blob.core.windows.net",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Storage account 2 do Azure Blob",
+          "expected": "400 — Azure Blob rejeita GET vazio"
+        },
+        {
+          "fqdn": "productionresultssa5.blob.core.windows.net",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Storage account 5 do Azure Blob",
+          "expected": "400 — Azure Blob rejeita GET vazio"
+        }
       ]
     }
   ]
