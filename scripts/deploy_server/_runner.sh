@@ -469,15 +469,26 @@ runner_verify_runtime_deps() {
 #   ls de dir inexistente) são tratados graciosamente.
 #
 #   Output em stderr (não polui stdout / JSON envelope do _common.sh).
-#   Cinco seções:
+#   Seis seções estáveis — sempre emitidas, mesmo quando o log _diag
+#   está ausente (com mensagens de fallback explícitas, não omissões):
 #     [1] tail -100 do _diag/Runner_*.log mais recente (a exception real
-#         do .NET com URL alvo, código de erro, stack trace)
-#     [2] env vars de proxy/http (HTTPS_PROXY pode afetar .NET)
+#         do .NET com URL alvo, código de erro, stack trace) — token-like
+#         path segments (>=20 chars alfanuméricos) redigidos como <TOKEN>
+#     [2] env vars de proxy/http (HTTPS_PROXY pode afetar .NET) — userinfo
+#         (user:pass@host) redigido como ***:***@ para evitar vazamento
+#         de credenciais em logs/tickets
 #     [3] CAs internas em /usr/local/share/ca-certificates/ (proxy MITM
 #         precisa instalar root CA aqui pra .NET confiar)
-#     [4] resolução de api.github.com (DNS / IPv6 corporativo)
+#     [4] resolução DNS de api.github.com SEMPRE + endpoint extraído do
+#         log quando disponível — distingue "DNS quebrado" de "DNS OK mas
+#         não pra esse host" (TSK00.04.08)
 #     [5] triagem orientativa baseada em padrões conhecidos do .NET
-#         encontrados no log da seção [1]
+#         encontrados no log da seção [1] (CA bundle, DNS/IPv6, proxy,
+#         firewall/EOF — este último extrai o URL específico que falhou)
+#     [6] teste de alcance direto via curl -k ao URL extraído de [5]
+#         (TSK00.04.08) — HTTP=000 confirma firewall (TCP/TLS não
+#         completou); HTTP=2xx/3xx/4xx/5xx indica TLS subiu, causa é
+#         outra. curl com -k mata ambiguidade de CA error como firewall
 #
 #   Origem: lab #220 (2026-05-27/28) perdeu múltiplas rodadas operacionais
 #   coletando esses 4 sinais manualmente. Ver TSK00.04.05 (#82).
@@ -512,7 +523,15 @@ runner_diagnose_tls_failure() {
         if [ -n "$latest_log" ] && [ -f "$latest_log" ]; then
             printf '[1] Exception detalhada (últimas 100 linhas de %s):\n\n' \
                 "$(basename "$latest_log")"
-            tail -100 "$latest_log" 2>/dev/null | sed 's/^/    /' || true
+            # Token-like path segments (>=20 chars alfanuméricos) redigidos
+            # como /<TOKEN>/ — config.sh logs URLs no formato:
+            # https://<host>/<TOKEN>/_apis/connectionData?... onde TOKEN
+            # é o registration-token autenticado (sensível). Mantemos
+            # host visível pra triagem do firewall corporativo.
+            # Revisão Copilot PR #83.
+            tail -100 "$latest_log" 2>/dev/null \
+                | sed -E 's|/[A-Za-z0-9_-]{20,}/|/<TOKEN>/|g' \
+                | sed 's/^/    /' || true
             printf '\n'
         else
             printf '[1] Nenhum log em %s/_diag/ — runner pode não ter chegado a inicializar.\n\n' "$dir"
@@ -523,7 +542,14 @@ runner_diagnose_tls_failure() {
         local proxy_vars
         proxy_vars=$(env 2>/dev/null | grep -iE '^(http_proxy|https_proxy|no_proxy|all_proxy|ftp_proxy)=' | sort)
         if [ -n "$proxy_vars" ]; then
-            printf '%s\n' "$proxy_vars" | sed 's/^/    /'
+            # Redige userinfo (user:pass@) — proxy URLs frequentemente
+            # carregam credenciais no formato scheme://user:pass@host:port
+            # que vazariam em tickets/logs colados sem filtragem.
+            # Preserva schema, host e port (essenciais pra triagem).
+            # Revisão Copilot PR #83.
+            printf '%s\n' "$proxy_vars" \
+                | sed -E 's|(://)[^:@/]+:[^@/]+@|\1***:***@|g' \
+                | sed 's/^/    /'
         else
             printf '    (nenhuma variável de proxy definida no ambiente)\n'
         fi
@@ -572,10 +598,13 @@ runner_diagnose_tls_failure() {
         fi
         printf '\n'
 
-        # [5] Triagem por padrões conhecidos do .NET no log
+        # [5] Triagem por padrões conhecidos do .NET no log.
+        # Header SEMPRE emitido pra preservar contrato "6 seções estáveis"
+        # — quando não há log, emite fallback explícito em vez de omitir
+        # a seção inteira. Revisão Copilot PR #83.
+        printf '[5] Triagem (padrões conhecidos do .NET detectados no log):\n'
         if [ -n "$latest_log" ] && [ -f "$latest_log" ]; then
             local triage_emitted=""
-            printf '[5] Triagem (padrões conhecidos do .NET detectados no log):\n'
             if grep -qiE 'AuthenticationException|X509|certificate' "$latest_log" 2>/dev/null; then
                 printf '    ⚠ Sinal de CA bundle (cert/X509 inválido pro .NET).\n'
                 printf '      → Adicione a CA do proxy/corporativa em /usr/local/share/\n'
@@ -620,28 +649,39 @@ runner_diagnose_tls_failure() {
             fi
             [ -z "$triage_emitted" ] && \
                 printf '    (nenhum padrão conhecido bate — leia o log [1] manualmente)\n'
-            printf '\n'
+        else
+            printf '    (sem log para triagem — ver mensagem da seção [1])\n'
         fi
+        printf '\n'
 
         # [6] Teste de alcance direto ao endpoint que falhou — TSK00.04.08.
         # Decide firewall sozinho: HTTP=000 ⇒ TCP/TLS não completou (peer
-        # rejeitou ou middlebox dropou); HTTP=2xx/4xx ⇒ TLS subiu, NÃO é
-        # firewall (revisar outras hipóteses). Best-effort: curl ausente
-        # vira mensagem orientativa; --max-time 10 evita hang em firewall
-        # que faz drop em vez de RST.
+        # rejeitou ou middlebox dropou); qualquer HTTP != 000 ⇒ TLS subiu,
+        # NÃO é firewall (revisar outras hipóteses).
+        # Usa `curl -k` (mesmo critério do check-network specialist) pra
+        # NÃO interpretar erro de validação de certificado como firewall —
+        # sem -k, CA não-confiada faria curl retornar HTTP=000 com
+        # ssl_verify_result != 0, que seria ambiguidade com firewall real.
+        # Inclui HTTP=5xx (server response que prova que TLS subiu).
+        # Revisão Copilot PR #83.
         if [ -n "$failed_url" ]; then
             printf '[6] Teste de alcance direto ao endpoint que falhou:\n'
             if command -v curl >/dev/null 2>&1; then
-                local result
-                result=$(curl -s -o /dev/null \
+                # Redige token-like path segments no URL exibido (mesma
+                # heurística do [1]). curl recebe o URL ORIGINAL pra
+                # testar conectividade real; só o display é redigido.
+                local failed_url_display result
+                failed_url_display=$(printf '%s' "$failed_url" \
+                    | sed -E 's|/[A-Za-z0-9_-]{20,}/|/<TOKEN>/|g')
+                result=$(curl -k -s -o /dev/null \
                     -w "HTTP=%{http_code} TLS=%{ssl_verify_result}" \
                     --max-time 10 \
                     "$failed_url" 2>/dev/null || true)
-                printf '    %s\n    %s\n' "$failed_url" "$result"
+                printf '    %s\n    %s\n' "$failed_url_display" "$result"
                 case "$result" in
                     HTTP=000*)
                         printf '      → firewall confirmado (TCP/TLS não completou)\n' ;;
-                    HTTP=2*|HTTP=3*|HTTP=4*)
+                    HTTP=2*|HTTP=3*|HTTP=4*|HTTP=5*)
                         printf '      → TLS subiu (NÃO é firewall) — revise outras hipóteses\n' ;;
                 esac
             else

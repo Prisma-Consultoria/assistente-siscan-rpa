@@ -72,10 +72,13 @@ o sintoma (ou `manual` quando o passo ainda exige inspeção humana).
 | F38 | 28/05/2026 Manhã | Recover repete o mesmo `SSL connection could not be established` mesmo após `installdependencies.sh` atualizar `libssl3` e `check-network` reportar 4/4 OK | (no terminal:)<br>`# Authentication`<br>`The SSL connection could not be established, see inner exception.`<br>(no `~/actions-runner/_diag/Runner_*.log`:)<br>`GET request to https://pipelinesghubeus6.actions.githubusercontent.com/<TOKEN>/_apis/connectionData?... failed.`<br>`System.IO.IOException: Received an unexpected EOF or 0 bytes from the transport stream.`<br>`at System.Net.Security.SslStream.ReceiveHandshakeFrameAsync` | Whitelist do firewall corporativo (req 767679, 26/05 15:15) cobria apenas o endpoint **base** `pipelines.actions.githubusercontent.com` (sem o prefixo regional `ghubeus6`). O backend do GitHub Actions roteia dinamicamente para variantes regionais — neste caso a VM roteava para `pipelinesghubeus6.actions.githubusercontent.com`, bloqueada pelo firewall. Peer fechava conexão durante TLS handshake (TCP RST), gerando `Received unexpected EOF` no .NET — distinto de CA bundle (que apareceria como `AuthenticationException`). `check-network` não detectava porque testava só o endpoint base. | Workaround imediato: solicitar liberação **wildcard** `*.actions.githubusercontent.com` ao time de segurança (cobre todas as variantes regionais dinâmicas). Fixes em código: (a) `runner_diagnose_tls_failure` em [issue #82](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/82) emite o stack trace + extrai o URL específico do log + recomenda wildcard automaticamente quando o recover falhar; (b) `network-endpoints.json` em [issue #84](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/84) tem guidance.on_any_fail atualizada para explicitar wildcard como recomendação primária no pedido à TI; (c) [issue #87](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/87) estende `runner_diagnose_tls_failure` para **resolver o host extraído em DNS** (seção [4]) e **testar alcance direto via curl** ao endpoint específico (seção [6]) — `HTTP=000` confirma firewall, `HTTP=2xx/4xx` indica TLS subiu e revela outra causa | `runner_diagnose_tls_failure` em `_runner.sh` — 6 seções emitidas em stderr na failure path de `runner_register` (cobertura via `tests/unit/test_runner_diagnose_tls_failure.bats` — 29 cenários); `check-network` (categoria *Runner ↔️ GitHub Actions*) com guidance.on_any_fail mencionando wildcard | [Turno 28/05 Manhã](registro interno) — lab #259 |
 
 > Síntese: 38 incidentes documentados — 22 em março (oficinas #1–#3 + cascade de fixes),
-> 4 em 01/04 (cascade RSA + UID 1000), 11 em maio (firewall expirado + maratona
-> doctor/recover de 25–27/05). Cobertura automatizada hoje: 31/37 detectáveis por
-> specialists ou tratados pelo `siscan-runner-recover.sh`; 6/37 permanecem manuais
-> (ações em CLI da aplicação ou no GitHub UI).
+> 4 em 01/04 (cascade RSA + UID 1000), 12 em maio (firewall expirado + maratona
+> doctor/recover de 25–27/05 + variantes regionais reveladas em 28/05). Cobertura
+> automatizada hoje: 32/38 detectáveis por specialists ou tratados pelo
+> `siscan-runner-recover.sh` (F38 é detectado/diagnosticado automaticamente pelo
+> `runner_diagnose_tls_failure` no recover, mas a **remediação operacional**
+> exige liberação no firewall corporativo); 6/38 permanecem manuais (ações em
+> CLI da aplicação ou no GitHub UI).
 
 ---
 

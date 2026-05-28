@@ -415,6 +415,128 @@ LOG
     unset -f command
 }
 
+# ────────────────────────────────────────────────────────────────────────────
+# Revisão Copilot PR #83 — segurança + contrato + precisão diagnóstica
+# ────────────────────────────────────────────────────────────────────────────
+
+@test "[2] HTTPS_PROXY com credenciais embutidas → userinfo é redigido" {
+    # Caso real do Copilot: HTTPS_PROXY=https://user:password@proxy:3128 vaza
+    # credenciais quando colado em tickets. Pattern de redação:
+    # scheme://USER:PASS@host → scheme://***:***@host
+    export HTTPS_PROXY="http://alice:secret123@proxy.exemplo.local:3128"
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "HTTPS_PROXY=http://***:***@proxy.exemplo.local:3128"
+    refute_output --partial "alice"
+    refute_output --partial "secret123"
+}
+
+@test "[2] proxy SEM credenciais → preservado verbatim (sem alteração)" {
+    export HTTPS_PROXY="http://proxy.exemplo.local:3128"
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "HTTPS_PROXY=http://proxy.exemplo.local:3128"
+}
+
+@test "[1] token-like path segments no log são redigidos como <TOKEN>" {
+    # Caso real do Copilot + F38: log mostra URL com token de registro
+    # embutido no path. Pattern: /<>=20 chars alfanuméricos>/ → /<TOKEN>/
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+GET request to https://pipelinesghubeus6.actions.githubusercontent.com/dS9YvtfB8FuhPcKg6BoPW4W2Hf9PopOGXn2yuXschpCBkEhmDo/_apis/connectionData failed.
+System.Net.Http.HttpRequestException: The SSL connection could not be established.
+LOG
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    # Host preservado (essencial pra triagem)
+    assert_output --partial "pipelinesghubeus6.actions.githubusercontent.com"
+    # Token redigido
+    assert_output --partial "/<TOKEN>/"
+    refute_output --partial "dS9YvtfB8FuhPcKg6BoPW4W2Hf9PopOGXn2yuXschpCBkEhmDo"
+}
+
+@test "[1] path com segmentos curtos (não-tokens) NÃO sofre redação" {
+    # /repos/foo/bar/ → segmentos curtos, não-token, não redigir.
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+GET request to https://api.github.com/repos/foo/bar/actions/runners failed.
+LOG
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "/repos/foo/bar/"
+    refute_output --partial "<TOKEN>"
+}
+
+@test "[5] log AUSENTE → header da seção [5] ainda é emitido (contrato 6 seções)" {
+    # Bug detectado pela revisão Copilot: header de [5] estava DENTRO do
+    # guard `if [ -n latest_log ]`, então sem log a seção sumia. Contrato
+    # documentado e testado é "6 seções estáveis"; fallback explícito agora.
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "[5] Triagem"
+    assert_output --partial "sem log para triagem"
+}
+
+@test "[5] log existe mas sem padrão → header emitido + mensagem 'nenhum padrão'" {
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+runtime error sem padrão de TLS conhecido
+LOG
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "[5] Triagem"
+    assert_output --partial "nenhum padrão conhecido bate"
+}
+
+@test "[6] curl é invocado com -k (mesmo critério do check-network specialist)" {
+    # Revisão Copilot: sem -k, CA não confiada produz HTTP=000 + TLS!=0,
+    # que parece firewall mas é cert error. check-network usa -k pra
+    # validar SOMENTE firewall — diagnose helper deve seguir o mesmo critério.
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+GET request to https://pipelinesghubeus6.actions.githubusercontent.com/foo failed.
+Received an unexpected EOF or 0 bytes from the transport stream.
+LOG
+    # Stub curl que captura args em variável e emite resultado
+    CURL_ARGS_FILE="$(mktemp)"; rm -f "$CURL_ARGS_FILE"
+    export CURL_ARGS_FILE
+    curl() {
+        # Salva args num arquivo pra assertar
+        printf '%s\n' "$@" > "$CURL_ARGS_FILE"
+        printf 'HTTP=000 TLS=0'
+        return 28
+    }
+    export -f curl
+
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    # Confirma que -k foi passado (mata ambiguidade CA error / firewall)
+    grep -q "^-k\$" "$CURL_ARGS_FILE" || { echo "curl chamado SEM -k"; cat "$CURL_ARGS_FILE"; return 1; }
+
+    rm -f "$CURL_ARGS_FILE"
+}
+
+@test "[6] HTTP=503 (server response, TLS subiu) → 'NÃO é firewall'" {
+    # Revisão Copilot: HTTP=5xx é resposta do servidor — TLS subiu.
+    # Antes não era interpretado; agora cai no case "TLS subiu".
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+GET request to https://api.github.com/foo failed.
+Received an unexpected EOF.
+LOG
+    curl() {
+        printf 'HTTP=503 TLS=0'
+        return 22
+    }
+    export -f curl
+
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "HTTP=503"
+    assert_output --partial "TLS subiu (NÃO é firewall)"
+    refute_output --partial "firewall confirmado"
+}
+
 @test "runner_register em sucesso NÃO invoca runner_diagnose_tls_failure" {
     info() { :; }
     ok() { :; }
