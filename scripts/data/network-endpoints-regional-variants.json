@@ -1,0 +1,30 @@
+{
+  "version": "1.0",
+  "description": "Variantes regionais conhecidas dos endpoints do GitHub Actions backend e Azure Blob de results. Use ESTE arquivo via `check-network.sh --endpoints-file ...` quando o pre-flight regular passar 4/4 OK mas o `runner_register` falhar com SSL error — sintoma de variante regional NÃO coberta pela whitelist do firewall corporativo. Motivação operacional: lab #259 (2026-05-28) revelou que `pipelinesghubeus6.actions.githubusercontent.com` ficou bloqueado mesmo após liberação da base `pipelines.actions.githubusercontent.com` (req 767679). Ver TSK00.04.09 #88 e ERRORS_TABLE F38.",
+  "source": "GitHub docs *About self-hosted runners — Communication between self-hosted runners and GitHub*. Lista representativa (não-exaustiva) de variantes regionais observadas em campo; o GitHub roteia dinamicamente conforme região do datacenter.",
+  "categories": [
+    {
+      "id": "runner_actions_regional_variants",
+      "label": "Variantes regionais — mapeamento para solicitação de firewall",
+      "description": "FQDNs regionais que o GitHub Actions backend roteia DINAMICAMENTE em runtime. Whitelist literal do endpoint base (`pipelines.actions.githubusercontent.com`) NÃO cobre estas variantes. Esperam-se FAILs em VMs com whitelist estreita — saída deste check vira insumo para uma solicitação única e completa ao time de segurança.",
+      "guidance": {
+        "on_all_ok": "Todas as variantes regionais testadas estão acessíveis. Whitelist do firewall cobre wildcard `*.actions.githubusercontent.com` ou tem entrada explícita para todas estas. Próximo passo: rode o recover normalmente.",
+        "on_any_fail": "Variantes regionais bloqueadas detectadas (esperado em ambientes com whitelist literal do endpoint base sem wildcard). AÇÃO: abrir solicitação ao time de segurança corporativa pedindo liberação por wildcard: `*.actions.githubusercontent.com` (e `*.blob.core.windows.net` se houver blob bloqueado). Caso a política não permita wildcard, listar explicitamente os FAILs acima — não esperar por liberações parciais que vão exigir nova solicitação na próxima vez que o GitHub rotear pra outra região."
+      },
+      "endpoints": [
+        {"fqdn": "pipelinesghubeus1.actions.githubusercontent.com",       "protocol": "https", "port": 443, "purpose": "Variante regional East US 1 do pickup de jobs / OIDC",                            "expected": "404 — backend de Actions; / não tem homepage"},
+        {"fqdn": "pipelinesghubeus6.actions.githubusercontent.com",       "protocol": "https", "port": 443, "purpose": "Variante regional East US 6 — bloqueada no lab #259 (2026-05-28)",              "expected": "404 — backend de Actions; / não tem homepage"},
+        {"fqdn": "pipelinesghubwestus.actions.githubusercontent.com",     "protocol": "https", "port": 443, "purpose": "Variante regional West US do pickup de jobs / OIDC",                            "expected": "404 — backend de Actions; / não tem homepage"},
+        {"fqdn": "pipelinesghubwestus2.actions.githubusercontent.com",    "protocol": "https", "port": 443, "purpose": "Variante regional West US 2 do pickup de jobs / OIDC",                          "expected": "404 — backend de Actions; / não tem homepage"},
+        {"fqdn": "pipelinesghubncus.actions.githubusercontent.com",       "protocol": "https", "port": 443, "purpose": "Variante regional North Central US do pickup de jobs / OIDC",                   "expected": "404 — backend de Actions; / não tem homepage"},
+        {"fqdn": "pipelinesghubuksouth.actions.githubusercontent.com",    "protocol": "https", "port": 443, "purpose": "Variante regional UK South do pickup de jobs / OIDC",                           "expected": "404 — backend de Actions; / não tem homepage"},
+        {"fqdn": "results-receiverghubeus.actions.githubusercontent.com",    "protocol": "https", "port": 443, "purpose": "Variante regional East US do receiver de resultados",                        "expected": "404 — receiver aceita só POST/PUT em paths específicos"},
+        {"fqdn": "results-receiverghubwestus.actions.githubusercontent.com", "protocol": "https", "port": 443, "purpose": "Variante regional West US do receiver de resultados",                        "expected": "404 — receiver aceita só POST/PUT em paths específicos"},
+        {"fqdn": "results-receiverghubuksouth.actions.githubusercontent.com","protocol": "https", "port": 443, "purpose": "Variante regional UK South do receiver de resultados",                       "expected": "404 — receiver aceita só POST/PUT em paths específicos"},
+        {"fqdn": "productionresultssa1.blob.core.windows.net",           "protocol": "https", "port": 443, "purpose": "Storage account 1 do Azure Blob (cache/artifacts/logs do Actions)",              "expected": "400 — Azure Blob rejeita GET vazio; só responde a /<container>/<blob>"},
+        {"fqdn": "productionresultssa2.blob.core.windows.net",           "protocol": "https", "port": 443, "purpose": "Storage account 2 do Azure Blob",                                                "expected": "400 — Azure Blob rejeita GET vazio"},
+        {"fqdn": "productionresultssa5.blob.core.windows.net",           "protocol": "https", "port": 443, "purpose": "Storage account 5 do Azure Blob",                                                "expected": "400 — Azure Blob rejeita GET vazio"}
+      ]
+    }
+  ]
+}

@@ -8,6 +8,7 @@ Para entender **quando** rodar diagnósticos no ciclo de vida de uma VM, consult
 
 | Versão | Data | Mudança |
 |---|---|---|
+| 1.4 | 2026-05-28 | Novo arquivo de dados `scripts/data/network-endpoints-regional-variants.json` com 12 variantes regionais conhecidas (`pipelinesghub<region>*`, `results-receiverghub<region>*`, `productionresultssa<N>`). Operador usa via flag `--endpoints-file` existente para **mapear todas as variantes bloqueadas pelo firewall corporativo em uma única solicitação à TI** (evita rodadas iterativas de "agora bloqueou outra"). Zero código novo no specialist — apenas dados. Ver [issue #88](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/88). Subseção operacional "*Mapeamento de variantes regionais para solicitação de firewall*" adicionada abaixo. |
 | 1.3 | 2026-05-28 | `guidance.on_any_fail` da categoria *Runner ↔ GitHub Actions* explicita **wildcard `*.actions.githubusercontent.com`** como recomendação primária no pedido à TI. Motivação: lab 2026-05-28 revelou que `pipelinesghubeus6.actions.githubusercontent.com` (variante regional) ficou bloqueada mesmo com o endpoint base `pipelines.actions.githubusercontent.com` já liberado — o backend do GitHub Actions roteia dinamicamente para variantes regionais (`pipelinesghub<region>*`, `results-receiverghub<region>*`) que não são cobertas por whitelist literal do base. Ver [ERRORS_TABLE F38](../../../../docs/ERRORS_TABLE.md) e [issue #84](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/84). Mesma cobertura de teste (22 endpoints) — só guidance e documentação. Diagnóstico **reativo** complementar via `runner_diagnose_tls_failure` em [issue #82](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/82) (extrai URL específico do `_diag/` log quando recover falha). |
 | 1.2 | 2026-05-25 | UX: header explicativo de escopo (validação de firewall) + reescrita por linha como "código esperado · porquê" + guidance por categoria com próximo passo concreto. |
 | 1.1 | 2026-05-25 | Refatorado para usar `_common.sh` (cores, helpers, renderização compartilhados entre specialists). Mesma cobertura (22 endpoints). |
@@ -140,6 +141,21 @@ A seção 8 do PDF (SMTP e Keycloak/OIDC) e a seção 9 (Postgres 5432 via VLAN 
 ```bash
 bash scripts/deploy_server/check-network.sh && echo "Rede OK, posso rodar siscan-server-setup.sh"
 ```
+
+### Mapeamento de variantes regionais para solicitação de firewall
+
+**Quando usar**: o pre-flight regular passa 4/4 OK em `check-network`, mas o `runner_register` falha com `The SSL connection could not be established`. Sintoma característico de **variante regional bloqueada**: o whitelist do firewall corporativo cobre o endpoint base (`pipelines.actions.githubusercontent.com`) mas não as variantes regionais (`pipelinesghub<region>*.actions.githubusercontent.com`, `results-receiverghub<region>*`, etc.) que o backend do GitHub Actions roteia dinamicamente.
+
+Para mapear **todas** as variantes regionais bloqueadas em uma única solicitação à TI (evita rodadas iterativas onde você libera uma e descobre que falta outra):
+
+```bash
+bash scripts/deploy_server/check-network.sh \
+    --endpoints-file scripts/data/network-endpoints-regional-variants.json
+```
+
+Reusa o próprio specialist via flag pré-existente `--endpoints-file` — zero código novo, formato de saída idêntico, exit code 0/1 padrão. Variantes que voltarem `✘` (HTTP=000) devem ser todas listadas na solicitação à TI; idealmente pedir **wildcard** `*.actions.githubusercontent.com` (e `*.blob.core.windows.net` se Azure Blob estiver bloqueado) numa única rodada.
+
+Origem operacional: [TSK00.04.09 #88](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/88), motivada pelo lab #259 (28/05/2026) onde `pipelinesghubeus6.actions.githubusercontent.com` ficou bloqueada mesmo após a base liberada (req 767679, 26/05).
 
 ### Diagnóstico amplo via doctor
 
