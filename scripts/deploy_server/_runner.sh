@@ -36,10 +36,72 @@ _RUNNER_SH_LOADED=1
 # ════════════════════════════════════════════════════════════════════════════
 
 # runner_validate_binaries RUNNER_DIR
-#   Retorna 0 se config.sh e svc.sh presentes e executáveis.
+#   Retorna 0 se a instalação do runner está COMPLETA o suficiente pra
+#   register/install/start funcionarem. Checa quatro artefatos:
+#
+#     - config.sh        — launcher do registro (raiz do RUNNER_DIR)
+#     - svc.sh           — launcher do systemd unit (raiz)
+#     - bin/Runner.Listener — runtime .NET que config.sh exec'a
+#     - externals/       — runtime de actions (node*/bin/node)
+#
+#   Antes do hotfix (lab 2026-05-27, F00.04), a função checava apenas
+#   config.sh + svc.sh. Resultado: `rm -rf bin/ externals/` (workaround
+#   clássico pra forçar re-download) deixava o classificador em state 2
+#   ("binários presentes"), pulando runner_download_binaries — mas
+#   config.sh quebrava em seguida com `./bin/Runner.Listener: No such
+#   file or directory`. Checar o entry-point real fecha esse buraco.
+#
+#   Mantém-se shallow no nome — não valida versão/idade dos binários.
+#   Esse caso (binários completos mas obsoletos) é coberto pela
+#   auto-detecção da TSK00.04.02 e pela flag --force-download-binaries
+#   da TSK00.04.01.
 runner_validate_binaries() {
     local dir="$1"
-    [ -x "$dir/config.sh" ] && [ -x "$dir/svc.sh" ]
+    [ -x "$dir/config.sh" ]           || return 1
+    [ -x "$dir/svc.sh" ]              || return 1
+    [ -x "$dir/bin/Runner.Listener" ] || return 1
+    [ -d "$dir/externals" ]           || return 1
+    return 0
+}
+
+# runner_binaries_likely_obsolete RUNNER_DIR [THRESHOLD_DAYS]
+#   Heurística mtime-based para sinalizar que os binários do runner
+#   podem estar fora da janela de TLS suportada por api.github.com.
+#
+#   Retorna 0 (= obsoleto) se mtime de bin/Runner.Listener é mais antigo
+#   que THRESHOLD_DAYS dias. Retorna 1 (= fresco ou indeterminado) caso
+#   contrário, ou se o arquivo não existe.
+#
+#   Resolução do threshold (precedência decrescente):
+#     1. Argumento posicional THRESHOLD_DAYS (se passado e não-vazio)
+#     2. Variável de ambiente RUNNER_OBSOLETE_DAYS
+#     3. Default 30
+#
+#   Critério adotado em TSK00.04.02 (opção A — mtime, ver comentário
+#   da issue para análise de A/B/C/D com prós e contras). Default 30d
+#   ancorado na evidência operacional do lab 2026-05-27: Runner.Listener
+#   com mtime de ~36d falhou TLS handshake mesmo com curl do sistema OK.
+#
+#   Limitações conscientes:
+#     - mtime é proxy imperfeito: rsync -t, cp -p, tar --preserve-times,
+#       e restore de snapshot preservam o mtime original → falso positivo
+#       em VMs restauradas
+#     - Falso positivo custa 1 download extra (~50MB, ~30s) — idempotente
+#     - Falso negativo se algum processo `touch`-ou o arquivo recentemente
+#
+#   Escapes operacionais:
+#     - Flag --force-download-binaries (TSK00.04.01) override total
+#     - Env RUNNER_OBSOLETE_DAYS pra ajustar threshold sem code change
+runner_binaries_likely_obsolete() {
+    local dir="$1"
+    local threshold="${2:-${RUNNER_OBSOLETE_DAYS:-30}}"
+    local file="$dir/bin/Runner.Listener"
+    [ -f "$file" ] || return 1
+    local mtime now age_days
+    mtime=$(stat -c %Y "$file" 2>/dev/null) || return 1
+    now=$(date +%s)
+    age_days=$(( (now - mtime) / 86400 ))
+    [ "$age_days" -gt "$threshold" ]
 }
 
 # runner_validate_dot_runner RUNNER_DIR
@@ -324,6 +386,80 @@ runner_download_binaries() {
     fi
     rm -f "$tarball"
     ok "Runner extraído (versão $version)"
+    # Invocar installdependencies.sh + ldd validation imediatamente após
+    # cada extração (TSK00.04.04). Falha não-fatal — operador pode seguir
+    # e tentar register; se quebrar em TLS, fica claro pela mensagem de
+    # erro embutida nessas funções.
+    runner_install_runtime_deps "$dir" || true
+    runner_verify_runtime_deps "$dir" || true
+}
+
+# runner_install_runtime_deps RUNNER_DIR
+#   Invoca o installdependencies.sh do tarball oficial do runner para
+#   instalar pacotes do SO (libssl, libicu, libkrb5, libcrypto...) que o
+#   .NET embarcado no runner precisa para TLS handshake com api.github.com.
+#
+#   Idempotente: apt/yum/dnf skip pacotes já presentes na versão correta.
+#   Requer sudo — coerente com requisitos de svc.sh install (systemd) e
+#   demais operações privilegiadas do setup.
+#
+#   Retorna 0 se:
+#     - installdependencies.sh ausente (runner muito antigo ou tarball
+#       customizado) — degradação suave, operador segue e descobre via
+#       config.sh se algo quebrar
+#     - installdependencies.sh rodou com sucesso
+#   Retorna 1 se installdependencies.sh existe mas falhou.
+#
+#   Lab 2026-05-27 (TSK00.04.04 #80) evidenciou: VM operacional rodava
+#   binários LATEST do runner (v2.334.0 baixados in-place via ramo 1) e
+#   ainda assim config.sh falhava com "SSL connection could not be
+#   established". Recover/setup atuais nunca invocavam installdependencies
+#   — operador descobria via diagnóstico manual (ldd) num caso por caso.
+runner_install_runtime_deps() {
+    local dir="$1"
+    local script="$dir/bin/installdependencies.sh"
+    if [ ! -x "$script" ]; then
+        # Runner pré-2.x ou tarball customizado — nada a fazer; não é
+        # erro do nosso lado. Operador descobrirá no register se houver
+        # dep faltando.
+        return 0
+    fi
+    info "Instalando runtime deps do SO (libssl/libicu/libkrb5) via installdependencies.sh — requer sudo..."
+    # Silenciamos stdout pra não poluir log do recover com progresso verboso
+    # do apt/yum/dnf ("Reading package lists...", etc.), mas mantemos stderr
+    # visível: quando o install falha em ambiente restritivo (sem rede, proxy
+    # apt quebrado, repositório indisponível, sudo sem permissão), o motivo
+    # real vai pro stderr do apt — operador precisa ver pra remediar.
+    if sudo "$script" >/dev/null; then
+        ok "Runtime deps do SO instaladas/validadas"
+        return 0
+    fi
+    warn "installdependencies.sh falhou — config.sh pode quebrar em TLS handshake."
+    warn "  Mensagem de erro acima (stderr do apt/yum/dnf) indica a causa."
+    return 1
+}
+
+# runner_verify_runtime_deps RUNNER_DIR
+#   Roda ldd em bin/Runner.Listener procurando por "not found" — sinal
+#   de biblioteca dinâmica linkada no .NET embarcado mas ausente no SO.
+#
+#   Retorna 0 se nenhuma lib faltando OU se ldd indisponível (a verificação
+#   é best-effort; ausência de ldd não bloqueia operação).
+#   Retorna 1 se libs faltando — imprime lista no stderr pra o operador
+#   poder agir (ex.: apt install libssl3 libicu70).
+runner_verify_runtime_deps() {
+    local dir="$1"
+    local binary="$dir/bin/Runner.Listener"
+    [ -x "$binary" ] || return 0
+    command -v ldd >/dev/null 2>&1 || return 0
+    local missing
+    missing=$(ldd "$binary" 2>&1 | grep "not found" || true)
+    if [ -n "$missing" ]; then
+        printf "AVISO: bibliotecas dinâmicas requeridas pelo Runner.Listener não encontradas:\n%s\n" "$missing" >&2
+        printf "  Tente: sudo %s/bin/installdependencies.sh\n" "$dir" >&2
+        return 1
+    fi
+    return 0
 }
 
 # runner_register RUNNER_DIR URL TOKEN NAME LABEL

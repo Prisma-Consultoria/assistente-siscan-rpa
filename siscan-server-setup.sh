@@ -50,11 +50,13 @@ NC='\033[0m'
 # ────────────────────────────────────────────────────────────────────────────
 SISCAN_PRODUCT=""
 SKIP_DOCTOR=false
+FORCE_DOWNLOAD_BINARIES=false
 while [[ $# -gt 0 ]]; do
     case "${1}" in
         --product) SISCAN_PRODUCT="${2:-}"; shift 2 ;;
         --product=*) SISCAN_PRODUCT="${1#*=}"; shift ;;
         --skip-doctor) SKIP_DOCTOR=true; shift ;;
+        --force-download-binaries) FORCE_DOWNLOAD_BINARIES=true; shift ;;
         *) shift ;;
     esac
 done
@@ -705,6 +707,35 @@ step "FASE 7 — GitHub Actions Runner"
 source "${SPECIALISTS_DIR}/_runner.sh"
 
 RUNNER_STATE=$(runner_get_state "${RUNNER_DIR}")
+
+# Override do classificador via --force-download-binaries (TSK00.04.01).
+# Reinstalação em VM com volume reaproveitado pode ter binários velhos no
+# disco; operador opta explicitamente por refresh. Estados N/A e 1 já
+# baixam, não precisam override.
+if [ "${FORCE_DOWNLOAD_BINARIES}" = "true" ] && [ "${RUNNER_STATE}" != "N/A" ] && [ "${RUNNER_STATE}" != "1" ]; then
+    warn "--force-download-binaries ativo: state ${RUNNER_STATE} → 1 (forçando re-download)"
+    RUNNER_STATE=1
+fi
+
+# Auto-detecção de obsolescência via mtime (TSK00.04.02). Reinstalação em
+# volume com binários antigos no disco — pega o mesmo caso da flag manual,
+# mas sem precisar o operador decidir explicitamente. Default 30d.
+if [ "${RUNNER_STATE}" != "N/A" ] && [ "${RUNNER_STATE}" != "1" ]; then
+    if runner_binaries_likely_obsolete "${RUNNER_DIR}"; then
+        warn "Binários do runner aparentam obsoletos (mtime > ${RUNNER_OBSOLETE_DAYS:-30}d) — forçando re-download"
+        RUNNER_STATE=1
+    fi
+fi
+
+# Pre-flight defensivo de deps de SO (TSK00.04.04). Se state ≥ 2 nesse
+# ponto, vamos pular runner_download_binaries — e com ele installdependen-
+# cies.sh. Deps de SO podem ter mudado entre instalação inicial e re-run
+# do setup (apt upgrade, distro upgrade). installdependencies é idempo-
+# tente — apt skip pacotes presentes (~2-3s caminho feliz). Garante
+# baseline correto antes de qualquer register.
+if [ "${RUNNER_STATE}" != "N/A" ] && [ "${RUNNER_STATE}" != "1" ]; then
+    runner_install_runtime_deps "${RUNNER_DIR}" || true
+fi
 
 # Bootstrap incremental: N/A e 1 precisam de download.
 case "${RUNNER_STATE}" in

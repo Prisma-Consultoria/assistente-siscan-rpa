@@ -68,6 +68,7 @@ SISCAN_PRODUCT=""
 SKIP_DOCTOR=false
 TOKEN_ARG=""
 PAT_ARG=""
+FORCE_DOWNLOAD_BINARIES=false
 CURRENT_USER="$(whoami)"
 
 usage() {
@@ -84,6 +85,12 @@ Opções:
   --pat PAT                      Personal Access Token (scope 'repo') usado pelo
                                  'run.sh --check' nos ramos B/WARN. Se omitido,
                                  tenta resolver via 'gh auth token' ou prompt interativo.
+  --force-download-binaries      Força re-download dos binários do runner mesmo
+                                 que runner_validate_binaries diga que estão
+                                 presentes. Use quando suspeitar de obsolescência
+                                 (VM long-offline + SSL error em config.sh).
+                                 Equivalente operacional a 'rm -rf bin/ externals/'
+                                 antes de rodar o recover.
   -h, --help                     Esta ajuda
 
 Cenários detectados automaticamente:
@@ -127,6 +134,7 @@ while [ $# -gt 0 ]; do
         --token=*)      TOKEN_ARG="${1#*=}"; shift ;;
         --pat)          _require_value "$@"; PAT_ARG="$2"; shift 2 ;;
         --pat=*)        PAT_ARG="${1#*=}"; shift ;;
+        --force-download-binaries) FORCE_DOWNLOAD_BINARIES=true; shift ;;
         -h|--help)      usage; exit 0 ;;
         *) echo "argumento desconhecido: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -179,6 +187,39 @@ case "$LOCAL_STATE" in
     3)   ok "Binários + .runner OK; systemd unit ausente (estado 3 — cenário decidido em 4/6 com consulta à API)" ;;
     4)   ok "Instalação local completa em $RUNNER_DIR" ;;
 esac
+
+# Override do classificador via --force-download-binaries (TSK00.04.01).
+# Quando o operador suspeita de binários obsoletos (ex.: VM long-offline +
+# SSL error em config.sh), força entrada no caminho de download. Para
+# state N/A o bootstrap já baixa de qualquer forma — não precisa override.
+if [ "$FORCE_DOWNLOAD_BINARIES" = "true" ] && [ "$LOCAL_STATE" != "N/A" ] && [ "$LOCAL_STATE" != "1" ]; then
+    warn "--force-download-binaries ativo: state $LOCAL_STATE → 1 (forçando re-download)"
+    LOCAL_STATE=1
+fi
+
+# Auto-detecção de obsolescência via mtime (TSK00.04.02). Só dispara se
+# a flag manual não promoveu pra 1 ainda e o classificador disse que tem
+# binários. Threshold default 30 dias — ajustável via RUNNER_OBSOLETE_DAYS.
+if [ "$LOCAL_STATE" != "N/A" ] && [ "$LOCAL_STATE" != "1" ]; then
+    if runner_binaries_likely_obsolete "$RUNNER_DIR"; then
+        warn "Binários do runner aparentam obsoletos (mtime > ${RUNNER_OBSOLETE_DAYS:-30}d) — forçando re-download"
+        LOCAL_STATE=1
+    fi
+fi
+
+# Pre-flight defensivo de deps de SO (TSK00.04.04). Se chegamos aqui em
+# state ≥ 2 (binários presentes, sem flag --force-download-binaries e
+# sem mtime obsoleto), o ramo de remediação vai pular runner_download_
+# binaries — e com ele pularia installdependencies.sh. Mas as deps de
+# SO podem ter mudado entre runs (apt upgrade do SO, distro upgrade) e
+# o .NET embarcado do runner precisa de libssl/libicu/libkrb5 alinhadas.
+# Lab 2026-05-28: VM com Ubuntu 24.04 + OpenSSL 3.0.13 + runner v2.334.0
+# fresco (mtime ~16h) ainda falhava TLS handshake — auto-detecção por
+# mtime não pegava (binários novos), só este pre-flight protege.
+# Idempotente: apt skip pacotes já presentes (~2-3s no caminho feliz).
+if [ "$LOCAL_STATE" != "N/A" ] && [ "$LOCAL_STATE" != "1" ]; then
+    runner_install_runtime_deps "$RUNNER_DIR" || true
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # 3. Pré-flight via doctor (não inclui check-runner — é o que vamos consertar)
