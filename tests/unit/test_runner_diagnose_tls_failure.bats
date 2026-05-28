@@ -179,6 +179,64 @@ LOG
     assert_output --partial "HTTPS_PROXY="
 }
 
+# ────────────────────────────────────────────────────────────────────────────
+# [5] — padrão "Received unexpected EOF" (firewall/MITM bloqueando handshake)
+# Lab #220 (2026-05-28): pipelinesghubeus6.actions.githubusercontent.com
+# bloqueado pelo firewall corporativo (whitelist tinha só a base sem o
+# prefixo regional ghubeus6).
+# ────────────────────────────────────────────────────────────────────────────
+
+@test "[5] log com 'Received unexpected EOF' + URL → triagem firewall + extração do host" {
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+[2026-05-28 14:26:46Z ERR  GitHubActionsService] GET request to https://pipelinesghubeus6.actions.githubusercontent.com/dS9YvtfB8FuhPc/_apis/connectionData?connectOptions=1 failed. System.Net.Http.HttpRequestException: The SSL connection could not be established.
+ ---> System.IO.IOException: Received an unexpected EOF or 0 bytes from the transport stream.
+   at System.Net.Security.SslStream.ReceiveHandshakeFrameAsync[TIOAdapter](CancellationToken cancellationToken)
+LOG
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "Sinal de firewall/proxy interrompendo TLS handshake"
+    assert_output --partial "antes da validação de certificado"
+    assert_output --partial "Endpoint que falhou: pipelinesghubeus6.actions.githubusercontent.com"
+    assert_output --partial "Variantes regionais"
+    assert_output --partial "*.actions.githubusercontent.com"
+}
+
+@test "[5] log com 'Received unexpected EOF' SEM URL → triagem genérica sem host" {
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+System.IO.IOException: Received an unexpected EOF or 0 bytes from the transport stream.
+   at System.Net.Security.SslStream.ReceiveHandshakeFrameAsync[TIOAdapter]
+LOG
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "Sinal de firewall/proxy interrompendo TLS handshake"
+    assert_output --partial "*.actions.githubusercontent.com"
+    refute_output --partial "Endpoint que falhou:"  # sem URL no log → não emite linha de host
+}
+
+@test "[5] log com 'POST request to' (não GET) → também extrai URL" {
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+POST request to https://pipelinesghubwestus.actions.githubusercontent.com/_apis/runner/registration failed.
+System.IO.IOException: Received an unexpected EOF or 0 bytes from the transport stream.
+LOG
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "Endpoint que falhou: pipelinesghubwestus.actions.githubusercontent.com"
+}
+
+@test "[5] 'Received unexpected EOF' não dispara CA bundle (são padrões distintos)" {
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+System.IO.IOException: Received an unexpected EOF or 0 bytes from the transport stream.
+LOG
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "Sinal de firewall/proxy interrompendo"
+    refute_output --partial "Sinal de CA bundle"
+}
+
 @test "[5] log sem nenhum padrão conhecido → emite mensagem de fallback" {
     mkdir -p "${RUNNER_DIR}/_diag"
     cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'

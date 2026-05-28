@@ -564,6 +564,38 @@ runner_diagnose_tls_failure() {
                 printf '      → Tente bypass: HTTPS_PROXY="" ./config.sh ...\n'
                 triage_emitted="yes"
             fi
+            # Sinal de firewall/proxy MITM interrompendo o handshake — peer
+            # fecha conexão DURANTE o handshake (TCP RST/FIN), antes de
+            # qualquer validação de certificado. Padrão canônico do .NET
+            # quando o destino é bloqueado por middlebox de rede.
+            # Lab #220 (2026-05-28) revelou esse padrão pra
+            # pipelinesghubeus6.actions.githubusercontent.com — variante
+            # regional que estava fora do whitelist do firewall corporativo
+            # (que só cobria o endpoint base "pipelines.actions.github
+            # usercontent.com"). Ver TSK00.04.05 #82.
+            if grep -qiE 'Received an unexpected EOF|0 bytes from the transport stream' "$latest_log" 2>/dev/null; then
+                printf '    ⚠ Sinal de firewall/proxy interrompendo TLS handshake (peer fechou conexão).\n'
+                printf '      Distinto de CA bundle: o erro acontece ANTES da validação de certificado.\n'
+                # Extrai o URL/host que falhou da mensagem canônica do .NET:
+                # "GET request to <URL> failed" ou "POST request to <URL>".
+                local failed_url failed_host
+                failed_url=$(grep -oE '(GET|POST) request to https?://[^[:space:]]+' "$latest_log" 2>/dev/null \
+                    | head -1 \
+                    | sed -E 's/^(GET|POST) request to //')
+                if [ -n "$failed_url" ]; then
+                    failed_host=$(printf '%s' "$failed_url" \
+                        | sed -E 's|^https?://([^/]+)/.*|\1|; s|^https?://([^/]+)$|\1|')
+                    printf '      → Endpoint que falhou: %s\n' "$failed_host"
+                    printf '      → Verifique se esse FQDN está liberado no firewall corporativo.\n'
+                    printf '      → Variantes regionais (pipelinesghub<region>*.actions.githubusercontent.com)\n'
+                    printf '        NÃO são cobertas por whitelist da base "pipelines.actions.githubusercontent.com".\n'
+                    printf '        Peça wildcard: *.actions.githubusercontent.com\n'
+                else
+                    printf '      → Verifique whitelist do firewall para *.actions.githubusercontent.com\n'
+                    printf '        (variantes regionais aparecem dinamicamente).\n'
+                fi
+                triage_emitted="yes"
+            fi
             [ -z "$triage_emitted" ] && \
                 printf '    (nenhum padrão conhecido bate — leia o log [1] manualmente)\n'
             printf '\n'
