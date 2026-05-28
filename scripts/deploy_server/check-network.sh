@@ -98,12 +98,16 @@ jq -e . "$ENDPOINTS_FILE" >/dev/null 2>&1 || fail "arquivo de endpoints não é 
 # ────────────────────────────────────────────────────────────────────────────
 # Checks específicos deste specialist
 # ────────────────────────────────────────────────────────────────────────────
-# _check_https CATEGORY FQDN PORT EXPECTED_TEXT
+# _check_https CATEGORY FQDN PORT EXPECTED_TEXT [ADVISORY]
 #   Detalhe gerado deixa explícito que validamos APENAS firewall (TLS subiu),
 #   e que o código HTTP é contexto interpretativo (esperado/inesperado neste FQDN).
 #   EXPECTED_TEXT: do JSON, formato "200 — descrição" (opcional).
+#   ADVISORY (TSK00.04.09): "true" indica categoria informativa — falha vira
+#   add_skipped em vez de add_fail, NÃO conta no exit code do specialist.
+#   Usado para variantes regionais cuja falha é esperada em VMs com whitelist
+#   estreita (não bloqueia pre-flight, só sinaliza pra construção de pedido à TI).
 _check_https() {
-    local category="$1" fqdn="$2" port="${3:-443}" expected="${4:-}"
+    local category="$1" fqdn="$2" port="${3:-443}" expected="${4:-}" advisory="${5:-false}"
     local code
     code=$(curl -k -s -o /dev/null -w "%{http_code}" \
                 --max-time "$TIMEOUT_SEC" \
@@ -111,7 +115,11 @@ _check_https() {
 
     # Critério (PDF v2.0, seção 11.4): qualquer resposta HTTP != 000 indica TLS subiu.
     if [ -z "$code" ] || [ "$code" = "000" ]; then
-        add_fail "$category" https "$port" "$fqdn" "firewall bloqueou — sem resposta (TCP/TLS não completou)"
+        if [ "$advisory" = "true" ]; then
+            add_skipped "$category" https "$port" "$fqdn" "firewall bloqueou — variante advisory (mapeamento para solicitação à TI)"
+        else
+            add_fail "$category" https "$port" "$fqdn" "firewall bloqueou — sem resposta (TCP/TLS não completou)"
+        fi
         return
     fi
 
@@ -131,11 +139,17 @@ _check_https() {
     add_ok "$category" https "$port" "$fqdn" "$detail"
 }
 
-# _check_tcp CATEGORY FQDN PORT EXPECTED_TEXT
+# _check_tcp CATEGORY FQDN PORT EXPECTED_TEXT [ADVISORY]
+#   ADVISORY (TSK00.04.09): mesmo contrato de _check_https — falha em categoria
+#   advisory vira add_skipped (informativa) em vez de add_fail.
 _check_tcp() {
-    local category="$1" fqdn="$2" port="$3" expected="${4:-}"
+    local category="$1" fqdn="$2" port="$3" expected="${4:-}" advisory="${5:-false}"
     if ! timeout "$TIMEOUT_SEC" bash -c "exec 3<>/dev/tcp/${fqdn}/${port}" 2>/dev/null; then
-        add_fail "$category" tcp "$port" "$fqdn" "firewall bloqueou — sem TCP/${port}"
+        if [ "$advisory" = "true" ]; then
+            add_skipped "$category" tcp "$port" "$fqdn" "firewall bloqueou — variante advisory (mapeamento para solicitação à TI)"
+        else
+            add_fail "$category" tcp "$port" "$fqdn" "firewall bloqueou — sem TCP/${port}"
+        fi
         return
     fi
     # Strip leading "TCP/<port> aberto — " do expected pra evitar duplicar.
@@ -176,24 +190,40 @@ for i in $(seq 0 $((cat_count - 1))); do
     cat_desc=$(jq -r ".categories[$i].description // \"\"" "$ENDPOINTS_FILE")
     on_ok=$(jq -r   ".categories[$i].guidance.on_all_ok // \"\"" "$ENDPOINTS_FILE")
     on_fail=$(jq -r ".categories[$i].guidance.on_any_fail // \"\"" "$ENDPOINTS_FILE")
+    # advisory: categorias com "advisory": true tratam falhas como SKIPPED em
+    # vez de FAIL — não bloqueiam exit code do specialist. Usado para variantes
+    # cujas falhas são esperadas em VMs com whitelist estreita (TSK00.04.09).
+    advisory=$(jq -r ".categories[$i].advisory // false" "$ENDPOINTS_FILE")
 
     print_category_header "$cat_label" "$cat_desc"
 
     fail_before=$FAIL_COUNT
+    skipped_before=$SKIPPED_COUNT
 
     while IFS=$'\t' read -r fqdn protocol port expected; do
         case "$protocol" in
-            https) _check_https "$cat_label" "$fqdn" "$port" "$expected" ;;
-            tcp)   _check_tcp   "$cat_label" "$fqdn" "$port" "$expected" ;;
+            https) _check_https "$cat_label" "$fqdn" "$port" "$expected" "$advisory" ;;
+            tcp)   _check_tcp   "$cat_label" "$fqdn" "$port" "$expected" "$advisory" ;;
             *)     warn "protocolo desconhecido '$protocol' para $fqdn — ignorado" ;;
         esac
     done < <(jq -r ".categories[$i].endpoints[] | [.fqdn, .protocol, (.port|tostring), (.expected // \"\")] | @tsv" "$ENDPOINTS_FILE")
 
     # Veredito da categoria + ação correspondente, AO VIVO (logo após os checks).
-    if [ "$FAIL_COUNT" -eq "$fail_before" ]; then
-        print_category_guidance ok "$on_ok"
+    # Para categorias advisory, conta SKIPPED em vez de FAIL — guidance.on_any_fail
+    # dispara em qualquer caso onde algum endpoint não respondeu (tratado como
+    # advisory ou hard fail), pra manter "vermelho operacional" coerente.
+    if [ "$advisory" = "true" ]; then
+        if [ "$SKIPPED_COUNT" -gt "$skipped_before" ]; then
+            print_category_guidance fail "$on_fail"
+        else
+            print_category_guidance ok "$on_ok"
+        fi
     else
-        print_category_guidance fail "$on_fail"
+        if [ "$FAIL_COUNT" -eq "$fail_before" ]; then
+            print_category_guidance ok "$on_ok"
+        else
+            print_category_guidance fail "$on_fail"
+        fi
     fi
 done
 
