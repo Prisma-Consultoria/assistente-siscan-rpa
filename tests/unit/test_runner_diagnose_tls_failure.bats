@@ -196,7 +196,8 @@ LOG
     run runner_diagnose_tls_failure "${RUNNER_DIR}"
     assert_success
     assert_output --partial "Sinal de firewall/proxy interrompendo TLS handshake"
-    assert_output --partial "antes da validação de certificado"
+    # Match exato do print (ANTES capitalizado pra ênfase) — case-sensitive
+    assert_output --partial "ANTES da validação de certificado"
     assert_output --partial "Endpoint que falhou: pipelinesghubeus6.actions.githubusercontent.com"
     assert_output --partial "Variantes regionais"
     assert_output --partial "*.actions.githubusercontent.com"
