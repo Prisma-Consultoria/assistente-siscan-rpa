@@ -462,9 +462,127 @@ runner_verify_runtime_deps() {
     return 0
 }
 
+# runner_diagnose_tls_failure RUNNER_DIR
+#   Coleta e emite um bloco de diagnóstico estruturado quando o
+#   config.sh do runner falha no TLS handshake. Best-effort — sempre
+#   retorna 0; quaisquer comandos auxiliares ausentes (getent, ldd,
+#   ls de dir inexistente) são tratados graciosamente.
+#
+#   Output em stderr (não polui stdout / JSON envelope do _common.sh).
+#   Cinco seções:
+#     [1] tail -100 do _diag/Runner_*.log mais recente (a exception real
+#         do .NET com URL alvo, código de erro, stack trace)
+#     [2] env vars de proxy/http (HTTPS_PROXY pode afetar .NET)
+#     [3] CAs internas em /usr/local/share/ca-certificates/ (proxy MITM
+#         precisa instalar root CA aqui pra .NET confiar)
+#     [4] resolução de api.github.com (DNS / IPv6 corporativo)
+#     [5] triagem orientativa baseada em padrões conhecidos do .NET
+#         encontrados no log da seção [1]
+#
+#   Origem: lab #220 (2026-05-27/28) perdeu múltiplas rodadas operacionais
+#   coletando esses 4 sinais manualmente. Ver TSK00.04.05 (#82).
+runner_diagnose_tls_failure() {
+    local dir="$1"
+    {
+        printf '\n══════════════════════════════════════════════════\n'
+        printf '  DIAGNÓSTICO TLS — config.sh falhou no handshake\n'
+        printf '══════════════════════════════════════════════════\n\n'
+
+        # [1] Exception detalhada do .NET (a fonte da verdade)
+        local latest_log=""
+        if [ -d "$dir/_diag" ]; then
+            latest_log=$(ls -t "$dir/_diag"/Runner_*.log 2>/dev/null | head -1)
+        fi
+        if [ -n "$latest_log" ] && [ -f "$latest_log" ]; then
+            printf '[1] Exception detalhada (últimas 100 linhas de %s):\n\n' \
+                "$(basename "$latest_log")"
+            tail -100 "$latest_log" 2>/dev/null | sed 's/^/    /' || true
+            printf '\n'
+        else
+            printf '[1] Nenhum log em %s/_diag/ — runner pode não ter chegado a inicializar.\n\n' "$dir"
+        fi
+
+        # [2] Variáveis de proxy
+        printf '[2] Variáveis de proxy/http:\n'
+        local proxy_vars
+        proxy_vars=$(env 2>/dev/null | grep -iE '^(http_proxy|https_proxy|no_proxy|all_proxy|ftp_proxy)=' | sort)
+        if [ -n "$proxy_vars" ]; then
+            printf '%s\n' "$proxy_vars" | sed 's/^/    /'
+        else
+            printf '    (nenhuma variável de proxy definida no ambiente)\n'
+        fi
+        printf '\n'
+
+        # [3] CAs internas custom (proxy MITM, CA corporativa)
+        printf '[3] CAs custom em /usr/local/share/ca-certificates/:\n'
+        if [ -d /usr/local/share/ca-certificates ]; then
+            local ca_list
+            ca_list=$(ls /usr/local/share/ca-certificates/ 2>/dev/null)
+            if [ -n "$ca_list" ]; then
+                printf '%s\n' "$ca_list" | sed 's/^/    /'
+            else
+                printf '    (diretório vazio — nenhuma CA custom instalada)\n'
+            fi
+        else
+            printf '    (diretório não existe)\n'
+        fi
+        printf '\n'
+
+        # [4] Resolução de api.github.com
+        printf '[4] Resolução DNS de api.github.com:\n'
+        if command -v getent >/dev/null 2>&1; then
+            local resolved
+            resolved=$(getent hosts api.github.com 2>/dev/null)
+            if [ -n "$resolved" ]; then
+                printf '%s\n' "$resolved" | sed 's/^/    /'
+            else
+                printf '    (sem resposta — DNS pode estar bloqueado)\n'
+            fi
+        else
+            printf '    (getent ausente — tente: dig api.github.com)\n'
+        fi
+        printf '\n'
+
+        # [5] Triagem por padrões conhecidos do .NET no log
+        if [ -n "$latest_log" ] && [ -f "$latest_log" ]; then
+            local triage_emitted=""
+            printf '[5] Triagem (padrões conhecidos do .NET detectados no log):\n'
+            if grep -qiE 'AuthenticationException|X509|certificate' "$latest_log" 2>/dev/null; then
+                printf '    ⚠ Sinal de CA bundle (cert/X509 inválido pro .NET).\n'
+                printf '      → Adicione a CA do proxy/corporativa em /usr/local/share/\n'
+                printf '        ca-certificates/ + sudo update-ca-certificates.\n'
+                triage_emitted="yes"
+            fi
+            if grep -qiE 'NameResolution|host not known|host.*unreachable|network.*unreachable' "$latest_log" 2>/dev/null; then
+                printf '    ⚠ Sinal de DNS / IPv6 bloqueado.\n'
+                printf '      → Verifique resolução acima [4]; considere desabilitar\n'
+                printf '        IPv6 ou configurar DNS resolver confiável.\n'
+                triage_emitted="yes"
+            fi
+            if grep -qi 'proxy' "$latest_log" 2>/dev/null; then
+                printf '    ⚠ Sinal de proxy (.NET respeitando HTTPS_PROXY).\n'
+                printf '      → Tente bypass: HTTPS_PROXY="" ./config.sh ...\n'
+                triage_emitted="yes"
+            fi
+            [ -z "$triage_emitted" ] && \
+                printf '    (nenhum padrão conhecido bate — leia o log [1] manualmente)\n'
+            printf '\n'
+        fi
+
+        printf '══════════════════════════════════════════════════\n'
+        printf '  FIM DO DIAGNÓSTICO TLS\n'
+        printf '══════════════════════════════════════════════════\n\n'
+    } >&2
+    return 0
+}
+
 # runner_register RUNNER_DIR URL TOKEN NAME LABEL
 #   Registra o runner via config.sh --token. Usa --unattended --replace
 #   (idempotente quanto a nome+label).
+#   Quando o config.sh falha, invoca runner_diagnose_tls_failure pra
+#   emitir bloco de diagnóstico antes de retornar erro — caller (recover
+#   e setup) imprime sua mensagem genérica, mas o operador já tem o
+#   contexto pra resolver sem ida-e-volta operacional (TSK00.04.05).
 runner_register() {
     local dir="$1" url="$2" token="$3" name="$4" label="$5"
     [ -n "$token" ] || { printf "Token vazio — abortando registro.\n" >&2; return 1; }
@@ -477,6 +595,7 @@ runner_register() {
             --unattended \
             --replace); then
         printf "Falha ao registrar o runner. Verifique URL e token (tokens expiram em poucos minutos).\n" >&2
+        runner_diagnose_tls_failure "$dir"
         return 1
     fi
     ok "Runner registrado: $name [$label]"
