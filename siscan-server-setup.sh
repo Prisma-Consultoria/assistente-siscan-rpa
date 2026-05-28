@@ -727,6 +727,16 @@ if [ "${RUNNER_STATE}" != "N/A" ] && [ "${RUNNER_STATE}" != "1" ]; then
     fi
 fi
 
+# Pre-flight defensivo de deps de SO (TSK00.04.04). Se state ≥ 2 nesse
+# ponto, vamos pular runner_download_binaries — e com ele installdependen-
+# cies.sh. Deps de SO podem ter mudado entre instalação inicial e re-run
+# do setup (apt upgrade, distro upgrade). installdependencies é idempo-
+# tente — apt skip pacotes presentes (~2-3s caminho feliz). Garante
+# baseline correto antes de qualquer register.
+if [ "${RUNNER_STATE}" != "N/A" ] && [ "${RUNNER_STATE}" != "1" ]; then
+    runner_install_runtime_deps "${RUNNER_DIR}" || true
+fi
+
 # Bootstrap incremental: N/A e 1 precisam de download.
 case "${RUNNER_STATE}" in
     N/A|1)

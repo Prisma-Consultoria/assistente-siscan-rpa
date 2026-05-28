@@ -207,6 +207,20 @@ if [ "$LOCAL_STATE" != "N/A" ] && [ "$LOCAL_STATE" != "1" ]; then
     fi
 fi
 
+# Pre-flight defensivo de deps de SO (TSK00.04.04). Se chegamos aqui em
+# state ≥ 2 (binários presentes, sem flag --force-download-binaries e
+# sem mtime obsoleto), o ramo de remediação vai pular runner_download_
+# binaries — e com ele pularia installdependencies.sh. Mas as deps de
+# SO podem ter mudado entre runs (apt upgrade do SO, distro upgrade) e
+# o .NET embarcado do runner precisa de libssl/libicu/libkrb5 alinhadas.
+# Lab 2026-05-28: VM com Ubuntu 24.04 + OpenSSL 3.0.13 + runner v2.334.0
+# fresco (mtime ~16h) ainda falhava TLS handshake — auto-detecção por
+# mtime não pegava (binários novos), só este pre-flight protege.
+# Idempotente: apt skip pacotes já presentes (~2-3s no caminho feliz).
+if [ "$LOCAL_STATE" != "N/A" ] && [ "$LOCAL_STATE" != "1" ]; then
+    runner_install_runtime_deps "$RUNNER_DIR" || true
+fi
+
 # ────────────────────────────────────────────────────────────────────────────
 # 3. Pré-flight via doctor (não inclui check-runner — é o que vamos consertar)
 # ────────────────────────────────────────────────────────────────────────────
