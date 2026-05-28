@@ -488,11 +488,27 @@ runner_diagnose_tls_failure() {
         printf '  DIAGNÓSTICO TLS — config.sh falhou no handshake\n'
         printf '══════════════════════════════════════════════════\n\n'
 
-        # [1] Exception detalhada do .NET (a fonte da verdade)
-        local latest_log=""
+        # Localiza o log mais recente E extrai URL/host alvo de uma vez —
+        # ambos são usados pelas seções [1] (tail), [4] (DNS lookup do
+        # endpoint específico, não só api.github.com) e [6] (curl direto
+        # pro endpoint pra confirmar firewall). Extração TSK00.04.08
+        # movida para etapa prévia (era dentro de [5d]) para servir
+        # múltiplas seções com a mesma URL canônica.
+        local latest_log="" failed_url="" failed_host=""
         if [ -d "$dir/_diag" ]; then
             latest_log=$(ls -t "$dir/_diag"/Runner_*.log 2>/dev/null | head -1)
         fi
+        if [ -n "$latest_log" ] && [ -f "$latest_log" ]; then
+            failed_url=$(grep -oE '(GET|POST) request to https?://[^[:space:]]+' "$latest_log" 2>/dev/null \
+                | head -1 \
+                | sed -E 's/^(GET|POST) request to //')
+            if [ -n "$failed_url" ]; then
+                failed_host=$(printf '%s' "$failed_url" \
+                    | sed -E 's|^https?://([^/]+)/.*|\1|; s|^https?://([^/]+)$|\1|')
+            fi
+        fi
+
+        # [1] Exception detalhada do .NET (a fonte da verdade)
         if [ -n "$latest_log" ] && [ -f "$latest_log" ]; then
             printf '[1] Exception detalhada (últimas 100 linhas de %s):\n\n' \
                 "$(basename "$latest_log")"
@@ -528,15 +544,28 @@ runner_diagnose_tls_failure() {
         fi
         printf '\n'
 
-        # [4] Resolução de api.github.com
-        printf '[4] Resolução DNS de api.github.com:\n'
+        # [4] Resolução DNS — api.github.com SEMPRE, e o endpoint que falhou
+        # quando extraível do log (TSK00.04.08). Resolver o endpoint
+        # regional específico distingue "DNS funciona mas não pra esse
+        # host" de "DNS quebrado".
+        printf '[4] Resolução DNS:\n'
         if command -v getent >/dev/null 2>&1; then
             local resolved
+            printf '    api.github.com:\n'
             resolved=$(getent hosts api.github.com 2>/dev/null)
             if [ -n "$resolved" ]; then
-                printf '%s\n' "$resolved" | sed 's/^/    /'
+                printf '%s\n' "$resolved" | sed 's/^/      /'
             else
-                printf '    (sem resposta — DNS pode estar bloqueado)\n'
+                printf '      (sem resposta — DNS pode estar bloqueado)\n'
+            fi
+            if [ -n "$failed_host" ] && [ "$failed_host" != "api.github.com" ]; then
+                printf '    %s (endpoint que falhou):\n' "$failed_host"
+                resolved=$(getent ahosts "$failed_host" 2>/dev/null)
+                if [ -n "$resolved" ]; then
+                    printf '%s\n' "$resolved" | sed 's/^/      /'
+                else
+                    printf '      (sem resposta — verifique DNS pra esse host)\n'
+                fi
             fi
         else
             printf '    (getent ausente — tente: dig api.github.com)\n'
@@ -576,15 +605,8 @@ runner_diagnose_tls_failure() {
             if grep -qiE 'Received an unexpected EOF|0 bytes from the transport stream' "$latest_log" 2>/dev/null; then
                 printf '    ⚠ Sinal de firewall/proxy interrompendo TLS handshake (peer fechou conexão).\n'
                 printf '      Distinto de CA bundle: o erro acontece ANTES da validação de certificado.\n'
-                # Extrai o URL/host que falhou da mensagem canônica do .NET:
-                # "GET request to <URL> failed" ou "POST request to <URL>".
-                local failed_url failed_host
-                failed_url=$(grep -oE '(GET|POST) request to https?://[^[:space:]]+' "$latest_log" 2>/dev/null \
-                    | head -1 \
-                    | sed -E 's/^(GET|POST) request to //')
-                if [ -n "$failed_url" ]; then
-                    failed_host=$(printf '%s' "$failed_url" \
-                        | sed -E 's|^https?://([^/]+)/.*|\1|; s|^https?://([^/]+)$|\1|')
+                # failed_url/failed_host já extraídos em etapa prévia (TSK00.04.08).
+                if [ -n "$failed_host" ]; then
                     printf '      → Endpoint que falhou: %s\n' "$failed_host"
                     printf '      → Verifique se esse FQDN está liberado no firewall corporativo.\n'
                     printf '      → Variantes regionais (pipelinesghub<region>*.actions.githubusercontent.com)\n'
@@ -598,6 +620,33 @@ runner_diagnose_tls_failure() {
             fi
             [ -z "$triage_emitted" ] && \
                 printf '    (nenhum padrão conhecido bate — leia o log [1] manualmente)\n'
+            printf '\n'
+        fi
+
+        # [6] Teste de alcance direto ao endpoint que falhou — TSK00.04.08.
+        # Decide firewall sozinho: HTTP=000 ⇒ TCP/TLS não completou (peer
+        # rejeitou ou middlebox dropou); HTTP=2xx/4xx ⇒ TLS subiu, NÃO é
+        # firewall (revisar outras hipóteses). Best-effort: curl ausente
+        # vira mensagem orientativa; --max-time 10 evita hang em firewall
+        # que faz drop em vez de RST.
+        if [ -n "$failed_url" ]; then
+            printf '[6] Teste de alcance direto ao endpoint que falhou:\n'
+            if command -v curl >/dev/null 2>&1; then
+                local result
+                result=$(curl -s -o /dev/null \
+                    -w "HTTP=%{http_code} TLS=%{ssl_verify_result}" \
+                    --max-time 10 \
+                    "$failed_url" 2>/dev/null || true)
+                printf '    %s\n    %s\n' "$failed_url" "$result"
+                case "$result" in
+                    HTTP=000*)
+                        printf '      → firewall confirmado (TCP/TLS não completou)\n' ;;
+                    HTTP=2*|HTTP=3*|HTTP=4*)
+                        printf '      → TLS subiu (NÃO é firewall) — revise outras hipóteses\n' ;;
+                esac
+            else
+                printf '    (curl ausente — instale curl para teste de alcance direto)\n'
+            fi
             printf '\n'
         fi
 

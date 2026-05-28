@@ -294,6 +294,127 @@ SHELL
     rm -f "$DIAG_FLAG"
 }
 
+# ────────────────────────────────────────────────────────────────────────────
+# [4] estendida + [6] novo — TSK00.04.08
+# ────────────────────────────────────────────────────────────────────────────
+
+@test "[4] resolve api.github.com SEMPRE + endpoint extraído quando disponível" {
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+GET request to https://pipelinesghubeus6.actions.githubusercontent.com/_apis/connectionData failed.
+System.IO.IOException: Received an unexpected EOF or 0 bytes from the transport stream.
+LOG
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    # Sempre tenta api.github.com primeiro
+    assert_output --partial "api.github.com:"
+    # E também o endpoint que falhou (extraído de [5d])
+    assert_output --partial "pipelinesghubeus6.actions.githubusercontent.com (endpoint que falhou):"
+}
+
+@test "[4] log sem URL extraível → resolve apenas api.github.com" {
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+some unrelated content without the canonical pattern
+LOG
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "api.github.com:"
+    refute_output --partial "(endpoint que falhou):"
+}
+
+@test "[6] log com URL extraída + curl disponível → emite teste de alcance HTTP=000 → firewall confirmado" {
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+GET request to https://pipelinesghubeus6.actions.githubusercontent.com/_apis/connectionData failed.
+System.IO.IOException: Received an unexpected EOF or 0 bytes from the transport stream.
+LOG
+    # Stub curl pra simular firewall (HTTP=000)
+    curl() {
+        printf 'HTTP=000 TLS=0'
+        return 28
+    }
+    export -f curl
+
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "[6] Teste de alcance direto"
+    assert_output --partial "https://pipelinesghubeus6.actions.githubusercontent.com"
+    assert_output --partial "HTTP=000"
+    assert_output --partial "firewall confirmado"
+}
+
+@test "[6] curl retorna HTTP=200 → interpreta como TLS subiu (NÃO é firewall)" {
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+GET request to https://api.github.com/repos/foo/bar failed.
+System.IO.IOException: Received an unexpected EOF or 0 bytes from the transport stream.
+LOG
+    curl() {
+        printf 'HTTP=200 TLS=0'
+        return 0
+    }
+    export -f curl
+
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "[6] Teste de alcance direto"
+    assert_output --partial "HTTP=200"
+    assert_output --partial "TLS subiu (NÃO é firewall)"
+    refute_output --partial "firewall confirmado"
+}
+
+@test "[6] curl retorna HTTP=404 também conta como TLS subiu" {
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+POST request to https://pipelines.actions.githubusercontent.com/api/foo failed.
+Received an unexpected EOF or 0 bytes from the transport stream.
+LOG
+    curl() {
+        printf 'HTTP=404 TLS=0'
+        return 0
+    }
+    export -f curl
+
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "HTTP=404"
+    assert_output --partial "TLS subiu (NÃO é firewall)"
+}
+
+@test "[6] log sem URL extraída → seção [6] inteira é skipped (graceful)" {
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+some runtime error without the canonical GET/POST request pattern
+LOG
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    refute_output --partial "[6] Teste de alcance direto"
+}
+
+@test "[6] curl ausente no sistema → mensagem orientativa, não falha" {
+    mkdir -p "${RUNNER_DIR}/_diag"
+    cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
+GET request to https://pipelinesghubeus6.actions.githubusercontent.com/foo failed.
+Received an unexpected EOF from the transport stream.
+LOG
+    # Stub command pra fazer curl parecer ausente
+    command() {
+        if [ "$1" = "-v" ] && [ "$2" = "curl" ]; then
+            return 1
+        fi
+        builtin command "$@"
+    }
+    export -f command
+
+    run runner_diagnose_tls_failure "${RUNNER_DIR}"
+    assert_success
+    assert_output --partial "[6] Teste de alcance direto"
+    assert_output --partial "curl ausente"
+
+    unset -f command
+}
+
 @test "runner_register em sucesso NÃO invoca runner_diagnose_tls_failure" {
     info() { :; }
     ok() { :; }
