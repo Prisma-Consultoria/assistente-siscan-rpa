@@ -419,9 +419,56 @@ product_get() {
 
 # product_get_array FIELD
 #   Emite cada elemento do array em linha separada (use com mapfile/<<<).
+#
+#   Tratamento especial para `host_dir_vars` (schema v2.0, TSK00.05.01):
+#   o array pode misturar strings (forma legada — variáveis obrigatórias,
+#   declaradas pelo operador) e objetos (forma nova — variáveis derivadas
+#   automaticamente pelo setup, opcionais para o operador).
+#
+#   Para preservar a SEMÂNTICA HISTÓRICA de `host_dir_vars` ("vars que precisam
+#   estar declaradas no .env, validadas por check-env/check-permissions"),
+#   esta função emite SOMENTE STRINGS — objetos são filtrados. Consumidores
+#   que precisam da metadata de derivação devem usar
+#   `product_get_host_dir_vars_derived` (que retorna SOMENTE os objetos).
+#
+#   Razão de design: check-env hoje falha se uma var de `host_dir_vars` está
+#   vazia no .env. Se HOST_SECRETS_DIR/HOST_BACKUPS_DIR (objetos derivados)
+#   entrassem aqui, VMs com .env pre-TSK00.05.01 (workflow CD derivava
+#   inline) ganhariam falsos FAILs até re-rodar setup. Manter os objetos
+#   fora deste loop preserva a transição não-disruptiva.
 product_get_array() {
     local field="$1"
-    jq -r ".products.\"$SISCAN_PRODUCT\".$field[]?" "$PRODUCTS_FILE" 2>/dev/null
+    if [ "$field" = "host_dir_vars" ]; then
+        # Schema v2.0: emite só strings (forma legada). Objetos derivados
+        # vão por product_get_host_dir_vars_derived.
+        jq -r ".products.\"$SISCAN_PRODUCT\".$field[]? | select(type == \"string\")" "$PRODUCTS_FILE" 2>/dev/null
+    else
+        jq -r ".products.\"$SISCAN_PRODUCT\".$field[]?" "$PRODUCTS_FILE" 2>/dev/null
+    fi
+}
+
+# product_get_host_dir_vars_derived
+#   Emite, em formato TSV "name<TAB>derived_from<TAB>derivation<TAB>default_mode<TAB>auto_create<TAB>description",
+#   uma linha por elemento OBJETO de `host_dir_vars` (TSK00.05.01).
+#   Strings da forma legada são IGNORADAS — esta função só retorna metadata
+#   de variáveis com derivação automática declarada.
+#
+#   Uso (Fase 5 do siscan-server-setup.sh):
+#     while IFS=$'\t' read -r name derived_from derivation mode auto_create _desc; do
+#       env_set_or_derive "$name" "$derived_from" "$derivation" "$mode" "$auto_create"
+#     done < <(product_get_host_dir_vars_derived)
+#
+#   Saída vazia para produtos cujo `host_dir_vars` é só strings (ex: dashboard).
+product_get_host_dir_vars_derived() {
+    # Importante: bash `read -r` com IFS=$'\t' COLAPSA tabs adjacentes (IFS é
+    # whitespace-only). Para preservar campos vazios (default_mode opcional),
+    # emitimos o sentinela "-" no lugar de strings vazias — o caller troca
+    # de volta para vazio antes de usar. Alternativa seria usar separador
+    # não-whitespace, mas | poderia colidir com paths.
+    jq -r '.products."'"$SISCAN_PRODUCT"'".host_dir_vars[]?
+        | select(type == "object")
+        | [.name, .derived_from, .derivation, (if (.default_mode // "") == "" then "-" else .default_mode end), (.auto_create // false | tostring), (.description // "-")]
+        | @tsv' "$PRODUCTS_FILE" 2>/dev/null
 }
 
 # product_has_extra KEY
