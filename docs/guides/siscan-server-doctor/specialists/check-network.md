@@ -167,6 +167,37 @@ Saída típica em VM com whitelist estreita (somente endpoint base liberado):
 
 Origem operacional: [TSK00.04.09 #88](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/88), motivada pelo lab #259 (28/05/2026) onde `pipelinesghubeus6.actions.githubusercontent.com` ficou bloqueada mesmo após a base liberada (req 767679, 26/05). Decisão arquitetural: usar categoria advisory dentro do `network-endpoints.json` (single source of truth) em vez de arquivo paralelo, evitando risco de drift entre catálogos.
 
+### v1.5 — flag `--advisory-strict` + `warning_when_alone` + alinhamento doc oficial GitHub
+
+**TSK00.04.11 ([#90](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/90))** complementa a v1.4 adicionando:
+
+1. **Flag opt-in `--advisory-strict`** — categorias advisory contam como `FAIL` (bloqueante, exit 1) em vez de `SKIPPED` (não-bloqueante). Útil em CI/CD ou pipeline de provisionamento que **requer** wildcard liberado antes de prosseguir.
+
+   ```bash
+   # Default (TSK00.04.09 mantida): advisory = warning, exit 0 mesmo com SKIPPEDs
+   bash check-network.sh
+
+   # Strict opt-in (TSK00.04.11): advisory = bloqueante, exit 1 se variantes regionais falharem
+   bash check-network.sh --advisory-strict
+   ```
+
+   **Variante A da decisão #90** — sem prompt interativo (operador ignora prompt e perde o teste); flag CLI com default seguro (warning). Setup/recover **não passam** `--advisory-strict` por padrão (mantêm compat com TSK00.04.09). Veja [#90 issuecomment-decisão](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/90) para o trade-off.
+
+2. **Campo `warning_when_alone`** no schema do JSON, anotado nos 3 endpoints com `wildcard_for` (`pipelines.actions.githubusercontent.com`, `productionresultssa0.blob.core.windows.net`, `npm.pkg.github.com`). Quando o endpoint passa o teste, o specialist emite aviso pós-OK orientando o operador a pedir wildcard ao firewall na próxima Req — não bloqueia, mas educa.
+
+   ```
+   ✔  pipelines.actions.githubusercontent.com                404 esperado · ...
+        ⚠ NÃO solicitar este FQDN literal ao firewall corporativo sem o wildcard
+          *.actions.githubusercontent.com — liberação literal sozinha causa
+          falhas regionais recorrentes. Lab #259 (2026-05-28) confirmou ...
+   ```
+
+3. **Nova categoria advisory `runner_actions_optional_features`** — endpoints da doc oficial GitHub que só são acessados se features específicas estiverem ativas no projeto: `github-cloud.githubusercontent.com` + `github-cloud.s3.amazonaws.com` (Git LFS), `dependabot-actions.githubapp.com` (Dependabot Updates). Verificar `.github/dependabot.yml` e `git lfs install` antes de pedir liberação ao firewall.
+
+4. **Alinhamento explícito com doc oficial GitHub** em `guidance.on_any_fail` da categoria principal — não é só achado empírico nosso; a doc oficial recomenda wildcards na seção *Communication > Accessible domains by function*.
+
+**Versão atual do JSON**: `1.2` (consultar campo `.version` em `network-endpoints.json`).
+
 ### Diagnóstico amplo via doctor
 
 ```bash
