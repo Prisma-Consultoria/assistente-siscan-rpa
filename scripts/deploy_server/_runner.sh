@@ -701,10 +701,13 @@ runner_diagnose_tls_failure() {
 # runner_register RUNNER_DIR URL TOKEN NAME LABEL
 #   Registra o runner via config.sh --token. Usa --unattended --replace
 #   (idempotente quanto a nome+label).
-#   Quando o config.sh falha, invoca runner_diagnose_tls_failure pra
-#   emitir bloco de diagnóstico antes de retornar erro — caller (recover
-#   e setup) imprime sua mensagem genérica, mas o operador já tem o
-#   contexto pra resolver sem ida-e-volta operacional (TSK00.04.05).
+#   Quando o config.sh falha, invoca o specialist check-runner-tls.sh
+#   (TSK00.04.10 #89) em modo --reactive para emitir bloco de diagnóstico
+#   estruturado antes de retornar erro. Se o specialist não estiver
+#   presente (ex.: instalação em-vôo), faz fallback gracioso para o
+#   helper inline runner_diagnose_tls_failure — preserva backward compat.
+#   Caller (recover e setup) imprime sua mensagem genérica, mas o operador
+#   já tem o contexto pra resolver sem ida-e-volta operacional.
 runner_register() {
     local dir="$1" url="$2" token="$3" name="$4" label="$5"
     [ -n "$token" ] || { printf "Token vazio — abortando registro.\n" >&2; return 1; }
@@ -717,7 +720,16 @@ runner_register() {
             --unattended \
             --replace); then
         printf "Falha ao registrar o runner. Verifique URL e token (tokens expiram em poucos minutos).\n" >&2
-        runner_diagnose_tls_failure "$dir"
+        # Delegação ao specialist check-runner-tls.sh (TSK00.04.10).
+        # Fallback gracioso: se o specialist não está presente (ex.: VM com
+        # versão antiga do assistente), invoca o helper inline.
+        local script_dir
+        script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        if [ -x "$script_dir/check-runner-tls.sh" ]; then
+            bash "$script_dir/check-runner-tls.sh" --reactive "$dir" || true
+        else
+            runner_diagnose_tls_failure "$dir"
+        fi
         return 1
     fi
     ok "Runner registrado: $name [$label]"

@@ -279,17 +279,11 @@ LOG
 # Integração — runner_register failure path chama runner_diagnose_tls_failure
 # ────────────────────────────────────────────────────────────────────────────
 
-@test "runner_register em falha invoca runner_diagnose_tls_failure" {
+@test "runner_register em falha invoca specialist check-runner-tls.sh quando disponível (TSK00.04.10)" {
     # Stub info/ok pra silenciar saída acessória
     info() { :; }
     ok() { :; }
     export -f info ok
-
-    # Marker via tempfile (sobrevive ao subshell de `run`)
-    DIAG_FLAG="$(mktemp)"; rm -f "$DIAG_FLAG"
-    export DIAG_FLAG
-    runner_diagnose_tls_failure() { touch "$DIAG_FLAG"; return 0; }
-    export -f runner_diagnose_tls_failure
 
     # Stub config.sh para falhar (cd $dir && ./config.sh → exit 1)
     mkdir -p "${RUNNER_DIR}/bin"
@@ -301,8 +295,50 @@ SHELL
 
     run runner_register "${RUNNER_DIR}" "https://github.com/x/y" "TOKEN123" "name" "label"
     assert_failure
-    [ -f "$DIAG_FLAG" ] || { echo "runner_diagnose_tls_failure NÃO foi invocado"; return 1; }
+    # Specialist check-runner-tls.sh está presente nas linhas do output —
+    # delega ao specialist (preferido) em vez do helper inline.
+    # Output deve conter o header do specialist (modo reactive).
+    assert_output --partial "DIAGNÓSTICO TLS"
+}
 
+@test "runner_register em falha faz fallback ao helper inline quando specialist ausente" {
+    # Caso edge: VM com versão antiga do assistente onde
+    # check-runner-tls.sh não chegou ainda. Preserva backward compat
+    # via fallback explícito no runner_register (TSK00.04.10).
+
+    # Stub info/ok pra silenciar saída acessória
+    info() { :; }
+    ok() { :; }
+    export -f info ok
+
+    # Move o specialist para que não esteja "presente" durante este teste
+    local specialist_path saved_path
+    specialist_path="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)/scripts/deploy_server/check-runner-tls.sh"
+    saved_path="${BATS_TEST_TMPDIR}/check-runner-tls.sh.saved"
+    [ -x "$specialist_path" ] && mv "$specialist_path" "$saved_path"
+
+    # Stub do helper inline pra verificar que ELE é invocado no fallback
+    DIAG_FLAG="$(mktemp)"; rm -f "$DIAG_FLAG"
+    export DIAG_FLAG
+    runner_diagnose_tls_failure() { touch "$DIAG_FLAG"; return 0; }
+    export -f runner_diagnose_tls_failure
+
+    # Stub config.sh para falhar
+    mkdir -p "${RUNNER_DIR}/bin"
+    cat > "${RUNNER_DIR}/config.sh" <<'SHELL'
+#!/usr/bin/env bash
+exit 1
+SHELL
+    chmod +x "${RUNNER_DIR}/config.sh"
+
+    run runner_register "${RUNNER_DIR}" "https://github.com/x/y" "TOKEN123" "name" "label"
+    local rc=$status
+
+    # Restaura specialist sempre (mesmo em falha)
+    [ -f "$saved_path" ] && mv "$saved_path" "$specialist_path"
+
+    [ $rc -ne 0 ] || { echo "runner_register deveria ter falhado"; return 1; }
+    [ -f "$DIAG_FLAG" ] || { echo "fallback: helper inline NÃO foi invocado"; return 1; }
     rm -f "$DIAG_FLAG"
 }
 

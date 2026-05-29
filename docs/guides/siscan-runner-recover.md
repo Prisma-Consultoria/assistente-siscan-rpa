@@ -449,7 +449,7 @@ Use `--skip-doctor` para pular o pré-flight em cenários de debug.
 
 ### Diagnóstico TLS automático na falha de `runner_register`
 
-Quando `config.sh --unattended --replace` falha durante o registro do runner (mensagem genérica do .NET: `The SSL connection could not be established, see inner exception`), a função `runner_diagnose_tls_failure RUNNER_DIR` é invocada **automaticamente** na failure path de `runner_register` e emite em stderr um **bloco estruturado de 6 seções** para que o operador identifique a causa raiz sem precisar pedir comandos manuais:
+Quando `config.sh --unattended --replace` falha durante o registro do runner (mensagem genérica do .NET: `The SSL connection could not be established, see inner exception`), o **specialist `check-runner-tls.sh`** (em modo `--reactive`) é invocado **automaticamente** na failure path de `runner_register` e emite em stderr um **bloco estruturado de 6 seções** para que o operador identifique a causa raiz sem precisar pedir comandos manuais. A delegação faz fallback gracioso ao helper inline `runner_diagnose_tls_failure RUNNER_DIR` em `_runner.sh` quando o specialist não está presente (ex.: VM com versão antiga do assistente):
 
 | Seção | O que mostra |
 |---|---|
@@ -460,9 +460,26 @@ Quando `config.sh --unattended --replace` falha durante o registro do runner (me
 | `[5]` | Triagem por padrão conhecido do .NET no log: CA bundle (`AuthenticationException`/`X509`/`certificate`), DNS/IPv6 (`NameResolution`/`host not known`/`unreachable`), proxy explícito (literal `proxy`), e **firewall interrompendo handshake** (`Received an unexpected EOF`/`0 bytes from the transport stream`) — esta última extrai automaticamente o URL/host que falhou |
 | `[6]` | Teste de alcance direto via `curl -k` ao URL extraído de `[5]` — `HTTP=000` confirma firewall (TCP/TLS não completou); `HTTP=2xx/3xx/4xx/5xx` indica TLS subiu (causa é outra, não firewall). `-k` ignora validação de certificado para isolar firewall de CA error. Header sempre emitido; fallback explícito quando sem URL extraída de `[5]` ou curl ausente |
 
-Output é best-effort (sempre rc=0); helper nunca mascara o erro original do `runner_register`. Todo caller que invoque `runner_register` (recover ramos N/A/1/2/A/A2, Fase 7 do setup) herda o diagnóstico automaticamente.
+Output é best-effort (sempre rc=0); helper/specialist nunca mascara o erro original do `runner_register`. Todo caller que invoque `runner_register` (recover ramos N/A/1/2/A/A2, Fase 7 do setup) herda o diagnóstico automaticamente.
 
 Quando a triagem `[5]` detecta firewall (peer fecha conexão durante handshake), a recomendação explicita liberar **wildcard `*.actions.githubusercontent.com`** no whitelist corporativo — não apenas o endpoint base `pipelines.actions.githubusercontent.com`, porque o GitHub Actions roteia dinamicamente para variantes regionais (`pipelinesghub<region>*.actions.githubusercontent.com`).
+
+#### Specialist standalone — modos `--pre-flight` e `--reactive`
+
+A lógica de diagnóstico TLS pode ser invocada também de forma standalone (TSK00.04.10 #89):
+
+```bash
+# Pre-flight (proativo — sem precisar de log do runner)
+bash scripts/deploy_server/check-runner-tls.sh --pre-flight
+
+# Reactive (pós-falha — equivalente ao que runner_register invoca)
+bash scripts/deploy_server/check-runner-tls.sh --reactive ~/actions-runner
+
+# Via doctor
+bash siscan-server-doctor.sh --only check-runner-tls
+```
+
+Detalhes completos: [`siscan-server-doctor/specialists/check-runner-tls.md`](siscan-server-doctor/specialists/check-runner-tls.md).
 
 ### Ações por cenário (o que o script faz na VM)
 
