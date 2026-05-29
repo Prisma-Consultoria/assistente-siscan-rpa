@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "version": "2.0",
   "description": "Manifesto declarativo dos produtos que o assistente deploya. Cada specialist em scripts/deploy_server/check-*.sh lê dessa fonte em vez de hardcodar 'case \"$SISCAN_PRODUCT\"'.",
   "schema": {
     "label": "Nome amigável do produto",
@@ -13,7 +13,15 @@
     "expected_services": "Serviços do compose que devem estar 'running' (migrate não conta)",
     "expected_external_ports": "Portas externas publicadas no host (verificadas por collision)",
     "required_env_vars": "Variáveis obrigatórias no .env (check-env valida não-vazias)",
-    "host_dir_vars": "Variáveis HOST_*_DIR que precisam existir + ser escrevíveis",
+    "host_dir_vars": "Variáveis HOST_*_DIR. Aceita STRING (forma legada: variável obrigatória, declarada pelo operador) OU OBJETO {name, derived_from, derivation, default_mode, auto_create, description} para variáveis derivadas automaticamente pelo setup Fase 5 (TSK00.05.01).",
+    "host_dir_vars_object_schema": {
+      "name": "Nome da variável (ex: HOST_SECRETS_DIR)",
+      "derived_from": "Variável-fonte para derivação (ex: HOST_LOG_DIR)",
+      "derivation": "Operação de derivação. Suportada: 'dirname + /<subdir>' (extrai parent dir de derived_from e anexa subdir).",
+      "default_mode": "Permissões POSIX (ex: '700' para secrets). Opcional.",
+      "auto_create": "Se true, o setup cria o diretório (mkdir -p) na Fase 5. Default false.",
+      "description": "Descrição amigável para exibir no setup interativo."
+    },
     "default_passwords_to_detect": "Valores de DATABASE_PASSWORD que indicam senha não alterada",
     "extras": "Flags booleanas + defaults consumidos por specialists específicos"
   },
@@ -42,7 +50,22 @@
         "HOST_SISCAN_REPORTS_INPUT_DIR",
         "HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR",
         "HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR",
-        "HOST_CONFIG_DIR"
+        "HOST_CONFIG_DIR",
+        {
+          "name": "HOST_SECRETS_DIR",
+          "derived_from": "HOST_LOG_DIR",
+          "derivation": "dirname + /secrets",
+          "default_mode": "700",
+          "auto_create": true,
+          "description": "Diretório de chaves RSA + credenciais SISCAN cifradas — derivado automaticamente do parent de HOST_LOG_DIR se não declarado (TSK00.05.01)"
+        },
+        {
+          "name": "HOST_BACKUPS_DIR",
+          "derived_from": "HOST_LOG_DIR",
+          "derivation": "dirname + /backups",
+          "auto_create": true,
+          "description": "Diretório de backups (dumps do banco) — derivado automaticamente do parent de HOST_LOG_DIR se não declarado (TSK00.05.01)"
+        }
       ],
       "default_passwords_to_detect": ["siscan_rpa"],
       "extras": {
@@ -110,7 +133,22 @@
         "HOST_SISCAN_REPORTS_INPUT_DIR",
         "HOST_REPORTS_OUTPUT_CONSOLIDATED_DIR",
         "HOST_REPORTS_OUTPUT_CONSOLIDATED_PDFS_DIR",
-        "HOST_CONFIG_DIR"
+        "HOST_CONFIG_DIR",
+        {
+          "name": "HOST_SECRETS_DIR",
+          "derived_from": "HOST_LOG_DIR",
+          "derivation": "dirname + /secrets",
+          "default_mode": "700",
+          "auto_create": true,
+          "description": "Diretório de chaves RSA + credenciais SISCAN cifradas — derivado automaticamente do parent de HOST_LOG_DIR se não declarado (TSK00.05.01)"
+        },
+        {
+          "name": "HOST_BACKUPS_DIR",
+          "derived_from": "HOST_LOG_DIR",
+          "derivation": "dirname + /backups",
+          "auto_create": true,
+          "description": "Diretório de backups (dumps do banco) — derivado automaticamente do parent de HOST_LOG_DIR se não declarado (TSK00.05.01)"
+        }
       ],
       "default_passwords_to_detect": ["siscan_rpa", "siscan_dashboard"],
       "extras": {

@@ -6,7 +6,7 @@ Fonte de verdade declarativa que descreve cada produto que o assistente deploya.
 
 ```json
 {
-  "version": "1.0",
+  "version": "2.0",
   "products": {
     "<id>": {
       "label": "Nome amigável",
@@ -20,7 +20,18 @@ Fonte de verdade declarativa que descreve cada produto que o assistente deploya.
       "expected_services": ["app", "..."],
       "expected_external_ports": [5001],
       "required_env_vars": ["DATABASE_HOST", "..."],
-      "host_dir_vars": ["HOST_LOG_DIR", "..."],
+      "host_dir_vars": [
+        "HOST_LOG_DIR",
+        "...",
+        {
+          "name": "HOST_SECRETS_DIR",
+          "derived_from": "HOST_LOG_DIR",
+          "derivation": "dirname + /secrets",
+          "default_mode": "700",
+          "auto_create": true,
+          "description": "..."
+        }
+      ],
       "default_passwords_to_detect": ["siscan_rpa"],
       "extras": {
         "rsa_keys_required": true,
@@ -37,6 +48,30 @@ Fonte de verdade declarativa que descreve cada produto que o assistente deploya.
 }
 ```
 
+### `host_dir_vars` — schema v2.0 (TSK00.05.01 [#95](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/95))
+
+A partir da v2.0, `host_dir_vars[]` aceita DUAS formas que coexistem no mesmo array:
+
+| Forma | Quem preenche | Quem valida |
+|---|---|---|
+| **String** (legado) | Operador no setup Fase 5 (prompt interativo) | `check-env` (não-vazia + path Linux) + `check-permissions` (existe + escrevível) |
+| **Objeto** (v2.0) | `siscan-server-setup.sh` Fase 5 deriva automaticamente | `check-permissions` via blocos dedicados (extras-driven) |
+
+**Schema do objeto**:
+
+| Campo | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `name` | string | sim | Nome da variável (ex: `HOST_SECRETS_DIR`) |
+| `derived_from` | string | sim | Variável-fonte para derivação (ex: `HOST_LOG_DIR`) |
+| `derivation` | string | sim | Operação de derivação. Suportada: `"dirname + /<subdir>"` — extrai parent de `derived_from` e anexa subdir. |
+| `default_mode` | string | não | Permissões POSIX (ex: `"700"` para secrets). Aplicado via `chmod` após `mkdir -p`. |
+| `auto_create` | boolean | não (default `false`) | Se `true`, setup cria o diretório via `mkdir -p`. |
+| `description` | string | não | Descrição amigável (para help). |
+
+**Semântica de preservação**: se o operador declarar manualmente o valor no `.env` (ex: `HOST_SECRETS_DIR=/mnt/seguro/keys`), o setup **preserva** esse valor — apenas garante que o diretório exista e tenha o `default_mode` correto. Já com `HOST_SECRETS_DIR` ausente, é derivado de `dirname(HOST_LOG_DIR) + /secrets`.
+
+**Backward compat para `product_get_array host_dir_vars`**: a função emite **somente strings** — objetos são filtrados pra preservar a semântica histórica ("vars que o operador precisa declarar"). Para acessar metadata de derivação, use `product_get_host_dir_vars_derived`.
+
 ## Campos
 
 | Campo | Tipo | Quem consome | Para quê |
@@ -52,7 +87,7 @@ Fonte de verdade declarativa que descreve cada produto que o assistente deploya.
 | `expected_services` | array | `check-stack` | Serviços que devem estar `running` no `docker compose ps` |
 | `expected_external_ports` | array | `check-stack` | Portas externas verificadas contra collision (`ss -tlnp`) |
 | `required_env_vars` | array | `check-env` | Variáveis obrigatórias no `.env` (validadas não-vazias + regras especiais) |
-| `host_dir_vars` | array | `check-env`, `check-permissions` | `HOST_*_DIR` declarados no `.env` (existência + escrita) |
+| `host_dir_vars` | array misto (string \| objeto, schema v2.0) | `check-env`, `check-permissions`, `siscan-server-setup` Fase 5 | `HOST_*_DIR`. Strings: operador declara, specialists validam. Objetos: setup deriva automaticamente (TSK00.05.01) — ver subseção dedicada acima |
 | `default_passwords_to_detect` | array | `check-env` | Valores de `DATABASE_PASSWORD` que indicam senha default não alterada |
 | `extras` | object | múltiplos | Flags booleanas + defaults consumidos por specialists específicos |
 
