@@ -70,18 +70,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SPECIALISTS_DIR="${SCRIPT_DIR}/scripts/deploy_server"
 
 # ────────────────────────────────────────────────────────────────────────────
-# Helpers de output
+# Helpers de output — sourcing _common.sh (TSK00.04.13 #92)
 # ────────────────────────────────────────────────────────────────────────────
+# Setup é human-only por design (interativo). Força OUTPUT_MODE=human
+# de forma INCONDICIONAL antes do source — caso contrário, um
+# OUTPUT_MODE=quiet/json herdado do ambiente (ex.: setup invocado de dentro
+# de um doctor --json) deixaria os helpers ok/info/warn silenciosos no
+# meio de um prompt interativo (revisão Copilot PR #93).
+OUTPUT_MODE="human"
+# shellcheck source=scripts/deploy_server/_common.sh
+source "${SPECIALISTS_DIR}/_common.sh"
+
+# Override pontual: _common.sh:fail() faz exit 2 (uso inválido para
+# specialists). O setup usa fail() para qualquer erro fatal e o
+# contrato histórico é exit 1 — preservamos esse contrato.
+fail() { printf "\n${RED}ERRO: %s${NC}\n\n" "${1}" >&2; exit 1; }
+
 step() {
     printf "\n${CYAN}══════════════════════════════════════════════════${NC}\n"
     printf "${WHITE}  %s${NC}\n" "${1}"
     printf "${CYAN}══════════════════════════════════════════════════${NC}\n\n"
 }
-
-ok()   { printf "  ${GREEN}✔${NC}  %s\n" "${1}"; }
-info() { printf "  ${GRAY}→${NC}  %s\n" "${1}"; }
-warn() { printf "  ${YELLOW}⚠${NC}  %s\n" "${1}"; }
-fail() { printf "\n${RED}ERRO: %s${NC}\n\n" "${1}" >&2; exit 1; }
 
 # ────────────────────────────────────────────────────────────────────────────
 # _generate_secret

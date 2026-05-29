@@ -47,6 +47,13 @@ ENDPOINTS_FILE="${REPO_ROOT}/scripts/data/network-endpoints.json"
 PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
 ENV_FILE="${COMPOSE_DIR:-$(pwd)}/.env"
 
+# Flag opt-in (TSK00.04.11): categorias advisory contam como FAIL bloqueante em
+# vez de SKIPPED não-bloqueante. Default false (preserva TSK00.04.09 — setup,
+# recover e operadores one-off não freakam com exit 1 falso por variantes
+# regionais que dependem do roteamento da VM). CI/automação rígida opta em.
+# Variante A da decisão #90: sem prompt interativo, só flag CLI.
+ADVISORY_STRICT=false
+
 usage() {
     cat <<EOF
 Uso: bash $(basename "$0") [opções]
@@ -57,6 +64,10 @@ Opções:
   --timeout SEC            Timeout por check em segundos (padrão: 10)
   --endpoints-file FILE    Override do JSON de endpoints
                            (padrão: scripts/data/network-endpoints.json)
+  --advisory-strict        Falhas em categorias advisory viram FAIL (bloqueante,
+                           exit 1) em vez de SKIPPED (não-bloqueante). Útil em
+                           CI/CD ou pipeline de provisionamento estrito que
+                           requer wildcard liberado. Default: warning (SKIPPED).
   -h, --help               Exibe esta ajuda
 
 Exit code:
@@ -75,6 +86,7 @@ while [ $# -gt 0 ]; do
         --endpoints-file=*) ENDPOINTS_FILE="${1#*=}"; shift ;;
         --env-file)         ENV_FILE="${2:-}"; shift 2 ;;
         --env-file=*)       ENV_FILE="${1#*=}"; shift ;;
+        --advisory-strict)  ADVISORY_STRICT=true; shift ;;
         -h|--help)          usage; exit 0 ;;
         *)
             if common_parse_arg "$@"; then
@@ -106,6 +118,8 @@ jq -e . "$ENDPOINTS_FILE" >/dev/null 2>&1 || fail "arquivo de endpoints não é 
 #   add_skipped em vez de add_fail, NÃO conta no exit code do specialist.
 #   Usado para variantes regionais cuja falha é esperada em VMs com whitelist
 #   estreita (não bloqueia pre-flight, só sinaliza pra construção de pedido à TI).
+#   ADVISORY_STRICT (TSK00.04.11): flag global; se true, categorias advisory
+#   contam como FAIL bloqueante (override do default warning).
 _check_https() {
     local category="$1" fqdn="$2" port="${3:-443}" expected="${4:-}" advisory="${5:-false}"
     local code
@@ -115,8 +129,10 @@ _check_https() {
 
     # Critério (PDF v2.0, seção 11.4): qualquer resposta HTTP != 000 indica TLS subiu.
     if [ -z "$code" ] || [ "$code" = "000" ]; then
-        if [ "$advisory" = "true" ]; then
+        if [ "$advisory" = "true" ] && [ "$ADVISORY_STRICT" != "true" ]; then
             add_skipped "$category" https "$port" "$fqdn" "firewall bloqueou — variante advisory (mapeamento para solicitação à TI)"
+        elif [ "$advisory" = "true" ] && [ "$ADVISORY_STRICT" = "true" ]; then
+            add_fail "$category" https "$port" "$fqdn" "firewall bloqueou — variante advisory em modo --advisory-strict (upgrade para FAIL bloqueante)"
         else
             add_fail "$category" https "$port" "$fqdn" "firewall bloqueou — sem resposta (TCP/TLS não completou)"
         fi
@@ -145,8 +161,10 @@ _check_https() {
 _check_tcp() {
     local category="$1" fqdn="$2" port="$3" expected="${4:-}" advisory="${5:-false}"
     if ! timeout "$TIMEOUT_SEC" bash -c "exec 3<>/dev/tcp/${fqdn}/${port}" 2>/dev/null; then
-        if [ "$advisory" = "true" ]; then
+        if [ "$advisory" = "true" ] && [ "$ADVISORY_STRICT" != "true" ]; then
             add_skipped "$category" tcp "$port" "$fqdn" "firewall bloqueou — variante advisory (mapeamento para solicitação à TI)"
+        elif [ "$advisory" = "true" ] && [ "$ADVISORY_STRICT" = "true" ]; then
+            add_fail "$category" tcp "$port" "$fqdn" "firewall bloqueou — variante advisory em modo --advisory-strict (upgrade para FAIL bloqueante)"
         else
             add_fail "$category" tcp "$port" "$fqdn" "firewall bloqueou — sem TCP/${port}"
         fi
@@ -200,13 +218,25 @@ for i in $(seq 0 $((cat_count - 1))); do
     fail_before=$FAIL_COUNT
     skipped_before=$SKIPPED_COUNT
 
-    while IFS=$'\t' read -r fqdn protocol port expected; do
+    while IFS=$'\t' read -r fqdn protocol port expected warning_when_alone; do
+        local_ok_before=$OK_COUNT
         case "$protocol" in
             https) _check_https "$cat_label" "$fqdn" "$port" "$expected" "$advisory" ;;
             tcp)   _check_tcp   "$cat_label" "$fqdn" "$port" "$expected" "$advisory" ;;
             *)     warn "protocolo desconhecido '$protocol' para $fqdn — ignorado" ;;
         esac
-    done < <(jq -r ".categories[$i].endpoints[] | [.fqdn, .protocol, (.port|tostring), (.expected // \"\")] | @tsv" "$ENDPOINTS_FILE")
+        # warning_when_alone (TSK00.04.11 + revisão Copilot PR #93):
+        # Emite warning OPERACIONAL apenas quando o endpoint EFETIVAMENTE
+        # passou (OK_COUNT incrementou) — não basta "FAIL_COUNT não cresceu"
+        # porque advisory falha = SKIPPED, e nesse caso o endpoint NÃO passou
+        # (warning poderia induzir erro). Também gate pelo OUTPUT_MODE do
+        # _common.sh — em quiet/json o warning não vaza no output estruturado.
+        if [ "$OK_COUNT" -gt "$local_ok_before" ] \
+            && [ -n "$warning_when_alone" ] && [ "$warning_when_alone" != "null" ] \
+            && [ "${OUTPUT_MODE:-human}" = "human" ]; then
+            printf "     ${YELLOW}%s${NC}\n" "$warning_when_alone" >&2
+        fi
+    done < <(jq -r ".categories[$i].endpoints[] | [.fqdn, .protocol, (.port|tostring), (.expected // \"\"), (.warning_when_alone // \"\")] | @tsv" "$ENDPOINTS_FILE")
 
     # Veredito da categoria + ação correspondente, AO VIVO (logo após os checks).
     # Para categorias advisory, conta SKIPPED em vez de FAIL — guidance.on_any_fail

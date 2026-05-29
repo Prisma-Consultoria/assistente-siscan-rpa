@@ -21,12 +21,12 @@ tags:
   - deploy
 tldr: |
   Guia operacional de `siscan-server-doctor.sh` — orquestrador que executa
-  9 specialists em `scripts/deploy_server/check-*.sh` e agrega o resultado
+  10 specialists em `scripts/deploy_server/check-*.sh` e agrega o resultado
   num único relatório. Suporta 3 modos de saída (`human`, `--quiet`,
   `--json`), subconjuntos via `--only`/`--except`/`--pre-setup`, e produz
   exit codes consumíveis por gates de CI ou cron. Cada specialist cobre
-  uma dimensão da saúde da VM (rede, deps, env, docker, runner, stack,
-  permissões, banco, recursos) e é callable standalone.
+  uma dimensão da saúde da VM (rede, deps, env, docker, runner, runner-tls,
+  stack, permissões, banco, recursos) e é callable standalone.
 ---
 
 # `siscan-server-doctor.sh` — Diagnóstico amplo da VM
@@ -56,7 +56,7 @@ tldr: |
 Catálogo de formas sintáticas aceitas pelo orquestrador. Para a sequência operacional onde cada invocação é usada, ver [`../../DEPLOY_SERVER.md`](../../DEPLOY_SERVER.md).
 
 ```bash
-# Sem flags → roda todos os 9 specialists em modo human
+# Sem flags → roda todos os 10 specialists em modo human
 bash siscan-server-doctor.sh
 
 # Subconjunto pré-setup (--except check-runner,check-stack,check-db)

@@ -65,7 +65,7 @@ Cada job declara `runs-on: [self-hosted, producao-<produto>]` — esse par de la
 
 | # | Step | O que faz |
 |---|---|---|
-| 1 | Coletar diagnóstico pré-deploy | Roda `bash siscan-server-doctor.sh --quiet --pre-setup`. O modo `--pre-setup` exclui specialists que dependem de estado pós-instalação (`check-runner` é o próprio runner que está rodando o workflow; `check-stack` validaria a stack atual mas vamos substituí-la; `check-db` precisa do `.env` finalizado). Saída esperada: `6/6 specialists OK`. |
+| 1 | Coletar diagnóstico pré-deploy | Roda `bash siscan-server-doctor.sh --quiet --pre-setup`. O modo `--pre-setup` exclui specialists que dependem de estado pós-instalação (`check-runner` é o próprio runner que está rodando o workflow; `check-stack` validaria a stack atual mas vamos substituí-la; `check-db` precisa do `.env` finalizado). Saída esperada: `7/7 specialists OK` (inclui `check-runner-tls` em modo `--pre-flight` desde TSK00.04.10). |
 | 2 | Publicar relatório como artifact | Sempre executa (`if: always()`), mesmo se o step anterior falhou. Sobe o JSON de diagnóstico como artifact do workflow run para auditoria. Disponível em "Actions → run → Summary → Artifacts". |
 
 **Resultado**:
@@ -103,7 +103,7 @@ Cada job declara `runs-on: [self-hosted, producao-<produto>]` — esse par de la
 | # | Step | O que faz |
 |---|---|---|
 | 1 | Aguardar estabilização dos containers | `sleep` curto + healthcheck. Dá tempo das migrations rodarem, dos workers do Gunicorn subirem e dos containers reportarem `healthy`. |
-| 2 | Coletar diagnóstico pós-deploy | Roda `bash siscan-server-doctor.sh --quiet` (sem `--pre-setup` desta vez — agora todos os 9 specialists fazem sentido). Saída esperada: `9/9 specialists OK` (ou `8/9` com RAM como exceção conhecida). |
+| 2 | Coletar diagnóstico pós-deploy | Roda `bash siscan-server-doctor.sh --quiet` (sem `--pre-setup` desta vez — agora todos os 10 specialists fazem sentido). Saída esperada: `10/10 specialists OK` (ou `9/10` com RAM como exceção conhecida). |
 | 3 | _(siscan-rpa)_ Verificar carga inicial (`if: always()`) | Bate em `http://localhost:5001/health` e valida `schema_status: current`. Confirma que as migrations Alembic rodaram. |
 | 4 | _(siscan-dashboard)_ Aplicar CPF + senha do `system_admin` via secrets (`if: always()`) | Lê CPF e senha de [GitHub secrets do repositório](https://docs.github.com/actions/security-guides/encrypted-secrets) e cria/atualiza o usuário admin via comando da aplicação. Necessário para o primeiro acesso ao dashboard com identidade real (substitui o `ADMIN_PASSWORD` literal do `.env` que era temporário). |
 | 5 | _(siscan-dashboard, temporário)_ Verificação MVP gestão de usuários (`if: always()`) | Step transitório validando o fluxo de gestão de usuários (mvp em construção). Será removido quando a feature estabilizar. |

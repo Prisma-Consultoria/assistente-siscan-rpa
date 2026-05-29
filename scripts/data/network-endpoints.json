@@ -1,6 +1,6 @@
 {
-  "version": "1.1",
-  "description": "Lista canônica de FQDNs externos exigidos pelas VMs do SISCAN (runner self-hosted, GHCR, Docker Hub, OCSP/CRL). Consumido por scripts/deploy_server/check-network.sh.",
+  "version": "1.2",
+  "description": "Lista canônica de FQDNs externos exigidos pelas VMs do SISCAN (runner self-hosted, GHCR, Docker Hub, OCSP/CRL). Consumido por scripts/deploy_server/check-network.sh. v1.2 (TSK00.04.11): adicionada categoria advisory runner_actions_optional_features (Git LFS, Dependabot), campo warning_when_alone nos endpoints com wildcard_for, flag --advisory-strict no specialist.",
   "sources": [
     "Documento interno de whitelist v2.0",
     "https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication"
@@ -25,10 +25,10 @@
     {
       "id": "runner_actions",
       "label": "Runner ↔ GitHub Actions (HTTPS/443)",
-      "description": "Endpoints obrigatórios para o runner self-hosted comunicar com o GitHub: registro, polling de jobs, OIDC tokens, upload de logs e artifacts. Sem isso, o runner não pega jobs.",
+      "description": "Endpoints obrigatórios para o runner self-hosted comunicar com o GitHub: registro, polling de jobs, OIDC tokens, upload de logs e artifacts. Sem isso, o runner não pega jobs. A cobertura completa contra variantes regionais dinâmicas é mapeada pela categoria advisory runner_actions_regional_variants (falhas emitem SKIPPED por padrão; use --advisory-strict para upgrade a FAIL bloqueante).",
       "guidance": {
         "on_all_ok": "Runner consegue se comunicar com o GitHub. Próximo passo: rode siscan-server-setup.sh (instalação nova) ou siscan-runner-recover.sh (recuperação de runner já instalado).",
-        "on_any_fail": "O firewall NÃO está deixando o runner falar com o GitHub. Sem isso, o runner fica offline; em 14 dias o GitHub o remove (auto-removal). AÇÃO: abrir requisição de reabertura da whitelist citando o doc 'Reativação de whitelist v2.0' (<chamado-firewall>), incluindo a lista de FAILs acima. IMPORTANTE: pedir wildcard *.actions.githubusercontent.com (NÃO apenas pipelines.actions.githubusercontent.com base) — o backend do GitHub Actions roteia dinamicamente para variantes regionais (pipelinesghub<region>*.actions.githubusercontent.com, results-receiverghub<region>*.actions.githubusercontent.com) que NÃO são cobertas por whitelist literal do endpoint base. Lab 2026-05-28: pipelinesghubeus6.actions.githubusercontent.com bloqueado mesmo com pipelines.actions.githubusercontent.com já liberado (req 767679)."
+        "on_any_fail": "O firewall NÃO está deixando o runner falar com o GitHub. Sem isso, o runner fica offline; em 14 dias o GitHub o remove (auto-removal). AÇÃO: abrir requisição de reabertura da whitelist citando o doc 'Reativação de whitelist v2.0' (<chamado-firewall>), incluindo a lista de FAILs acima. IMPORTANTE: pedir wildcard *.actions.githubusercontent.com (NÃO apenas pipelines.actions.githubusercontent.com base) — o backend do GitHub Actions roteia dinamicamente para variantes regionais (pipelinesghub<region>*.actions.githubusercontent.com, results-receiverghub<region>*.actions.githubusercontent.com) que NÃO são cobertas por whitelist literal do endpoint base. Lab 2026-05-28: pipelinesghubeus6.actions.githubusercontent.com bloqueado mesmo com pipelines.actions.githubusercontent.com já liberado (req 767679). FUNDAMENTAÇÃO OFICIAL: a documentação oficial do GitHub (https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication, seção 'Accessible domains by function') recomenda EXPLICITAMENTE wildcards para essas famílias — não é só achado empírico nosso."
       },
       "pdf_sections": [
         "3.1",
@@ -64,7 +64,8 @@
           "port": 443,
           "purpose": "Pickup de jobs, OIDC tokens, backend do Actions (variantes regionais: pipelinesghub<region>*.actions.githubusercontent.com são roteadas dinamicamente — wildcard necessário no firewall)",
           "expected": "404 — backend de jobs/OIDC: / não tem homepage, Actions usa paths específicos",
-          "wildcard_for": "*.actions.githubusercontent.com"
+          "wildcard_for": "*.actions.githubusercontent.com",
+          "warning_when_alone": "⚠ NÃO solicitar este FQDN literal ao firewall corporativo sem o wildcard *.actions.githubusercontent.com — liberação literal sozinha causa falhas regionais recorrentes. Lab #259 (2026-05-28) confirmou empiricamente: ICI liberou literal pipelines.actions.githubusercontent.com em req 767679 e variantes pipelinesghubeus1/eus6 ficaram bloqueadas. Doc oficial GitHub (https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication) recomenda wildcard."
         },
         {
           "fqdn": "results-receiver.actions.githubusercontent.com",
@@ -79,7 +80,8 @@
           "port": 443,
           "purpose": "Azure Blob Storage (cache do Actions, artifacts, logs, job summaries)",
           "expected": "400 — Azure Blob rejeita GET vazio; só responde a /<container>/<blob>",
-          "wildcard_for": "*.blob.core.windows.net"
+          "wildcard_for": "*.blob.core.windows.net",
+          "warning_when_alone": "⚠ NÃO solicitar este FQDN literal ao firewall corporativo sem o wildcard *.blob.core.windows.net — storage account usado pelo GitHub rotaciona entre productionresultssa0/1/2/5/... Liberação literal de productionresultssa0 NÃO cobre as demais. Lab #259 (2026-05-28) confirmou empiricamente: productionresultssa2 e productionresultssa5 ficaram bloqueadas após liberação de productionresultssa0 na req 767679. Doc oficial GitHub (https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication) recomenda wildcard."
         },
         {
           "fqdn": "release-assets.githubusercontent.com",
@@ -164,7 +166,8 @@
           "port": 443,
           "purpose": "Cobertura ampla de GitHub Packages",
           "expected": "301 — redirect pra docs (esperado)",
-          "wildcard_for": "*.pkg.github.com"
+          "wildcard_for": "*.pkg.github.com",
+          "warning_when_alone": "⚠ NÃO solicitar este FQDN literal ao firewall corporativo sem o wildcard *.pkg.github.com — GitHub Packages rotaciona subdomínios por ecossistema (npm.pkg.github.com, nuget.pkg.github.com, container.pkg.github.com, maven.pkg.github.com). Liberação literal de npm.* cobre apenas o ecossistema npm e deixa demais bloqueados se o projeto adotar outro registry. Doc oficial GitHub (https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication) recomenda wildcard."
         }
       ]
     },
@@ -345,6 +348,40 @@
           "port": 443,
           "purpose": "Storage account 5 do Azure Blob",
           "expected": "400 — Azure Blob rejeita GET vazio"
+        }
+      ]
+    },
+    {
+      "id": "runner_actions_optional_features",
+      "label": "Features opcionais do GitHub Actions (advisory — só se ativas)",
+      "description": "Endpoints que aparecem na seção 'Accessible domains by function' da doc oficial GitHub mas só são acessados se features específicas estiverem ativas no projeto (Git LFS, Dependabot Updates). Categoria advisory — falhas viram SKIPPED por padrão. Verificar `.github/dependabot.yml` e `git lfs install` no repositório antes de pedir liberação ao firewall.",
+      "advisory": true,
+      "guidance": {
+        "on_all_ok": "Endpoints opcionais do Actions respondendo. Não há ação necessária. Estes endpoints só importam se LFS ou Dependabot Updates forem habilitados.",
+        "on_any_fail": "Endpoints opcionais bloqueados — só impacta operação se o projeto usar Git LFS (raro) ou Dependabot Updates (verificar .github/dependabot.yml). Se o projeto NÃO usa nenhuma dessas features, pode ignorar — categoria advisory não bloqueia exit code. Se usar: pedir wildcard quando aplicável, ou listar literais."
+      },
+      "source": "https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication",
+      "endpoints": [
+        {
+          "fqdn": "github-cloud.githubusercontent.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Git Large File Storage (LFS) — só usado se algum workflow ou repositório consumido tiver LFS ativo",
+          "expected": "200 ou 4xx — qualquer resposta HTTP confirma TLS"
+        },
+        {
+          "fqdn": "github-cloud.s3.amazonaws.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Storage S3 do Git LFS — pareado com github-cloud.githubusercontent.com",
+          "expected": "200 ou 4xx — qualquer resposta HTTP confirma TLS"
+        },
+        {
+          "fqdn": "dependabot-actions.githubapp.com",
+          "protocol": "https",
+          "port": 443,
+          "purpose": "Jobs do Dependabot Updates — só usado se .github/dependabot.yml estiver presente nos repositórios consumidos",
+          "expected": "200, 3xx ou 4xx — qualquer resposta HTTP confirma TLS"
         }
       ]
     }

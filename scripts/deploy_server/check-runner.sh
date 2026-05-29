@@ -24,6 +24,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # shellcheck source=./_common.sh
 source "$SCRIPT_DIR/_common.sh"
+# shellcheck source=./_runner.sh
+source "$SCRIPT_DIR/_runner.sh"
 
 ENV_FILE="${COMPOSE_DIR:-$(pwd)}/.env"
 PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
@@ -96,7 +98,11 @@ else
     [ -x "$RUNNER_DIR/config.sh" ] && add_ok "$CAT_LOCAL" fs 0 "config.sh" "presente" \
         || add_fail "$CAT_LOCAL" fs 0 "config.sh" "ausente — binários do runner não extraídos"
 
-    if [ -f "$RUNNER_DIR/.runner" ]; then
+    # TSK00.04.12 #91: usa runner_validate_dot_runner de _runner.sh em vez
+    # de re-implementar o check de existência. Mantém extração local de
+    # registered_at via stat — info específica deste specialist (não está
+    # em _runner.sh por ser auxiliar de display).
+    if runner_validate_dot_runner "$RUNNER_DIR"; then
         registered_at=$(stat -c '%y' "$RUNNER_DIR/.runner" 2>/dev/null | cut -d'.' -f1)
         add_ok "$CAT_LOCAL" fs 0 ".runner" "registrado em $registered_at"
     else
@@ -137,17 +143,16 @@ if [ -z "$REPO_NAME" ]; then
 elif ! command -v gh >/dev/null 2>&1 && [ -z "${GH_TOKEN:-}" ] && [ -z "${PAT:-}" ]; then
     add_skipped "$CAT_REMOTE" api 0 "API GitHub" "sem credencial — defina GH_TOKEN/PAT ou rode 'gh auth login' para validar registro remoto"
 else
-    # Tenta usar gh CLI; fallback pra curl com GH_TOKEN ou PAT (precedência
-    # alinhada com runner_query_api/runner_get_remove_token em _runner.sh).
-    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-        runners_json=$(gh api "repos/$REPO_OWNER/$REPO_NAME/actions/runners" 2>/dev/null || echo "")
-    elif [ -n "${GH_TOKEN:-}" ] || [ -n "${PAT:-}" ]; then
-        auth="${GH_TOKEN:-${PAT:-}}"
-        runners_json=$(curl -s -H "Authorization: Bearer $auth" \
-            "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/actions/runners" 2>/dev/null || echo "")
-    else
-        add_skipped "$CAT_REMOTE" api 0 "API GitHub" "gh auth status falhou e GH_TOKEN/PAT indisponível — sem credencial pra consultar registro remoto"
-        runners_json=""
+    # TSK00.04.12 #91: delega ao runner_query_api de _runner.sh em vez de
+    # re-implementar a lógica de gh-vs-curl com auth. Helper canônico
+    # cuida da precedência (gh CLI > GH_TOKEN > PAT) consistentemente.
+    runners_json=$(runner_query_api "$REPO_OWNER" "$REPO_NAME" 2>/dev/null || echo "")
+    if [ -z "$runners_json" ]; then
+        # Revisão Copilot PR #93: este branch entra quando gh OU GH_TOKEN/PAT
+        # estão presentes, então vazio NÃO significa "sem credencial" — pode ser
+        # rate limit, falha de rede, gh não autenticado (status != 0), endpoint
+        # 404, ou repo inacessível. Mensagem reflete a ambiguidade e orienta.
+        add_skipped "$CAT_REMOTE" api 0 "API GitHub" "consulta retornou vazio — verifique autenticação ('gh auth status'), GH_TOKEN/PAT com scope 'repo', conectividade com api.github.com e se o repo $REPO_OWNER/$REPO_NAME é acessível"
     fi
 
     if [ -n "$runners_json" ]; then
@@ -174,30 +179,24 @@ fi
 # ────────────────────────────────────────────────────────────────────────────
 print_category_header "$CAT_AGE" "Se o runner ficou >30 dias sem auto-atualizar, o GitHub para de enviar jobs (sintoma: 'Waiting for a runner' indefinido, descoberto no registro interno 25/05)."
 
-# Sinal mais confiável: mtime do .runner_migrated (atualizado a cada upgrade do runner)
-# Fallback: mtime do log mais recente em _diag/
-# Pior caso: mtime do .runner original (só pega data do primeiro registro)
+# TSK00.04.12 #91: delega cálculo de idade ao runner_local_age_days de
+# _runner.sh em vez de re-implementar a lógica (sentinel 999 = indet.).
+# Computa age_source localmente apenas para a mensagem descritiva
+# (texto que aparece no detail do add_ok/add_fail), pois é cosmético deste
+# specialist e não pertence ao helper compartilhado.
 age_source=""
-age_file=""
-
 if [ -f "$RUNNER_DIR/.runner_migrated" ]; then
-    age_file="$RUNNER_DIR/.runner_migrated"
     age_source="último upgrade (.runner_migrated)"
-elif [ -d "$RUNNER_DIR/_diag" ]; then
-    age_file=$(ls -t "$RUNNER_DIR/_diag"/Runner_*.log 2>/dev/null | head -1)
-    [ -n "$age_file" ] && age_source="último log em _diag/"
+elif [ -d "$RUNNER_DIR/_diag" ] && [ -n "$(ls -t "$RUNNER_DIR/_diag"/Runner_*.log 2>/dev/null | head -1)" ]; then
+    age_source="último log em _diag/"
 elif [ -f "$RUNNER_DIR/.runner" ]; then
-    age_file="$RUNNER_DIR/.runner"
     age_source="data de registro (.runner — proxy)"
 fi
 
-if [ -z "$age_file" ] || [ ! -e "$age_file" ]; then
+age_days=$(runner_local_age_days "$RUNNER_DIR")
+if [ "$age_days" = "999" ] || [ -z "$age_source" ]; then
     warn "não foi possível determinar idade do runner — runner provavelmente nunca foi instalado"
 else
-    age_epoch=$(stat -c '%Y' "$age_file" 2>/dev/null || echo 0)
-    now_epoch=$(date +%s)
-    age_days=$(( (now_epoch - age_epoch) / 86400 ))
-
     if [ "$age_days" -lt 25 ]; then
         add_ok "$CAT_AGE" age 0 "última atualização" "$age_days dia(s) ($age_source) — dentro da janela segura"
     elif [ "$age_days" -lt 30 ]; then
