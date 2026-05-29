@@ -156,7 +156,7 @@ Saída típica em VM com whitelist estreita (somente endpoint base liberado):
 
 ```
 === Variantes regionais — mapeamento para solicitação de firewall (advisory) ===
-  ✘  pipelinesghubeus6.actions.githubusercontent.com        firewall bloqueou — advisory
+  ⊘  pipelinesghubeus6.actions.githubusercontent.com        firewall bloqueou — advisory
   ✔  pipelinesghubwestus.actions.githubusercontent.com      400 esperado
   ...
 === Resumo (check-network) ===

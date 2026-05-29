@@ -458,7 +458,7 @@ Quando `config.sh --unattended --replace` falha durante o registro do runner (me
 | `[3]` | CAs custom em `/usr/local/share/ca-certificates/` — proxy MITM precisa ter root CA instalada aqui pra .NET confiar |
 | `[4]` | Resolução DNS de `api.github.com` **e do endpoint extraído** do log (quando disponível) — distingue "DNS funciona" de "DNS funciona mas não pra esse host" |
 | `[5]` | Triagem por padrão conhecido do .NET no log: CA bundle (`AuthenticationException`/`X509`/`certificate`), DNS/IPv6 (`NameResolution`/`host not known`/`unreachable`), proxy explícito (literal `proxy`), e **firewall interrompendo handshake** (`Received an unexpected EOF`/`0 bytes from the transport stream`) — esta última extrai automaticamente o URL/host que falhou |
-| `[6]` | Teste de alcance direto via `curl` ao URL extraído de `[5]` — `HTTP=000` confirma firewall (TCP/TLS não completou); `HTTP=2xx/3xx/4xx` indica TLS subiu (causa é outra, não firewall) |
+| `[6]` | Teste de alcance direto via `curl -k` ao URL extraído de `[5]` — `HTTP=000` confirma firewall (TCP/TLS não completou); `HTTP=2xx/3xx/4xx/5xx` indica TLS subiu (causa é outra, não firewall). `-k` ignora validação de certificado para isolar firewall de CA error. Header sempre emitido; fallback explícito quando sem URL extraída de `[5]` ou curl ausente |
 
 Output é best-effort (sempre rc=0); helper nunca mascara o erro original do `runner_register`. Todo caller que invoque `runner_register` (recover ramos N/A/1/2/A/A2, Fase 7 do setup) herda o diagnóstico automaticamente.
 

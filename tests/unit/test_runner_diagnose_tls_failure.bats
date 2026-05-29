@@ -1,13 +1,20 @@
 #!/usr/bin/env bats
 # Testes para runner_diagnose_tls_failure em scripts/deploy_server/_runner.sh
-# (TSK00.04.05).
+# (TSK00.04.05 + extensões TSK00.04.08).
 #
 # Função emite bloco estruturado em stderr quando config.sh falha no TLS
-# handshake. Always-rc=0 (best-effort). Cinco seções: log .NET / proxy env /
-# CAs custom / DNS resolution / triagem por padrão conhecido no log.
+# handshake. Always-rc=0 (best-effort). Seis seções estáveis (sempre
+# emitidas, mesmo quando log _diag ausente ou sem URL extraída):
+#   [1] log .NET (tail do _diag/Runner_*.log, com redação de token-like paths)
+#   [2] proxy env (com redação de userinfo user:pass@)
+#   [3] CAs custom (/usr/local/share/ca-certificates/)
+#   [4] resolução DNS (api.github.com + endpoint extraído quando disponível)
+#   [5] triagem por padrão conhecido (CA, DNS, proxy, firewall/EOF)
+#   [6] teste de alcance direto via curl -k ao URL extraído (HTTP=000 =
+#       firewall; HTTP=2xx/3xx/4xx/5xx = TLS subiu, causa outra)
 #
-# Origem: lab #220 (2026-05-27/28) perdeu múltiplas rodadas operacionais
-# coletando esses 4 sinais manualmente.
+# Origem: lab #220 (2026-05-27) + lab #259 (2026-05-28) perderam múltiplas
+# rodadas operacionais coletando esses sinais manualmente.
 
 load '../test_helper/bats-support/load'
 load '../test_helper/bats-assert/load'
@@ -36,7 +43,7 @@ teardown() {
     assert_success
 }
 
-@test "imprime header/footer visual e as 5 seções numeradas" {
+@test "imprime header/footer visual e as 6 seções numeradas (contrato estável)" {
     run runner_diagnose_tls_failure "${RUNNER_DIR}"
     assert_success
     assert_output --partial "DIAGNÓSTICO TLS — config.sh falhou no handshake"
@@ -44,6 +51,11 @@ teardown() {
     assert_output --partial "[2]"
     assert_output --partial "[3]"
     assert_output --partial "[4]"
+    # [5] e [6] sempre emitidas mesmo sem log/URL — fallback explícito
+    assert_output --partial "[5]"
+    assert_output --partial "[6]"
+    # Sem URL extraída de [5]: fallback do [6] é informativo, não silencioso
+    assert_output --partial "(sem URL extraída de [5]"
     assert_output --partial "FIM DO DIAGNÓSTICO TLS"
 }
 
@@ -382,14 +394,17 @@ LOG
     assert_output --partial "TLS subiu (NÃO é firewall)"
 }
 
-@test "[6] log sem URL extraída → seção [6] inteira é skipped (graceful)" {
+@test "[6] log sem URL extraída → header sempre emitido + fallback explícito (contrato 6 seções)" {
     mkdir -p "${RUNNER_DIR}/_diag"
     cat > "${RUNNER_DIR}/_diag/Runner_x.log" <<'LOG'
 some runtime error without the canonical GET/POST request pattern
 LOG
     run runner_diagnose_tls_failure "${RUNNER_DIR}"
     assert_success
-    refute_output --partial "[6] Teste de alcance direto"
+    # Header de [6] SEMPRE emitido — contrato de 6 seções estáveis
+    assert_output --partial "[6] Teste de alcance direto"
+    # Fallback explícito quando nada a testar
+    assert_output --partial "(sem URL extraída de [5]"
 }
 
 @test "[6] curl ausente no sistema → mensagem orientativa, não falha" {

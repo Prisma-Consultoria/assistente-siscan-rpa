@@ -663,32 +663,33 @@ runner_diagnose_tls_failure() {
         # sem -k, CA não-confiada faria curl retornar HTTP=000 com
         # ssl_verify_result != 0, que seria ambiguidade com firewall real.
         # Inclui HTTP=5xx (server response que prova que TLS subiu).
-        # Revisão Copilot PR #83.
-        if [ -n "$failed_url" ]; then
-            printf '[6] Teste de alcance direto ao endpoint que falhou:\n'
-            if command -v curl >/dev/null 2>&1; then
-                # Redige token-like path segments no URL exibido (mesma
-                # heurística do [1]). curl recebe o URL ORIGINAL pra
-                # testar conectividade real; só o display é redigido.
-                local failed_url_display result
-                failed_url_display=$(printf '%s' "$failed_url" \
-                    | sed -E 's|/[A-Za-z0-9_-]{20,}/|/<TOKEN>/|g')
-                result=$(curl -k -s -o /dev/null \
-                    -w "HTTP=%{http_code} TLS=%{ssl_verify_result}" \
-                    --max-time 10 \
-                    "$failed_url" 2>/dev/null || true)
-                printf '    %s\n    %s\n' "$failed_url_display" "$result"
-                case "$result" in
-                    HTTP=000*)
-                        printf '      → firewall confirmado (TCP/TLS não completou)\n' ;;
-                    HTTP=2*|HTTP=3*|HTTP=4*|HTTP=5*)
-                        printf '      → TLS subiu (NÃO é firewall) — revise outras hipóteses\n' ;;
-                esac
-            else
-                printf '    (curl ausente — instale curl para teste de alcance direto)\n'
-            fi
-            printf '\n'
+        # Header SEMPRE emitido — contrato de 6 seções estáveis (revisão
+        # Copilot PR #83). Quando sem URL ou sem curl, fallback explícito.
+        printf '[6] Teste de alcance direto ao endpoint que falhou:\n'
+        if [ -z "$failed_url" ]; then
+            printf '    (sem URL extraída de [5] — nada para testar)\n'
+        elif ! command -v curl >/dev/null 2>&1; then
+            printf '    (curl ausente — instale curl para teste de alcance direto)\n'
+        else
+            # Redige token-like path segments no URL exibido (mesma
+            # heurística do [1]). curl recebe o URL ORIGINAL pra
+            # testar conectividade real; só o display é redigido.
+            local failed_url_display result
+            failed_url_display=$(printf '%s' "$failed_url" \
+                | sed -E 's|/[A-Za-z0-9_-]{20,}/|/<TOKEN>/|g')
+            result=$(curl -k -s -o /dev/null \
+                -w "HTTP=%{http_code} TLS=%{ssl_verify_result}" \
+                --max-time 10 \
+                "$failed_url" 2>/dev/null || true)
+            printf '    %s\n    %s\n' "$failed_url_display" "$result"
+            case "$result" in
+                HTTP=000*)
+                    printf '      → firewall confirmado (TCP/TLS não completou)\n' ;;
+                HTTP=2*|HTTP=3*|HTTP=4*|HTTP=5*)
+                    printf '      → TLS subiu (NÃO é firewall) — revise outras hipóteses\n' ;;
+            esac
         fi
+        printf '\n'
 
         printf '══════════════════════════════════════════════════\n'
         printf '  FIM DO DIAGNÓSTICO TLS\n'
