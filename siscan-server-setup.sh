@@ -70,18 +70,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SPECIALISTS_DIR="${SCRIPT_DIR}/scripts/deploy_server"
 
 # ────────────────────────────────────────────────────────────────────────────
-# Helpers de output
+# Helpers de output — sourcing _common.sh (TSK00.04.13 #92)
 # ────────────────────────────────────────────────────────────────────────────
+# Setup é sempre humano (não há --json/--quiet); força OUTPUT_MODE=human
+# antes do source para os helpers ok/info/warn ecoarem.
+OUTPUT_MODE="${OUTPUT_MODE:-human}"
+# shellcheck source=scripts/deploy_server/_common.sh
+source "${SPECIALISTS_DIR}/_common.sh"
+
+# Override pontual: _common.sh:fail() faz exit 2 (uso inválido para
+# specialists). O setup usa fail() para qualquer erro fatal e o
+# contrato histórico é exit 1 — preservamos esse contrato.
+fail() { printf "\n${RED}ERRO: %s${NC}\n\n" "${1}" >&2; exit 1; }
+
 step() {
     printf "\n${CYAN}══════════════════════════════════════════════════${NC}\n"
     printf "${WHITE}  %s${NC}\n" "${1}"
     printf "${CYAN}══════════════════════════════════════════════════${NC}\n\n"
 }
-
-ok()   { printf "  ${GREEN}✔${NC}  %s\n" "${1}"; }
-info() { printf "  ${GRAY}→${NC}  %s\n" "${1}"; }
-warn() { printf "  ${YELLOW}⚠${NC}  %s\n" "${1}"; }
-fail() { printf "\n${RED}ERRO: %s${NC}\n\n" "${1}" >&2; exit 1; }
 
 # ────────────────────────────────────────────────────────────────────────────
 # _generate_secret
