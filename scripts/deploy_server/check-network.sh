@@ -219,22 +219,22 @@ for i in $(seq 0 $((cat_count - 1))); do
     skipped_before=$SKIPPED_COUNT
 
     while IFS=$'\t' read -r fqdn protocol port expected warning_when_alone; do
-        local_fail_before=$FAIL_COUNT
+        local_ok_before=$OK_COUNT
         case "$protocol" in
             https) _check_https "$cat_label" "$fqdn" "$port" "$expected" "$advisory" ;;
             tcp)   _check_tcp   "$cat_label" "$fqdn" "$port" "$expected" "$advisory" ;;
             *)     warn "protocolo desconhecido '$protocol' para $fqdn — ignorado" ;;
         esac
-        # warning_when_alone (TSK00.04.11): emitir warning OPERACIONAL quando
-        # endpoint que TEM wildcard_for passa (firewall liberou o literal,
-        # mas wildcard ainda é recomendado). Orienta o operador a pedir certo
-        # ao firewall corporativo na próxima Req. Só emite quando o check passou
-        # (FAIL_COUNT não incrementou) E quando o JSON tem warning_when_alone
-        # populado pra esse endpoint.
-        if [ "$FAIL_COUNT" -eq "$local_fail_before" ] && [ -n "$warning_when_alone" ] && [ "$warning_when_alone" != "null" ]; then
-            if [ "${QUIET:-0}" != "1" ] && [ "${JSON_MODE:-0}" != "1" ]; then
-                printf "     ${YELLOW}%s${NC}\n" "$warning_when_alone" >&2
-            fi
+        # warning_when_alone (TSK00.04.11 + revisão Copilot PR #93):
+        # Emite warning OPERACIONAL apenas quando o endpoint EFETIVAMENTE
+        # passou (OK_COUNT incrementou) — não basta "FAIL_COUNT não cresceu"
+        # porque advisory falha = SKIPPED, e nesse caso o endpoint NÃO passou
+        # (warning poderia induzir erro). Também gate pelo OUTPUT_MODE do
+        # _common.sh — em quiet/json o warning não vaza no output estruturado.
+        if [ "$OK_COUNT" -gt "$local_ok_before" ] \
+            && [ -n "$warning_when_alone" ] && [ "$warning_when_alone" != "null" ] \
+            && [ "${OUTPUT_MODE:-human}" = "human" ]; then
+            printf "     ${YELLOW}%s${NC}\n" "$warning_when_alone" >&2
         fi
     done < <(jq -r ".categories[$i].endpoints[] | [.fqdn, .protocol, (.port|tostring), (.expected // \"\"), (.warning_when_alone // \"\")] | @tsv" "$ENDPOINTS_FILE")
 

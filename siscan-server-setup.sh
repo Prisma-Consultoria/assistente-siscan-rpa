@@ -72,9 +72,12 @@ SPECIALISTS_DIR="${SCRIPT_DIR}/scripts/deploy_server"
 # ────────────────────────────────────────────────────────────────────────────
 # Helpers de output — sourcing _common.sh (TSK00.04.13 #92)
 # ────────────────────────────────────────────────────────────────────────────
-# Setup é sempre humano (não há --json/--quiet); força OUTPUT_MODE=human
-# antes do source para os helpers ok/info/warn ecoarem.
-OUTPUT_MODE="${OUTPUT_MODE:-human}"
+# Setup é human-only por design (interativo). Força OUTPUT_MODE=human
+# de forma INCONDICIONAL antes do source — caso contrário, um
+# OUTPUT_MODE=quiet/json herdado do ambiente (ex.: setup invocado de dentro
+# de um doctor --json) deixaria os helpers ok/info/warn silenciosos no
+# meio de um prompt interativo (revisão Copilot PR #93).
+OUTPUT_MODE="human"
 # shellcheck source=scripts/deploy_server/_common.sh
 source "${SPECIALISTS_DIR}/_common.sh"
 

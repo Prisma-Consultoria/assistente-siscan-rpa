@@ -16,31 +16,61 @@ load '../test_helper/bats-assert/load'
 setup() {
     PROJECT_DIR="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
     SPECIALIST="${PROJECT_DIR}/scripts/deploy_server/check-network.sh"
-    # JSON sintético com 1 categoria principal OK + 1 categoria advisory FAIL
-    # garantido (FQDNs inexistentes). Cobertura controlada sem rede real.
+
+    # Mock determinístico de curl via PATH (revisão Copilot PR #93):
+    # Endpoint "main-pass.test" → HTTP 200 (passa); "advisory-fail.test" → 000.
+    # Sem isso, o teste dependia de github.com responder via rede real (CI
+    # offline/instável falharia mesmo com lógica do specialist correta).
+    MOCK_DIR="$(mktemp -d)"
+    cat > "$MOCK_DIR/curl" <<'MOCK'
+#!/usr/bin/env bash
+# Mock de curl para testes determinísticos do check-network.sh:
+# decide HTTP code com base no FQDN passado no último argumento (URL).
+url=""
+for arg in "$@"; do url="$arg"; done
+case "$url" in
+    *main-pass.test*)
+        # Endpoint principal "passa" — devolve HTTP 200
+        printf '200'
+        exit 0
+        ;;
+    *advisory-fail.test*)
+        # Endpoint advisory "falha" — código 000 (sem resposta = firewall)
+        printf '000'
+        exit 0
+        ;;
+    *)
+        # Demais FQDNs: comportamento real, delega ao curl do sistema
+        exec /usr/bin/curl "$@" 2>/dev/null || /bin/curl "$@" 2>/dev/null
+        ;;
+esac
+MOCK
+    chmod +x "$MOCK_DIR/curl"
+    export PATH="$MOCK_DIR:$PATH"
+
     JSON_FIXTURE="$(mktemp)"
     cat > "$JSON_FIXTURE" <<'JSON'
 {
   "version": "test-1.0",
-  "description": "Fixture de teste para --advisory-strict",
+  "description": "Fixture de teste para --advisory-strict (mock determinístico)",
   "categories": [
     {
       "id": "main_ok",
       "label": "Categoria principal (deve passar)",
-      "description": "Endpoint que existe, vai passar.",
+      "description": "Endpoint mockado para passar.",
       "guidance": {"on_all_ok": "ok", "on_any_fail": "fail"},
       "endpoints": [
-        {"fqdn": "github.com", "protocol": "https", "port": 443, "expected": "200 — homepage"}
+        {"fqdn": "main-pass.test", "protocol": "https", "port": 443, "expected": "200 — mock"}
       ]
     },
     {
       "id": "advisory_fail",
       "label": "Categoria advisory (vai falhar)",
-      "description": "Endpoint inexistente, vai falhar.",
+      "description": "Endpoint mockado para falhar (HTTP 000).",
       "advisory": true,
       "guidance": {"on_all_ok": "ok", "on_any_fail": "fail"},
       "endpoints": [
-        {"fqdn": "nonexistent-fqdn-for-test-tsk00041.example.invalid", "protocol": "https", "port": 443, "expected": "any"}
+        {"fqdn": "advisory-fail.test", "protocol": "https", "port": 443, "expected": "any"}
       ]
     }
   ]
@@ -50,6 +80,7 @@ JSON
 
 teardown() {
     rm -f "$JSON_FIXTURE"
+    rm -rf "$MOCK_DIR"
 }
 
 # ────────────────────────────────────────────────────────────────────────────

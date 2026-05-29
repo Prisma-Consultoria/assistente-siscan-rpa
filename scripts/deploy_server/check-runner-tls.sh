@@ -87,10 +87,15 @@ Modos:
                            Default RUNNER_DIR=\${HOME}/actions-runner.
 
 Opções:
-  --quiet                  Suprime saída human (não-funcional aqui — o
-                           diagnóstico TLS é human-only por design).
-  --json                   Saída JSON-encapsulada (não-funcional aqui —
-                           idem.) Reservado para futura extensão.
+  --quiet                  Suprime o bloco human-readable do diagnóstico
+                           (relevante quando invocado pelo doctor regular
+                           que apenas agrega status; o diagnóstico em si
+                           é human-only e fica disponível no modo direto).
+  --json                   Emite envelope JSON mínimo compatível com o
+                           agregador do siscan-server-doctor.sh (1 check
+                           OK, summary). O diagnóstico human detalhado é
+                           suprimido no modo json — para o relatório
+                           completo, rode standalone sem --json.
   -h, --help               Exibe esta ajuda
 
 Exit code:
@@ -142,6 +147,19 @@ if [ -z "$MODE" ]; then
     MODE="pre-flight"
 fi
 
+# Integração com siscan-server-doctor.sh (revisão Copilot PR #93):
+# - OUTPUT_MODE=human (default): emite bloco detalhado de diagnóstico
+# - OUTPUT_MODE=quiet: suprime o bloco; emite apenas resumo via add_ok
+# - OUTPUT_MODE=json: idem quiet, mas o agregador do doctor lê
+#   render_results e finalize_exit para o envelope JSON do specialist
+# Sem add_ok + render_results + finalize_exit, o doctor --json conta
+# este specialist como FAIL no consolidado (envelope vazio).
+_emit_summary_check() {
+    add_ok "Diagnóstico TLS" tls 0 "modo $MODE" "diagnóstico emitido"
+    render_results
+    finalize_exit
+}
+
 # ────────────────────────────────────────────────────────────────────────────
 # Modo --pre-flight: diagnóstico proativo do ambiente (sem log do runner).
 # Subset das seções [2], [3] e [4] (parcial — só api.github.com) do diagnóstico
@@ -149,6 +167,14 @@ fi
 # antes de tentar registrar o runner pela primeira vez.
 # ────────────────────────────────────────────────────────────────────────────
 _run_pre_flight() {
+    # Em quiet/json, suprime o bloco human (revisão Copilot PR #93).
+    # Doctor agrega via add_ok + render_results; specialist participa
+    # do consolidado sem poluir output.
+    if [ "${OUTPUT_MODE:-human}" != "human" ]; then
+        _emit_summary_check
+        return
+    fi
+
     {
         printf '\n══════════════════════════════════════════════════\n'
         printf '  CHECK-RUNNER-TLS — modo pre-flight\n'
@@ -203,6 +229,11 @@ _run_pre_flight() {
         printf 'Para diagnóstico completo (após tentar registrar e falhar):\n'
         printf '  bash %s --reactive %s\n\n' "$(basename "$0")" "$RUNNER_DIR"
     } >&2
+
+    # Após o bloco human, ainda emite o resumo via add_ok para que
+    # human-mode também registre o check no acumulador do _common.sh
+    # (consistência com outros specialists que usam render_results).
+    _emit_summary_check
 }
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -217,7 +248,11 @@ _run_reactive() {
         printf 'forneça via --reactive <dir> ou --runner-dir <dir>.\n' >&2
         exit 2
     fi
-    runner_diagnose_tls_failure "$RUNNER_DIR"
+    # Em quiet/json, suprime o bloco human do helper (revisão Copilot PR #93).
+    if [ "${OUTPUT_MODE:-human}" = "human" ]; then
+        runner_diagnose_tls_failure "$RUNNER_DIR"
+    fi
+    _emit_summary_check
 }
 
 # ────────────────────────────────────────────────────────────────────────────

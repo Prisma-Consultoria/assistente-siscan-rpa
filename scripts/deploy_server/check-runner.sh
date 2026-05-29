@@ -148,7 +148,11 @@ else
     # cuida da precedência (gh CLI > GH_TOKEN > PAT) consistentemente.
     runners_json=$(runner_query_api "$REPO_OWNER" "$REPO_NAME" 2>/dev/null || echo "")
     if [ -z "$runners_json" ]; then
-        add_skipped "$CAT_REMOTE" api 0 "API GitHub" "gh auth status falhou e GH_TOKEN/PAT indisponível — sem credencial pra consultar registro remoto"
+        # Revisão Copilot PR #93: este branch entra quando gh OU GH_TOKEN/PAT
+        # estão presentes, então vazio NÃO significa "sem credencial" — pode ser
+        # rate limit, falha de rede, gh não autenticado (status != 0), endpoint
+        # 404, ou repo inacessível. Mensagem reflete a ambiguidade e orienta.
+        add_skipped "$CAT_REMOTE" api 0 "API GitHub" "consulta retornou vazio — verifique autenticação ('gh auth status'), GH_TOKEN/PAT com scope 'repo', conectividade com api.github.com e se o repo $REPO_OWNER/$REPO_NAME é acessível"
     fi
 
     if [ -n "$runners_json" ]; then

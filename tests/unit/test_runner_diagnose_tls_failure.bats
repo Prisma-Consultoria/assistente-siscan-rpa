@@ -280,12 +280,31 @@ LOG
 # ────────────────────────────────────────────────────────────────────────────
 
 @test "runner_register em falha invoca specialist check-runner-tls.sh quando disponível (TSK00.04.10)" {
+    # Revisão Copilot PR #93: a asserção anterior usava "DIAGNÓSTICO TLS",
+    # mas esse header é emitido por AMBOS os caminhos (specialist e fallback
+    # inline). Para validar que o caminho specialist foi tomado, substituímos
+    # temporariamente o specialist por um stub que emite um marker
+    # inequívoco e verificamos esse marker.
+
     # Stub info/ok pra silenciar saída acessória
     info() { :; }
     ok() { :; }
     export -f info ok
 
-    # Stub config.sh para falhar (cd $dir && ./config.sh → exit 1)
+    # Substituir o specialist por um stub com marker exclusivo
+    local specialist_path saved_path
+    specialist_path="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)/scripts/deploy_server/check-runner-tls.sh"
+    saved_path="${BATS_TEST_TMPDIR}/check-runner-tls.sh.saved"
+    [ -x "$specialist_path" ] && cp "$specialist_path" "$saved_path"
+    cat > "$specialist_path" <<'STUB'
+#!/usr/bin/env bash
+# Stub específico do teste — marker garantido vir DESTE caminho.
+echo "MARKER_SPECIALIST_INVOCADO_PR93_TEST" >&2
+exit 0
+STUB
+    chmod +x "$specialist_path"
+
+    # Stub config.sh para falhar
     mkdir -p "${RUNNER_DIR}/bin"
     cat > "${RUNNER_DIR}/config.sh" <<'SHELL'
 #!/usr/bin/env bash
@@ -294,11 +313,15 @@ SHELL
     chmod +x "${RUNNER_DIR}/config.sh"
 
     run runner_register "${RUNNER_DIR}" "https://github.com/x/y" "TOKEN123" "name" "label"
-    assert_failure
-    # Specialist check-runner-tls.sh está presente nas linhas do output —
-    # delega ao specialist (preferido) em vez do helper inline.
-    # Output deve conter o header do specialist (modo reactive).
-    assert_output --partial "DIAGNÓSTICO TLS"
+    local rc=$status
+
+    # Restaurar specialist sempre (mesmo em falha)
+    [ -f "$saved_path" ] && mv "$saved_path" "$specialist_path"
+
+    [ "$rc" -ne 0 ] || { echo "runner_register deveria ter falhado"; return 1; }
+    # Marker do stub é inequívoco — só aparece se o caminho specialist foi
+    # tomado (helper inline runner_diagnose_tls_failure NUNCA emitiria isso).
+    assert_output --partial "MARKER_SPECIALIST_INVOCADO_PR93_TEST"
 }
 
 @test "runner_register em falha faz fallback ao helper inline quando specialist ausente" {
