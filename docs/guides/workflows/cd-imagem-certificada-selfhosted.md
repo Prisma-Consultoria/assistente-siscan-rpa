@@ -81,10 +81,10 @@ Cada job declara `runs-on: [self-hosted, producao-<produto>]` — esse par de la
 | 1 | Validar `COMPOSE_DIR` | Verifica se a variável `COMPOSE_DIR` está exportada no ambiente do runner (gravada pela Fase 8 do `siscan-server-setup.sh` em `~/actions-runner/.env`). Sem isso, o runner não sabe onde está a stack. |
 | 2 | Checkout do repositório | `actions/checkout` busca o código mais recente do repositório do produto (acessa apenas o repositório do próprio produto onde o workflow vive). |
 | 3 | Autenticar no GHCR | `docker login ghcr.io` usando o `GITHUB_TOKEN` injetado automaticamente pelo Actions. Necessário para o `docker pull` baixar a imagem certificada. |
-| 4 | Atualizar `docker-compose.prd.<produto>.yml` | Copia a versão mais recente do compose file do checkout para o `$COMPOSE_DIR`. Resolve o cenário "operador editou o compose manualmente" — o workflow sempre prevalece. |
+| 4 | Atualizar `docker-compose.prd.<produto>.yml` | Copia a versão mais recente do compose file do checkout para o `$COMPOSE_DIR`. Resolve o cenário "operador editou o compose manualmente" — o workflow sempre prevalece. Detalhes do fluxo de propriedade (1 fonte canônica, 2 propagações) em [`../../DEPLOY_SERVER.md`](../../DEPLOY_SERVER.md#fluxo-do-compose-file-de-produção). |
 | 5 | Atualizar `.env.server-<produto>.sample` | Mesma lógica do step 4 para o sample. **Não toca no `.env` real** — esse permanece com os valores que o operador preencheu na Fase 5 do setup. |
 | 6 | _(siscan-rpa apenas)_ Atualizar `backup_manager.sh` | Copia o script `scripts/clients/backup_manager.sh` para o `$COMPOSE_DIR/scripts/`. Disponibiliza a versão mais recente da ferramenta de backup. |
-| 7 | _(siscan-rpa apenas)_ Garantir `HOST_SECRETS_DIR` e `HOST_BACKUPS_DIR` | Cria os diretórios se ausentes (motivado pelo incidente de chaves RSA não-persistidas — ver [`../../ERRORS_TABLE.md`](../../ERRORS_TABLE.md) seção F23-F26). |
+| 7 | _(siscan-rpa apenas)_ Garantir `HOST_SECRETS_DIR` e `HOST_BACKUPS_DIR` | Cria os diretórios se ausentes (motivado pelo incidente de chaves RSA não-persistidas — ver [`../../ERRORS_TABLE.md`](../../ERRORS_TABLE.md) seção F23-F26). **Movido para o setup Fase 5** (TSK00.05.01 [#95](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/95)): novos workflows confiam que `siscan-server-setup.sh` já deriva essas variáveis no `.env`. Workflows antigos do siscan-rpa removem esse step na T1 do refactor cross-repo ([#694](https://github.com/Prisma-Consultoria/siscan-rpa/issues/694)). |
 | 8 | Pull das novas imagens | `docker compose -f docker-compose.prd.<produto>.yml pull` baixa as imagens declaradas no compose. A imagem certificada do GHCR já está em cache local após o primeiro deploy; daí em diante o pull verifica apenas digest novo. |
 | 9 | Parar stacks órfãs com nome de projeto diferente | Detecta containers com label `com.docker.compose.project=<produto-antigo>` (resíduo de renomeações como `siscan_rpa-rpa` → `siscan-rpa-rpa`) e os derruba via `docker compose down`. Evita conflito de portas e bind mounts. |
 | 10 | Subir stack atualizada | `docker compose -f docker-compose.prd.<produto>.yml up -d --remove-orphans`. Recria containers que tiveram imagem nova; mantém volumes; remove containers que não estão mais no compose. |
@@ -172,9 +172,24 @@ Sintomas observáveis durante o workflow estão catalogados em [`../../TROUBLESH
 
 Para sequência operacional do deploy completo (do clone à primeira execução do workflow), ver [`../../DEPLOY_SERVER.md`](../../DEPLOY_SERVER.md).
 
+## Adoção em produto novo — templates canônicos
+
+> **Adicionado em 2026-05-29 (TSK00.05.03 [#97](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/97)):** quando um parceiro novo adotar o assistente, o workflow CD não deve ser copiado/colado de um repo existente — use os **templates parametrizados** em [`templates/`](templates/README.md). Eles são a **fonte canônica** do padrão consolidado pós-F00.05 (delegação ao doctor + check-runner-tls, HOST_*_DIR derivados pelo setup), com placeholders explícitos para customização.
+
+Fluxo resumido:
+
+```bash
+cp docs/guides/workflows/templates/cd_imagem_certificada_selfhosted.template.yml \
+   /path/to/PRODUCT_REPO/.github/workflows/cd_imagem_certificada_selfhosted.yml
+# substituir 6 placeholders via sed (PRODUCT_NAME, RUNNER_LABEL, ...)
+```
+
+Guia completo: [`templates/README.md`](templates/README.md) — placeholders, decisões arquiteturais incorporadas, Apêndice "como adaptar a outro parceiro".
+
 ## Veja também
 
 - [`./test.md`](./test.md) — workflow de testes unitários do próprio assistente (`test.yml`, repo público)
+- [`./templates/README.md`](./templates/README.md) — **fonte canônica** dos workflows parametrizados (adoção em produto novo)
 - [`../siscan-server-setup.md`](../siscan-server-setup.md) — provisionamento inicial da VM
 - [`../siscan-server-doctor/index.md`](../siscan-server-doctor/index.md) — diagnóstico usado pelo `pre-deploy` e `post-deploy`
 - [`../siscan-runner-recover.md`](../siscan-runner-recover.md) — recuperação do runner quando o workflow trava

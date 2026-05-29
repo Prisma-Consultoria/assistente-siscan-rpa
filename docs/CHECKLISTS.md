@@ -74,6 +74,7 @@ Este checklist se aplica a qualquer modo de deploy, independentemente do produto
 - [ ] Runner online: GitHub → `siscan-rpa` → Settings → Actions → Runners → status `Idle`.
 - [ ] Credenciais SISCAN cadastradas em `/admin/siscan-credentials`.
 - [ ] Primeira coleta manual executada com sucesso.
+- [ ] Operador ciente do [fluxo de propriedade do compose file](DEPLOY_SERVER.md#fluxo-do-compose-file-de-produção) — não editar manualmente o compose na VM (sobrescrita silenciosa no próximo CD).
 
 ### Verificação de consistência (instalação existente)
 
@@ -108,6 +109,7 @@ bash ./siscan-server-setup.sh --product rpa --check
 - [ ] Runner online: GitHub → `siscan-dashboard` → Settings → Actions → Runners → status `Idle`.
 - [ ] Login funcional: admin / senha definida em `ADMIN_PASSWORD`.
 - [ ] Sync executado: dados do RPA visíveis no dashboard.
+- [ ] Operador ciente do [fluxo de propriedade do compose file](DEPLOY_SERVER.md#fluxo-do-compose-file-de-produção) — não editar manualmente o compose na VM (sobrescrita silenciosa no próximo CD).
 
 ### Verificação de consistência (instalação existente)
 

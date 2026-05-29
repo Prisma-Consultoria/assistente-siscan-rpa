@@ -153,6 +153,8 @@ Procura e/ou copia para `COMPOSE_DIR` os arquivos obrigatórios:
 | `config/` (diretório) | `SCRIPT_DIR/config/` | Cria vazio + warn. |
 | `config/excel_columns_mapping.json` | — | Warn (não é fatal nesta fase). |
 
+> **Bootstrap do compose vs propagação contínua:** o setup copia o compose **uma única vez** (bootstrap inicial), mas a partir daí a **fonte canônica em uso** é o checkout do repositório do produto durante cada deploy CD — não o repositório do assistente. Detalhes do fluxo de propriedade (incluindo edições manuais que são silenciosamente sobrescritas) em [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md#fluxo-do-compose-file-de-produção).
+
 ### Fase 5 — Configuração do .env (interativa)
 
 1. **Bootstrap**: se `${COMPOSE_DIR}/.env` não existe, copia do sample correspondente (`.env.server-rpa.sample`, `.env.server-dashboard.sample` ou `.env.host.sample`), procurando primeiro em `COMPOSE_DIR` e depois em `SCRIPT_DIR`. Se nenhum sample for encontrado, cria vazio.
