@@ -8,6 +8,8 @@ Para entender **quando** rodar diagnósticos no ciclo de vida de uma VM, consult
 
 | Versão | Data | Mudança |
 |---|---|---|
+| 1.4 | 2026-05-28 | Nova categoria `runner_actions_regional_variants` no `network-endpoints.json` (12 variantes regionais conhecidas: `pipelinesghub<region>*`, `results-receiverghub<region>*`, `productionresultssa<N>`) com flag `"advisory": true`. Specialist tratou advisory como `SKIPPED` em vez de `FAIL`: variantes bloqueadas NÃO contam no exit code do specialist (não quebram pre-flight) — saída fica visível como insumo para solicitação ÚNICA e COMPLETA ao time de segurança em vez de rodadas iterativas. Refatoração mínima em `check-network.sh`: `_check_https`/`_check_tcp` ganham 5º arg opcional `advisory`; loop principal lê `categories[i].advisory` e propaga. Ver [issue #88](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/88). Subseção operacional "*Mapeamento de variantes regionais para solicitação de firewall*" adicionada abaixo. **Decisão arquitetural**: single source of truth em `network-endpoints.json` (evita arquivo paralelo que pode envelhecer); categoria advisory cria a separação de comportamento sem fragmentar o catálogo. |
+| 1.3 | 2026-05-28 | `guidance.on_any_fail` da categoria *Runner ↔ GitHub Actions* explicita **wildcard `*.actions.githubusercontent.com`** como recomendação primária no pedido à TI. Motivação: lab 2026-05-28 revelou que `pipelinesghubeus6.actions.githubusercontent.com` (variante regional) ficou bloqueada mesmo com o endpoint base `pipelines.actions.githubusercontent.com` já liberado — o backend do GitHub Actions roteia dinamicamente para variantes regionais (`pipelinesghub<region>*`, `results-receiverghub<region>*`) que não são cobertas por whitelist literal do base. Ver [ERRORS_TABLE F38](../../../../docs/ERRORS_TABLE.md) e [issue #84](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/84). Mesma cobertura de teste (22 endpoints) — só guidance e documentação. Diagnóstico **reativo** complementar via `runner_diagnose_tls_failure` em [issue #82](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/82) (extrai URL específico do `_diag/` log quando recover falha). |
 | 1.2 | 2026-05-25 | UX: header explicativo de escopo (validação de firewall) + reescrita por linha como "código esperado · porquê" + guidance por categoria com próximo passo concreto. |
 | 1.1 | 2026-05-25 | Refatorado para usar `_common.sh` (cores, helpers, renderização compartilhados entre specialists). Mesma cobertura (22 endpoints). |
 | 1.0 | 2026-05-25 | Versão inicial — 22 endpoints (<chamado-firewall> v2.0 + GitHub docs *self-hosted-runners#communication*). Automatiza o item *Conectividade HTTPS* da tabela de pré-requisitos do `DEPLOY_SERVER.md`, que antes era um `curl -Iv https://github.com` manual. |
@@ -139,6 +141,31 @@ A seção 8 do PDF (SMTP e Keycloak/OIDC) e a seção 9 (Postgres 5432 via VLAN 
 ```bash
 bash scripts/deploy_server/check-network.sh && echo "Rede OK, posso rodar siscan-server-setup.sh"
 ```
+
+### Mapeamento de variantes regionais para solicitação de firewall
+
+**Quando aparece**: o pre-flight regular passa as 22 obrigatórias mas o `runner_register` falha com `The SSL connection could not be established`. Sintoma característico de **variante regional bloqueada**: o whitelist do firewall corporativo cobre o endpoint base (`pipelines.actions.githubusercontent.com`) mas não as variantes regionais (`pipelinesghub<region>*.actions.githubusercontent.com`, `results-receiverghub<region>*`, etc.) que o backend do GitHub Actions roteia dinamicamente.
+
+A v1.4 do specialist trouxe a categoria `runner_actions_regional_variants` ao `network-endpoints.json` com flag `"advisory": true` — uma execução normal do `check-network` JÁ inclui o mapeamento dessas variantes na saída, **sem afetar** o exit code:
+
+```bash
+bash scripts/deploy_server/check-network.sh
+```
+
+Saída típica em VM com whitelist estreita (somente endpoint base liberado):
+
+```
+=== Variantes regionais — mapeamento para solicitação de firewall (advisory) ===
+  ⊘  pipelinesghubeus6.actions.githubusercontent.com        firewall bloqueou — advisory
+  ✔  pipelinesghubwestus.actions.githubusercontent.com      400 esperado
+  ...
+=== Resumo (check-network) ===
+  29/34 OK · 5 SKIPPED
+```
+
+`SKIPPED` (em vez de `FAIL`) na categoria advisory garante que essas falhas **não bloqueiam** o pre-flight do doctor — são informativas para construção do pedido à TI. Variantes que voltarem como `SKIPPED` (HTTP=000) devem ser todas listadas na solicitação ao time de segurança; idealmente pedir **wildcard** `*.actions.githubusercontent.com` (e `*.blob.core.windows.net` se Azure Blob estiver bloqueado) numa única rodada.
+
+Origem operacional: [TSK00.04.09 #88](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/88), motivada pelo lab #259 (28/05/2026) onde `pipelinesghubeus6.actions.githubusercontent.com` ficou bloqueada mesmo após a base liberada (req 767679, 26/05). Decisão arquitetural: usar categoria advisory dentro do `network-endpoints.json` (single source of truth) em vez de arquivo paralelo, evitando risco de drift entre catálogos.
 
 ### Diagnóstico amplo via doctor
 

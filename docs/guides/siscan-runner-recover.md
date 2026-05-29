@@ -447,6 +447,23 @@ Por que esses 4 e não `check-runner`? `check-runner` é o que vamos consertar �
 
 Use `--skip-doctor` para pular o pré-flight em cenários de debug.
 
+### Diagnóstico TLS automático na falha de `runner_register`
+
+Quando `config.sh --unattended --replace` falha durante o registro do runner (mensagem genérica do .NET: `The SSL connection could not be established, see inner exception`), a função `runner_diagnose_tls_failure RUNNER_DIR` é invocada **automaticamente** na failure path de `runner_register` e emite em stderr um **bloco estruturado de 6 seções** para que o operador identifique a causa raiz sem precisar pedir comandos manuais:
+
+| Seção | O que mostra |
+|---|---|
+| `[1]` | `tail -100` do `_diag/Runner_*.log` mais recente — a exception real do .NET com URL alvo, stack trace, código de erro |
+| `[2]` | Variáveis de proxy no env (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `ALL_PROXY`, `FTP_PROXY`) |
+| `[3]` | CAs custom em `/usr/local/share/ca-certificates/` — proxy MITM precisa ter root CA instalada aqui pra .NET confiar |
+| `[4]` | Resolução DNS de `api.github.com` **e do endpoint extraído** do log (quando disponível) — distingue "DNS funciona" de "DNS funciona mas não pra esse host" |
+| `[5]` | Triagem por padrão conhecido do .NET no log: CA bundle (`AuthenticationException`/`X509`/`certificate`), DNS/IPv6 (`NameResolution`/`host not known`/`unreachable`), proxy explícito (literal `proxy`), e **firewall interrompendo handshake** (`Received an unexpected EOF`/`0 bytes from the transport stream`) — esta última extrai automaticamente o URL/host que falhou |
+| `[6]` | Teste de alcance direto via `curl -k` ao URL extraído de `[5]` — `HTTP=000` confirma firewall (TCP/TLS não completou); `HTTP=2xx/3xx/4xx/5xx` indica TLS subiu (causa é outra, não firewall). `-k` ignora validação de certificado para isolar firewall de CA error. Header sempre emitido; fallback explícito quando sem URL extraída de `[5]` ou curl ausente |
+
+Output é best-effort (sempre rc=0); helper nunca mascara o erro original do `runner_register`. Todo caller que invoque `runner_register` (recover ramos N/A/1/2/A/A2, Fase 7 do setup) herda o diagnóstico automaticamente.
+
+Quando a triagem `[5]` detecta firewall (peer fecha conexão durante handshake), a recomendação explicita liberar **wildcard `*.actions.githubusercontent.com`** no whitelist corporativo — não apenas o endpoint base `pipelines.actions.githubusercontent.com`, porque o GitHub Actions roteia dinamicamente para variantes regionais (`pipelinesghub<region>*.actions.githubusercontent.com`).
+
 ### Ações por cenário (o que o script faz na VM)
 
 **Variáveis resolvidas internamente**:
@@ -469,12 +486,13 @@ runner_diagnose           → echo OK|N/A|1|2|C|A|A2|B|WARN|UNKNOWN
 runner_local_age_days     → idade em dias (999 = indet.)
 runner_query_api          → JSON da API ou vazio
 runner_download_binaries  → baixa tarball (estado 1→2)
-runner_register           → config.sh --token (estado 2→3)
-runner_install_service    → svc.sh install (estado 3→4)
-runner_start_service      → svc.sh start
-runner_stop_service       → svc.sh stop (idempotente)
-runner_uninstall_service  → svc.sh uninstall (idempotente)
-runner_remove_registration → config.sh remove (idempotente)
+runner_register                 → config.sh --token (estado 2→3) — invoca diagnose_tls_failure em falha
+runner_diagnose_tls_failure     → bloco de 6 seções em stderr quando register falha
+runner_install_service          → svc.sh install (estado 3→4)
+runner_start_service            → svc.sh start
+runner_stop_service             → svc.sh stop (idempotente)
+runner_uninstall_service        → svc.sh uninstall (idempotente)
+runner_remove_registration      → config.sh remove (idempotente)
 ```
 
 Bugs ou melhorias na lógica de runner se propagam automaticamente para ambos os scripts.

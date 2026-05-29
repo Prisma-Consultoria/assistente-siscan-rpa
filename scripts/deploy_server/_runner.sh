@@ -462,9 +462,249 @@ runner_verify_runtime_deps() {
     return 0
 }
 
+# runner_diagnose_tls_failure RUNNER_DIR
+#   Coleta e emite um bloco de diagnóstico estruturado quando o
+#   config.sh do runner falha no TLS handshake. Best-effort — sempre
+#   retorna 0; quaisquer comandos auxiliares ausentes (getent, ldd,
+#   ls de dir inexistente) são tratados graciosamente.
+#
+#   Output em stderr (não polui stdout / JSON envelope do _common.sh).
+#   Seis seções estáveis — sempre emitidas, mesmo quando o log _diag
+#   está ausente (com mensagens de fallback explícitas, não omissões):
+#     [1] tail -100 do _diag/Runner_*.log mais recente (a exception real
+#         do .NET com URL alvo, código de erro, stack trace) — token-like
+#         path segments (>=20 chars alfanuméricos) redigidos como <TOKEN>
+#     [2] env vars de proxy/http (HTTPS_PROXY pode afetar .NET) — userinfo
+#         (user:pass@host) redigido como ***:***@ para evitar vazamento
+#         de credenciais em logs/tickets
+#     [3] CAs internas em /usr/local/share/ca-certificates/ (proxy MITM
+#         precisa instalar root CA aqui pra .NET confiar)
+#     [4] resolução DNS de api.github.com SEMPRE + endpoint extraído do
+#         log quando disponível — distingue "DNS quebrado" de "DNS OK mas
+#         não pra esse host" (TSK00.04.08)
+#     [5] triagem orientativa baseada em padrões conhecidos do .NET
+#         encontrados no log da seção [1] (CA bundle, DNS/IPv6, proxy,
+#         firewall/EOF — este último extrai o URL específico que falhou)
+#     [6] teste de alcance direto via curl -k ao URL extraído de [5]
+#         (TSK00.04.08) — HTTP=000 confirma firewall (TCP/TLS não
+#         completou); HTTP=2xx/3xx/4xx/5xx indica TLS subiu, causa é
+#         outra. curl com -k mata ambiguidade de CA error como firewall
+#
+#   Origem: lab #220 (2026-05-27/28) perdeu múltiplas rodadas operacionais
+#   coletando esses 4 sinais manualmente. Ver TSK00.04.05 (#82).
+runner_diagnose_tls_failure() {
+    local dir="$1"
+    {
+        printf '\n══════════════════════════════════════════════════\n'
+        printf '  DIAGNÓSTICO TLS — config.sh falhou no handshake\n'
+        printf '══════════════════════════════════════════════════\n\n'
+
+        # Localiza o log mais recente E extrai URL/host alvo de uma vez —
+        # ambos são usados pelas seções [1] (tail), [4] (DNS lookup do
+        # endpoint específico, não só api.github.com) e [6] (curl direto
+        # pro endpoint pra confirmar firewall). Extração TSK00.04.08
+        # movida para etapa prévia (era dentro de [5d]) para servir
+        # múltiplas seções com a mesma URL canônica.
+        local latest_log="" failed_url="" failed_host=""
+        if [ -d "$dir/_diag" ]; then
+            latest_log=$(ls -t "$dir/_diag"/Runner_*.log 2>/dev/null | head -1)
+        fi
+        if [ -n "$latest_log" ] && [ -f "$latest_log" ]; then
+            failed_url=$(grep -oE '(GET|POST) request to https?://[^[:space:]]+' "$latest_log" 2>/dev/null \
+                | head -1 \
+                | sed -E 's/^(GET|POST) request to //')
+            if [ -n "$failed_url" ]; then
+                failed_host=$(printf '%s' "$failed_url" \
+                    | sed -E 's|^https?://([^/]+)/.*|\1|; s|^https?://([^/]+)$|\1|')
+            fi
+        fi
+
+        # [1] Exception detalhada do .NET (a fonte da verdade)
+        if [ -n "$latest_log" ] && [ -f "$latest_log" ]; then
+            printf '[1] Exception detalhada (últimas 100 linhas de %s):\n\n' \
+                "$(basename "$latest_log")"
+            # Token-like path segments (>=20 chars alfanuméricos) redigidos
+            # como /<TOKEN>/ — config.sh logs URLs no formato:
+            # https://<host>/<TOKEN>/_apis/connectionData?... onde TOKEN
+            # é o registration-token autenticado (sensível). Mantemos
+            # host visível pra triagem do firewall corporativo.
+            # Revisão Copilot PR #83.
+            tail -100 "$latest_log" 2>/dev/null \
+                | sed -E 's|/[A-Za-z0-9_-]{20,}/|/<TOKEN>/|g' \
+                | sed 's/^/    /' || true
+            printf '\n'
+        else
+            printf '[1] Nenhum log em %s/_diag/ — runner pode não ter chegado a inicializar.\n\n' "$dir"
+        fi
+
+        # [2] Variáveis de proxy
+        printf '[2] Variáveis de proxy/http:\n'
+        local proxy_vars
+        proxy_vars=$(env 2>/dev/null | grep -iE '^(http_proxy|https_proxy|no_proxy|all_proxy|ftp_proxy)=' | sort)
+        if [ -n "$proxy_vars" ]; then
+            # Redige userinfo (user:pass@) — proxy URLs frequentemente
+            # carregam credenciais no formato scheme://user:pass@host:port
+            # que vazariam em tickets/logs colados sem filtragem.
+            # Preserva schema, host e port (essenciais pra triagem).
+            # Revisão Copilot PR #83.
+            printf '%s\n' "$proxy_vars" \
+                | sed -E 's|(://)[^:@/]+:[^@/]+@|\1***:***@|g' \
+                | sed 's/^/    /'
+        else
+            printf '    (nenhuma variável de proxy definida no ambiente)\n'
+        fi
+        printf '\n'
+
+        # [3] CAs internas custom (proxy MITM, CA corporativa)
+        printf '[3] CAs custom em /usr/local/share/ca-certificates/:\n'
+        if [ -d /usr/local/share/ca-certificates ]; then
+            local ca_list
+            ca_list=$(ls /usr/local/share/ca-certificates/ 2>/dev/null)
+            if [ -n "$ca_list" ]; then
+                printf '%s\n' "$ca_list" | sed 's/^/    /'
+            else
+                printf '    (diretório vazio — nenhuma CA custom instalada)\n'
+            fi
+        else
+            printf '    (diretório não existe)\n'
+        fi
+        printf '\n'
+
+        # [4] Resolução DNS — api.github.com SEMPRE, e o endpoint que falhou
+        # quando extraível do log (TSK00.04.08). Resolver o endpoint
+        # regional específico distingue "DNS funciona mas não pra esse
+        # host" de "DNS quebrado".
+        printf '[4] Resolução DNS:\n'
+        if command -v getent >/dev/null 2>&1; then
+            local resolved
+            printf '    api.github.com:\n'
+            resolved=$(getent hosts api.github.com 2>/dev/null)
+            if [ -n "$resolved" ]; then
+                printf '%s\n' "$resolved" | sed 's/^/      /'
+            else
+                printf '      (sem resposta — DNS pode estar bloqueado)\n'
+            fi
+            if [ -n "$failed_host" ] && [ "$failed_host" != "api.github.com" ]; then
+                printf '    %s (endpoint que falhou):\n' "$failed_host"
+                resolved=$(getent ahosts "$failed_host" 2>/dev/null)
+                if [ -n "$resolved" ]; then
+                    printf '%s\n' "$resolved" | sed 's/^/      /'
+                else
+                    printf '      (sem resposta — verifique DNS pra esse host)\n'
+                fi
+            fi
+        else
+            printf '    (getent ausente — tente: dig api.github.com)\n'
+        fi
+        printf '\n'
+
+        # [5] Triagem por padrões conhecidos do .NET no log.
+        # Header SEMPRE emitido pra preservar contrato "6 seções estáveis"
+        # — quando não há log, emite fallback explícito em vez de omitir
+        # a seção inteira. Revisão Copilot PR #83.
+        printf '[5] Triagem (padrões conhecidos do .NET detectados no log):\n'
+        if [ -n "$latest_log" ] && [ -f "$latest_log" ]; then
+            local triage_emitted=""
+            if grep -qiE 'AuthenticationException|X509|certificate' "$latest_log" 2>/dev/null; then
+                printf '    ⚠ Sinal de CA bundle (cert/X509 inválido pro .NET).\n'
+                printf '      → Adicione a CA do proxy/corporativa em /usr/local/share/\n'
+                printf '        ca-certificates/ + sudo update-ca-certificates.\n'
+                triage_emitted="yes"
+            fi
+            if grep -qiE 'NameResolution|host not known|host.*unreachable|network.*unreachable' "$latest_log" 2>/dev/null; then
+                printf '    ⚠ Sinal de DNS / IPv6 bloqueado.\n'
+                printf '      → Verifique resolução acima [4]; considere desabilitar\n'
+                printf '        IPv6 ou configurar DNS resolver confiável.\n'
+                triage_emitted="yes"
+            fi
+            if grep -qi 'proxy' "$latest_log" 2>/dev/null; then
+                printf '    ⚠ Sinal de proxy (.NET respeitando HTTPS_PROXY).\n'
+                printf '      → Tente bypass: HTTPS_PROXY="" ./config.sh ...\n'
+                triage_emitted="yes"
+            fi
+            # Sinal de firewall/proxy MITM interrompendo o handshake — peer
+            # fecha conexão DURANTE o handshake (TCP RST/FIN), antes de
+            # qualquer validação de certificado. Padrão canônico do .NET
+            # quando o destino é bloqueado por middlebox de rede.
+            # Lab #220 (2026-05-28) revelou esse padrão pra
+            # pipelinesghubeus6.actions.githubusercontent.com — variante
+            # regional que estava fora do whitelist do firewall corporativo
+            # (que só cobria o endpoint base "pipelines.actions.github
+            # usercontent.com"). Ver TSK00.04.05 #82.
+            if grep -qiE 'Received an unexpected EOF|0 bytes from the transport stream' "$latest_log" 2>/dev/null; then
+                printf '    ⚠ Sinal de firewall/proxy interrompendo TLS handshake (peer fechou conexão).\n'
+                printf '      Distinto de CA bundle: o erro acontece ANTES da validação de certificado.\n'
+                # failed_url/failed_host já extraídos em etapa prévia (TSK00.04.08).
+                if [ -n "$failed_host" ]; then
+                    printf '      → Endpoint que falhou: %s\n' "$failed_host"
+                    printf '      → Verifique se esse FQDN está liberado no firewall corporativo.\n'
+                    printf '      → Variantes regionais (pipelinesghub<region>*.actions.githubusercontent.com)\n'
+                    printf '        NÃO são cobertas por whitelist da base "pipelines.actions.githubusercontent.com".\n'
+                    printf '        Peça wildcard: *.actions.githubusercontent.com\n'
+                else
+                    printf '      → Verifique whitelist do firewall para *.actions.githubusercontent.com\n'
+                    printf '        (variantes regionais aparecem dinamicamente).\n'
+                fi
+                triage_emitted="yes"
+            fi
+            [ -z "$triage_emitted" ] && \
+                printf '    (nenhum padrão conhecido bate — leia o log [1] manualmente)\n'
+        else
+            printf '    (sem log para triagem — ver mensagem da seção [1])\n'
+        fi
+        printf '\n'
+
+        # [6] Teste de alcance direto ao endpoint que falhou — TSK00.04.08.
+        # Decide firewall sozinho: HTTP=000 ⇒ TCP/TLS não completou (peer
+        # rejeitou ou middlebox dropou); qualquer HTTP != 000 ⇒ TLS subiu,
+        # NÃO é firewall (revisar outras hipóteses).
+        # Usa `curl -k` (mesmo critério do check-network specialist) pra
+        # NÃO interpretar erro de validação de certificado como firewall —
+        # sem -k, CA não-confiada faria curl retornar HTTP=000 com
+        # ssl_verify_result != 0, que seria ambiguidade com firewall real.
+        # Inclui HTTP=5xx (server response que prova que TLS subiu).
+        # Header SEMPRE emitido — contrato de 6 seções estáveis (revisão
+        # Copilot PR #83). Quando sem URL ou sem curl, fallback explícito.
+        printf '[6] Teste de alcance direto ao endpoint que falhou:\n'
+        if [ -z "$failed_url" ]; then
+            printf '    (sem URL extraída de [5] — nada para testar)\n'
+        elif ! command -v curl >/dev/null 2>&1; then
+            printf '    (curl ausente — instale curl para teste de alcance direto)\n'
+        else
+            # Redige token-like path segments no URL exibido (mesma
+            # heurística do [1]). curl recebe o URL ORIGINAL pra
+            # testar conectividade real; só o display é redigido.
+            local failed_url_display result
+            failed_url_display=$(printf '%s' "$failed_url" \
+                | sed -E 's|/[A-Za-z0-9_-]{20,}/|/<TOKEN>/|g')
+            result=$(curl -k -s -o /dev/null \
+                -w "HTTP=%{http_code} TLS=%{ssl_verify_result}" \
+                --max-time 10 \
+                "$failed_url" 2>/dev/null || true)
+            printf '    %s\n    %s\n' "$failed_url_display" "$result"
+            case "$result" in
+                HTTP=000*)
+                    printf '      → firewall confirmado (TCP/TLS não completou)\n' ;;
+                HTTP=2*|HTTP=3*|HTTP=4*|HTTP=5*)
+                    printf '      → TLS subiu (NÃO é firewall) — revise outras hipóteses\n' ;;
+            esac
+        fi
+        printf '\n'
+
+        printf '══════════════════════════════════════════════════\n'
+        printf '  FIM DO DIAGNÓSTICO TLS\n'
+        printf '══════════════════════════════════════════════════\n\n'
+    } >&2
+    return 0
+}
+
 # runner_register RUNNER_DIR URL TOKEN NAME LABEL
 #   Registra o runner via config.sh --token. Usa --unattended --replace
 #   (idempotente quanto a nome+label).
+#   Quando o config.sh falha, invoca runner_diagnose_tls_failure pra
+#   emitir bloco de diagnóstico antes de retornar erro — caller (recover
+#   e setup) imprime sua mensagem genérica, mas o operador já tem o
+#   contexto pra resolver sem ida-e-volta operacional (TSK00.04.05).
 runner_register() {
     local dir="$1" url="$2" token="$3" name="$4" label="$5"
     [ -n "$token" ] || { printf "Token vazio — abortando registro.\n" >&2; return 1; }
@@ -477,6 +717,7 @@ runner_register() {
             --unattended \
             --replace); then
         printf "Falha ao registrar o runner. Verifique URL e token (tokens expiram em poucos minutos).\n" >&2
+        runner_diagnose_tls_failure "$dir"
         return 1
     fi
     ok "Runner registrado: $name [$label]"
