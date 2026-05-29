@@ -1,0 +1,269 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# TEMPLATE — Workflow de Continuous Deployment via Self-hosted Runner
+# ─────────────────────────────────────────────────────────────────────────────
+# Versão: 1.0  ·  Status: aceita  ·  Tarefa: TSK00.05.03 (#97)
+#
+# Este template encapsula o padrão consolidado dos workflows CD do SISCAN
+# (siscan-rpa e siscan-dashboard pós-F00.05) e foi pensado para ser reusado
+# por qualquer produto que adote o assistente em um novo parceiro.
+#
+# Fluxo: pre-deploy → deploy → post-deploy, com diagnóstico delegado ao
+# `siscan-server-doctor.sh` + `check-runner-tls.sh` do assistente em vez de
+# replicar lógica bash inline. Evolução do doctor (novos specialists,
+# `--advisory-strict`, etc.) propaga automaticamente.
+#
+# ─── Como adoptar ───────────────────────────────────────────────────────────
+# 1. Copiar este arquivo para `.github/workflows/cd_imagem_certificada_selfhosted.yml`
+#    no repositório do produto:
+#      cp docs/guides/workflows/templates/cd_imagem_certificada_selfhosted.template.yml \
+#         .github/workflows/cd_imagem_certificada_selfhosted.yml
+#
+# 2. Substituir os placeholders abaixo via sed (ou editor):
+#      sed -i \
+#        -e 's/{{ PRODUCT_NAME }}/rpa/g' \
+#        -e 's/{{ RUNNER_LABEL }}/producao-rpa/g' \
+#        -e 's/{{ COMPOSE_FILE_NAME }}/docker-compose.prd.rpa.yml/g' \
+#        -e 's/{{ ENV_SAMPLE_NAME }}/.env.server-rpa.sample/g' \
+#        -e 's/{{ COMPOSE_SERVICES }}/migrate app rpa-scheduler/g' \
+#        -e 's|{{ STACK_HEALTH_URL }}|http://localhost:5001/health|g' \
+#        .github/workflows/cd_imagem_certificada_selfhosted.yml
+#
+# 3. Ajustar os steps comentados em "Steps específicos do produto" conforme
+#    necessário (autenticação SISCAN, sync Redis, backup_manager.sh, etc.).
+#
+# 4. Validar localmente:
+#      actionlint .github/workflows/cd_imagem_certificada_selfhosted.yml
+#      yamllint .github/workflows/cd_imagem_certificada_selfhosted.yml
+#
+# ─── Placeholders ───────────────────────────────────────────────────────────
+# | Placeholder              | Significado                              | Exemplo                          |
+# |--------------------------|------------------------------------------|----------------------------------|
+# | {{ PRODUCT_NAME }}       | ID do produto no manifesto products.json | rpa, dashboard                   |
+# | {{ RUNNER_LABEL }}       | Label do runner self-hosted              | producao-rpa, producao-dashboard |
+# | {{ COMPOSE_FILE_NAME }}  | Nome do compose file de produção         | docker-compose.prd.rpa.yml       |
+# | {{ ENV_SAMPLE_NAME }}    | Nome do sample do .env                   | .env.server-rpa.sample           |
+# | {{ COMPOSE_SERVICES }}   | Lista de services (separados por espaço) | migrate app rpa-scheduler        |
+# | {{ STACK_HEALTH_URL }}   | URL do health check da aplicação         | http://localhost:5001/health     |
+#
+# ─── Pré-requisitos na VM ───────────────────────────────────────────────────
+# - Setup completo via `siscan-server-setup.sh --product {{ PRODUCT_NAME }}`
+# - Runner registrado com label `{{ RUNNER_LABEL }}` (Fase 7 do setup)
+# - COMPOSE_DIR exportado em ~/actions-runner/.env (Fase 8 do setup)
+# - HOST_*_DIR declarados no .env, incluindo HOST_SECRETS_DIR/HOST_BACKUPS_DIR
+#   derivados pela Fase 5 do setup (TSK00.05.01) — workflow NÃO precisa mais
+#   replicar essa derivação inline.
+#
+# Ver template companheiro `docker_build.template.yml` para o pipeline de CI
+# que publica a imagem no GHCR.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CD — Imagem Certificada (Self-hosted, {{ PRODUCT_NAME }})
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag específica para deploy (default: main)"
+        required: false
+        default: "main"
+
+env:
+  PRODUCT_NAME: {{ PRODUCT_NAME }}
+  COMPOSE_FILE: {{ COMPOSE_FILE_NAME }}
+  ENV_SAMPLE: {{ ENV_SAMPLE_NAME }}
+  HEALTH_URL: {{ STACK_HEALTH_URL }}
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────
+  # JOB 1 — pre-deploy
+  # Valida saúde da VM ANTES de tocar em qualquer coisa destrutiva.
+  # Delega 100% do diagnóstico ao siscan-server-doctor + check-runner-tls
+  # em vez de replicar checks bash inline (que era ~190 linhas no padrão
+  # anterior do siscan-rpa).
+  # ───────────────────────────────────────────────────────────────────────
+  pre-deploy:
+    runs-on: [self-hosted, {{ RUNNER_LABEL }}]
+    timeout-minutes: 10
+    steps:
+      - name: Coletar diagnóstico pré-deploy
+        id: diagnose
+        run: |
+          set -euo pipefail
+          : "${COMPOSE_DIR:?COMPOSE_DIR não definido — re-execute Fase 8 do siscan-server-setup.sh}"
+          cd "${COMPOSE_DIR}"
+          bash siscan-server-doctor.sh --quiet --json --pre-setup > pre-deploy-diag.json
+          cat pre-deploy-diag.json
+
+      - name: Validar runner TLS (pré-flight)
+        run: |
+          set -euo pipefail
+          cd "${COMPOSE_DIR}"
+          bash scripts/deploy_server/check-runner-tls.sh --quiet --pre-flight
+
+      - name: Publicar diagnóstico como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pre-deploy-diagnostic-${{ github.run_id }}
+          path: ${{ env.COMPOSE_DIR }}/pre-deploy-diag.json
+          retention-days: 14
+
+  # ───────────────────────────────────────────────────────────────────────
+  # JOB 2 — deploy
+  # Atualiza compose + sample, puxa imagem nova, recria stack.
+  # HOST_SECRETS_DIR/HOST_BACKUPS_DIR NÃO precisam mais ser derivados aqui
+  # (TSK00.05.01 #95 — setup Fase 5 já populou no .env).
+  # ───────────────────────────────────────────────────────────────────────
+  deploy:
+    needs: pre-deploy
+    runs-on: [self-hosted, {{ RUNNER_LABEL }}]
+    timeout-minutes: 15
+    steps:
+      - name: Validar COMPOSE_DIR
+        run: |
+          set -euo pipefail
+          : "${COMPOSE_DIR:?COMPOSE_DIR não definido — re-execute Fase 8 do siscan-server-setup.sh}"
+          [ -d "${COMPOSE_DIR}" ] || { echo "COMPOSE_DIR=${COMPOSE_DIR} não existe"; exit 1; }
+          echo "COMPOSE_DIR=${COMPOSE_DIR}"
+
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Autenticar no GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Atualizar docker-compose
+        run: |
+          set -euo pipefail
+          cp "${{ env.COMPOSE_FILE }}" "${COMPOSE_DIR}/${{ env.COMPOSE_FILE }}"
+          echo "✓ ${{ env.COMPOSE_FILE }} atualizado em ${COMPOSE_DIR}"
+
+      - name: Atualizar .env sample
+        run: |
+          set -euo pipefail
+          cp "${{ env.ENV_SAMPLE }}" "${COMPOSE_DIR}/${{ env.ENV_SAMPLE }}"
+          echo "✓ ${{ env.ENV_SAMPLE }} atualizado em ${COMPOSE_DIR}"
+
+      # ─── Steps específicos do produto (descomentar/adaptar conforme necessário) ───
+      #
+      # Exemplo (siscan-rpa): backup_manager.sh
+      # - name: Atualizar backup_manager.sh
+      #   run: |
+      #     mkdir -p "${COMPOSE_DIR}/scripts/clients"
+      #     cp scripts/clients/backup_manager.sh "${COMPOSE_DIR}/scripts/clients/"
+      #     chmod +x "${COMPOSE_DIR}/scripts/clients/backup_manager.sh"
+
+      - name: Pull das imagens
+        working-directory: ${{ env.COMPOSE_DIR }}
+        run: docker compose -f ${{ env.COMPOSE_FILE }} pull
+
+      - name: Parar stacks órfãs (nome de projeto diferente)
+        working-directory: ${{ env.COMPOSE_DIR }}
+        run: |
+          set -euo pipefail
+          # Detecta containers de versões antigas com nome de projeto diferente
+          # e os derruba — evita conflito de portas/bind mounts.
+          ORPHANS=$(docker ps -a --filter "label=com.docker.compose.project" \
+            --format '{{ .Label "com.docker.compose.project" }}' | sort -u \
+            | grep -v "^siscan-${{ env.PRODUCT_NAME }}$" || true)
+          for proj in ${ORPHANS}; do
+            echo "Derrubando stack órfã: ${proj}"
+            docker compose -p "${proj}" down --remove-orphans || true
+          done
+
+      - name: Subir stack atualizada
+        working-directory: ${{ env.COMPOSE_DIR }}
+        run: docker compose -f ${{ env.COMPOSE_FILE }} up -d --remove-orphans --wait
+
+      - name: Status da stack
+        if: always()
+        working-directory: ${{ env.COMPOSE_DIR }}
+        run: docker compose -f ${{ env.COMPOSE_FILE }} ps
+
+      - name: Resumo do deploy
+        if: always()
+        run: |
+          {
+            echo "## Deploy — ${{ env.PRODUCT_NAME }}"
+            echo ""
+            echo "- **Commit**: ${{ github.sha }}"
+            echo "- **Tag**: ${{ github.event.inputs.image_tag || 'main' }}"
+            echo "- **Runner**: ${{ runner.name }} (${{ env.PRODUCT_NAME }})"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Limpar imagens antigas
+        if: always()
+        run: docker image prune -f
+
+  # ───────────────────────────────────────────────────────────────────────
+  # JOB 3 — post-deploy
+  # Valida que a stack subiu saudável, delega ao doctor (check-stack).
+  # ───────────────────────────────────────────────────────────────────────
+  post-deploy:
+    needs: deploy
+    runs-on: [self-hosted, {{ RUNNER_LABEL }}]
+    timeout-minutes: 10
+    if: always()  # roda mesmo se deploy falhou — útil para diagnóstico
+    steps:
+      - name: Aguardar containers ficarem prontos
+        working-directory: ${{ env.COMPOSE_DIR }}
+        run: |
+          set -euo pipefail
+          # Espera até 90s pelos services declarados em COMPOSE_SERVICES
+          for svc in {{ COMPOSE_SERVICES }}; do
+            for i in $(seq 1 30); do
+              status=$(docker compose -f ${{ env.COMPOSE_FILE }} ps --format json "$svc" 2>/dev/null \
+                | jq -r '.State // empty' | head -1)
+              [ "$status" = "running" ] && break
+              sleep 3
+            done
+          done
+
+      - name: Diagnóstico pós-deploy (check-stack)
+        run: |
+          set -euo pipefail
+          cd "${COMPOSE_DIR}"
+          bash siscan-server-doctor.sh --quiet --json --only check-stack > post-deploy-stack.json
+          cat post-deploy-stack.json
+
+      - name: Health check da aplicação
+        run: |
+          set -euo pipefail
+          # Aguarda até 60s pelo health endpoint
+          for i in $(seq 1 20); do
+            if curl -fsS "${{ env.HEALTH_URL }}" > /dev/null 2>&1; then
+              echo "✓ Health check passou: ${{ env.HEALTH_URL }}"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "✘ Health check falhou após 60s: ${{ env.HEALTH_URL }}"
+          exit 1
+
+      # ─── Steps específicos do produto (descomentar/adaptar conforme necessário) ───
+      #
+      # Exemplo (siscan-rpa): validar autenticação no portal SISCAN
+      # - name: Validar autenticação SISCAN
+      #   run: |
+      #     curl -fsS "${{ env.HEALTH_URL }}/auth/check" || exit 1
+      #
+      # Exemplo (siscan-dashboard): validar Redis
+      # - name: Validar Redis
+      #   working-directory: ${{ env.COMPOSE_DIR }}
+      #   run: |
+      #     docker compose -f ${{ env.COMPOSE_FILE }} exec -T redis redis-cli ping | grep -q PONG
+
+      - name: Publicar relatório pós-deploy como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-deploy-diagnostic-${{ github.run_id }}
+          path: ${{ env.COMPOSE_DIR }}/post-deploy-stack.json
+          retention-days: 14
