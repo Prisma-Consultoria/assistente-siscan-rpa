@@ -29,7 +29,7 @@ Antes de mergulhar em qualquer problema específico, rode o doctor para um diagn
 bash siscan-server-doctor.sh
 ```
 
-Saída esperada: `9/9 specialists OK`. Cada FAIL traz a categoria, o alvo, o erro real e a ação corretiva — leia o resumo antes de seguir pra um passo-a-passo manual.
+Saída esperada: `10/10 specialists OK`. Cada FAIL traz a categoria, o alvo, o erro real e a ação corretiva — leia o resumo antes de seguir pra um passo-a-passo manual.
 
 A coluna **`Coberto por`** em cada tabela abaixo indica qual specialist (em `scripts/deploy_server/check-*.sh`) verifica aquele passo. Para rodar isoladamente:
 

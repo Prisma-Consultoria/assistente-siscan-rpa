@@ -139,7 +139,7 @@ cd assistente-siscan-rpa
 bash siscan-server-doctor.sh --pre-setup
 ```
 
-Saída esperada: `6/6 specialists OK` (3 specialists — runner, stack, banco — só fazem sentido depois do setup completar). Cada FAIL traz mensagem com ação corretiva específica. Referência completa de cada specialist (o que verifica, exit codes, schema JSON) em [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md).
+Saída esperada: `7/7 specialists OK` em `--pre-setup` (3 specialists — `check-runner`, `check-stack`, `check-db` — só fazem sentido depois do setup completar; `check-runner-tls` em modo `--pre-flight` roda sempre, mesmo pré-setup). Cada FAIL traz mensagem com ação corretiva específica. Referência completa de cada specialist (o que verifica, exit codes, schema JSON) em [`guides/siscan-server-doctor/`](guides/siscan-server-doctor/index.md).
 
 > O próprio `siscan-server-setup.sh` invoca o doctor como **Fase 0** (gate pré-flight) antes de executar qualquer ação destrutiva. Use `--skip-doctor` no setup só em cenários de debugging.
 
@@ -257,15 +257,16 @@ Antes de prosseguir com a instalação — e sempre que o deploy quebrar — rod
 bash ./siscan-server-doctor.sh
 ```
 
-O doctor orquestra **9 specialists** em `scripts/deploy_server/check-*.sh`, cada um cobrindo uma dimensão da saúde da VM:
+O doctor orquestra **10 specialists** em `scripts/deploy_server/check-*.sh`, cada um cobrindo uma dimensão da saúde da VM:
 
 | Specialist | Cobre |
 |---|---|
-| `check-network` | 22 FQDNs externos (runner, GHCR, Docker Hub, OCSP/CRL) |
+| `check-network` | 22 FQDNs base + 12 variantes regionais advisory + 3 endpoints opcionais advisory (LFS, Dependabot) |
 | `check-deps` | Docker, Compose, curl, sudo, jq, NTP |
 | `check-env` | `.env` preenchido, formato de `RPA_DATABASE_URL`, `APP_LOG_LEVEL` |
 | `check-docker` | Daemon ativo, pool de redes (`daemon.json`), grupo docker |
 | `check-runner` | `.runner` local, GitHub API, regra dos 30 dias |
+| `check-runner-tls` | Diagnóstico TLS proativo (proxy env, CAs custom, DNS) — também invocado em modo `--reactive` por `runner_register` em falha (TSK00.04.10) |
 | `check-stack` | `docker compose ps`, port collision, restart loop |
 | `check-permissions` | Ownership do stack dir, git `safe.directory`, UID 1000 |
 | `check-db` | TCP/5432 + `pg_isready` para `DATABASE_HOST` (e `RPA_DATABASE_URL`) |
@@ -318,7 +319,7 @@ git pull origin main
 bash siscan-server-doctor.sh --pre-setup
 ```
 
-A última linha valida que o ambiente continua íntegro após o pull. Saída esperada: `6/6 specialists OK`.
+A última linha valida que o ambiente continua íntegro após o pull. Saída esperada: `7/7 specialists OK` (modo `--pre-setup` inclui `check-runner-tls` pre-flight + 6 prévios).
 
 ### Cenários complexos (runner offline, auto-removed, primeira atualização ampla)
 
@@ -398,7 +399,7 @@ Esta seção lista apenas as operações **manuais** que o operador realmente ex
 ### Diagnóstico geral da VM
 
 ```bash
-bash siscan-server-doctor.sh                    # validação completa (9/9 OK esperado)
+bash siscan-server-doctor.sh                    # validação completa (10/10 OK esperado)
 bash siscan-server-doctor.sh --only check-stack # só containers + healthcheck
 bash siscan-server-doctor.sh --json             # saída estruturada (cron / integração)
 ```

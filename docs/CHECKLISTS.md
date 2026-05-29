@@ -63,12 +63,12 @@ Este checklist se aplica a qualquer modo de deploy, independentemente do produto
 - [ ] `SECRET_KEY` definida.
 - [ ] Caminhos `HOST_*` em formato Linux absoluto.
 - [ ] `config/excel_columns_mapping.json` presente em `$COMPOSE_DIR/config/` (necessário para parsing dos laudos — ver [TROUBLESHOOTING — Problema 12](TROUBLESHOOTING.md#problema-12--excel_columns_mappingjson-ausente-em-config)).
-- [ ] Pré-flight do doctor: `bash siscan-server-doctor.sh --pre-setup` → `6/6 specialists OK` (gate obrigatório; o setup invoca como Fase 0).
+- [ ] Pré-flight do doctor: `bash siscan-server-doctor.sh --pre-setup` → `7/7 specialists OK` (gate obrigatório; o setup invoca como Fase 0; inclui `check-runner-tls` em modo pre-flight desde TSK00.04.10).
 - [ ] `siscan-server-setup.sh --product rpa` executado.
 
 ### Após configuração
 
-- [ ] Validação completa: `bash siscan-server-doctor.sh` → `9/9 specialists OK`.
+- [ ] Validação completa: `bash siscan-server-doctor.sh` → `10/10 specialists OK`.
 - [ ] Containers em execução: `docker compose -f docker-compose.prd.rpa.yml ps` → `app` e `rpa-scheduler` com status `Up` / `healthy`.
 - [ ] Health: `http://<IP>:5001/health` → `"schema_status":"current"`.
 - [ ] Runner online: GitHub → `siscan-rpa` → Settings → Actions → Runners → status `Idle`.
@@ -96,12 +96,12 @@ bash ./siscan-server-setup.sh --product rpa --check
 - [ ] `RPA_DATABASE_URL` preenchido com conexão ao banco do RPA.
 - [ ] `ADMIN_PASSWORD` definida.
 - [ ] `HOST_LOG_DIR` preenchido.
-- [ ] Pré-flight do doctor: `bash siscan-server-doctor.sh --pre-setup` → `6/6 specialists OK` (gate obrigatório; o setup invoca como Fase 0).
+- [ ] Pré-flight do doctor: `bash siscan-server-doctor.sh --pre-setup` → `7/7 specialists OK` (gate obrigatório; o setup invoca como Fase 0; inclui `check-runner-tls` em modo pre-flight desde TSK00.04.10).
 - [ ] `siscan-server-setup.sh --product dashboard` executado.
 
 ### Após configuração
 
-- [ ] Validação completa: `bash siscan-server-doctor.sh` → `9/9 specialists OK`.
+- [ ] Validação completa: `bash siscan-server-doctor.sh` → `10/10 specialists OK`.
 - [ ] Containers em execução: `docker compose -f docker-compose.prd.dashboard.yml ps` → `redis`, `app` e `sync` com status `Up` / `healthy`.
 - [ ] Redis operacional: `docker compose -f docker-compose.prd.dashboard.yml exec redis redis-cli ping` → `PONG`.
 - [ ] Health: `http://<IP>:5000/health` → `"schema_status":"current"`.
