@@ -4,8 +4,8 @@ type: guide
 status: aceita
 confidencialidade: interno
 owner: Time DevOps SISCAN
-updated: 2026-05-26
-versao: "1.1"
+updated: 2026-05-31
+versao: "1.2"
 related:
   - docs/DEPLOY_SERVER.md
   - docs/TROUBLESHOOTING.md
@@ -170,6 +170,14 @@ Procura e/ou copia para `COMPOSE_DIR` os arquivos obrigatórios:
    - Valida formato de URLs declaradas como obrigatórias (ex.: regex `^postgresql://[^@]+@[^/]+/.+`).
 5. **Variáveis `HOST_*`** — caminhos que viram bind mounts. A lista por produto vem do campo `host_dir_vars` do manifesto `products.json`. Os valores típicos sugeridos para cada produto estão tabulados em [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md) (seção *Instalação*). Para cada variável declarada no manifesto, o script mostra o valor atual e oferece manter (`Enter`) ou substituir. **Caminhos no formato Windows** (drive letter `C:\`, UNC `\\server\share`, ou backslash como separador) disparam warn da função `_validate_linux_path`, e o operador precisa confirmar explicitamente (`S/N`) para gravá-los assim mesmo.
 
+6. **Variáveis `HOST_*` derivadas automaticamente** (a partir da TSK00.05.01 [#95](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/95)) — algumas entradas de `host_dir_vars[]` no manifesto são **objetos** (schema v2.0) que descrevem derivação automática a partir de uma variável-pai. O setup chama `ensure_host_paths_derived` após a coleta interativa para:
+   - **Preservar** o valor pré-existente no `.env` (operador no controle se já declarou)
+   - **Derivar** o valor quando ausente — operação atualmente suportada: `dirname + /<subdir>` (extrai o diretório-pai de `derived_from` e anexa o subdiretório)
+   - **Aplicar `default_mode`** via `chmod` (ex: `700` para `HOST_SECRETS_DIR`) — sempre, mesmo quando o operador declarou manualmente
+   - **Criar o diretório** via `mkdir -p` se `auto_create: true`
+   
+   No produto `rpa` (e `full`), `HOST_SECRETS_DIR` e `HOST_BACKUPS_DIR` são derivados de `HOST_LOG_DIR` (`dirname + /secrets` e `dirname + /backups` respectivamente). Isso elimina a necessidade dos workflows CD do `siscan-rpa` derivarem essas variáveis inline — eles passam a confiar no `.env` produzido pelo setup. Detalhes do schema v2.0 em [`./siscan-server-doctor/products-manifest.md`](./siscan-server-doctor/products-manifest.md#host_dir_vars--schema-v20-tsk000501-95).
+
 ### Fase 6 — Criação dos diretórios HOST_*
 
 Itera as variáveis configuradas na Fase 5 e roda `mkdir -p` em cada uma. Falhas geram warn mas não abortam — útil quando o operador define caminhos em volumes montados depois.
@@ -231,7 +239,9 @@ A lista completa de variáveis obrigatórias por produto está no manifesto decl
 | `DATABASE_PASSWORD` | todos | Interativo | Hidden input. Detecta default `siscan_rpa`. |
 | `ADMIN_PASSWORD` | `dashboard` | Interativo | Opcional — fallback gera no log. |
 | `RPA_DATABASE_URL` | `dashboard` | Interativo | Validada por regex Postgres. |
-| `HOST_*_DIR` | varia (Fase 5) | Interativo | Detecta paths Windows. |
+| `HOST_*_DIR` | varia (Fase 5) | Interativo (string) ou derivado (objeto schema v2.0) | Detecta paths Windows. Objetos derivam de `derived_from` quando ausente — ex.: `HOST_SECRETS_DIR` e `HOST_BACKUPS_DIR` derivados de `HOST_LOG_DIR`. |
+| `HOST_SECRETS_DIR` | `rpa`, `full` | Derivado automaticamente (Fase 5) | `dirname(HOST_LOG_DIR) + /secrets` se ausente. `chmod 700` aplicado sempre. Operador pode declarar manualmente para sobrepor. |
+| `HOST_BACKUPS_DIR` | `rpa`, `full` | Derivado automaticamente (Fase 5) | `dirname(HOST_LOG_DIR) + /backups` se ausente. Operador pode declarar manualmente. |
 
 ### Manifesto `products.json`
 

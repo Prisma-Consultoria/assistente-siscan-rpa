@@ -133,6 +133,17 @@ label=$(product_get label "siscan-default")  # com default
 
 # Leitura de arrays
 mapfile -t services < <(product_get_array expected_services)
+# (host_dir_vars filtra para SÓ strings — semântica histórica preservada)
+mapfile -t host_vars < <(product_get_array host_dir_vars)
+
+# Leitura de host_dir_vars derivados (objetos v2.0 — TSK00.05.01)
+# Saída TSV: name<TAB>derived_from<TAB>derivation<TAB>default_mode<TAB>auto_create
+# Sentinela "-" para campos vazios (evita colapso de tabs adjacentes pelo `read`).
+while IFS=$'\t' read -r name derived_from derivation default_mode auto_create; do
+    [ "$default_mode" = "-" ] && default_mode=""
+    [ "$auto_create" = "-" ] && auto_create=""
+    echo "Derivada: $name from $derived_from via '$derivation' (mode=$default_mode)"
+done < <(product_get_host_dir_vars_derived)
 
 # Flags booleanas
 if product_has_extra rsa_keys_required; then
@@ -143,10 +154,24 @@ fi
 default_url=$(product_extra siscan_portal_url_default)
 ```
 
+### Integração com `siscan-server-setup.sh` Fase 5
+
+O setup chama `ensure_host_paths_derived "${ENV_FILE}"` após a coleta interativa das vars legacy. Internamente:
+
+1. Itera `product_get_host_dir_vars_derived` (TSV)
+2. Para cada objeto: chama `env_set_or_derive ENV_FILE VAR PARENT_VAR DERIVATION [MODE] [AUTO_CREATE]`
+3. `env_set_or_derive` é **idempotente**:
+   - Se `VAR` já tem valor no `.env`: preserva, só aplica `chmod`/`mkdir` se faltarem
+   - Se ausente: deriva via `env_apply_derivation`, grava com `_set_env_value`, depois `mkdir`/`chmod`
+
+Helpers extensíveis: novas operações de derivação (além de `dirname + /<sub>`) podem ser adicionadas em `env_apply_derivation` sem alterar o manifesto.
+
 ## Ver também
 
 - [`index.md`](index.md) — entry point da documentação do doctor
-- [`../DEPLOY_SERVER.md`](../DEPLOY_SERVER.md) — guia narrativo do deploy
+- [`../siscan-server-setup.md`](../siscan-server-setup.md) — Fase 5 consome o schema v2.0 via `ensure_host_paths_derived`
+- [`../../DEPLOY_SERVER.md`](../../DEPLOY_SERVER.md#fluxo-do-compose-file-de-produção) — guia narrativo do deploy (fluxo do compose)
 - [`scripts/check-network.md`](scripts/check-network.md) — primeiro specialist a usar manifesto (campo `siscan_portal_url_default`)
 - [Feature #42](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/42) — abstração multi-produto completa (esta task é o subset 1)
 - [Task #45](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/45) — TSK00.02.01 que entregou esta estrutura
+- [Task #95](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/95) — TSK00.05.01 que entregou schema v2.0 do `host_dir_vars[]`
