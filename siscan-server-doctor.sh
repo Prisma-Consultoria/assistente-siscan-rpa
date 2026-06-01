@@ -47,6 +47,12 @@ source "$SPECIALISTS_DIR/_common.sh"
 ONLY=""
 EXCEPT=""
 LIST_ONLY=false
+# TSK00.05.05: contexto de produto explícito (override do .env).
+# common_parse_arg em _common.sh popula SISCAN_PRODUCT_CLI quando recebe
+# --product NAME ou --product=NAME. Aqui só propagamos pra todos os
+# specialists no loop de execução (passamos sempre — specialists
+# product-agnostic ignoram graciosamente via common_parse_arg).
+SISCAN_PRODUCT_CLI=""
 
 # Conjuntos pré-definidos de specialists pra cenários conhecidos.
 # Centralizar aqui evita o operador ter que lembrar quais specialists pular
@@ -80,6 +86,10 @@ Filtros granulares:
 Outras:
   --quiet           Suprime saída legível; imprime só linhas FAIL
   --json            Saída estruturada em JSON consolidado
+  --product NAME    Define SISCAN_PRODUCT explicitamente (rpa | dashboard | full)
+                    e propaga para todos os specialists. Prioridade:
+                    --product > \$SISCAN_PRODUCT > .env. Permite que o consumer
+                    (workflow CD) declare o contexto independente do .env da VM.
   --list            Lista specialists disponíveis e sai
   -h, --help        Exibe esta ajuda
 
@@ -206,6 +216,13 @@ case "$OUTPUT_MODE" in
     json|quiet) [ -t 2 ] && PROGRESS_ENABLED=true ;;
 esac
 
+# TSK00.05.05: args extras propagados a TODOS os specialists.
+# --product é aceito por common_parse_arg em _common.sh — specialists
+# product-agnostic (check-docker, check-deps, check-resources, check-runner-tls)
+# ignoram graciosamente, evitando branching aqui no orquestrador.
+SPEC_EXTRA_ARGS=()
+[ -n "$SISCAN_PRODUCT_CLI" ] && SPEC_EXTRA_ARGS+=(--product "$SISCAN_PRODUCT_CLI")
+
 total_specs=${#TO_RUN[@]}
 idx=0
 for name in "${TO_RUN[@]}"; do
@@ -216,7 +233,7 @@ for name in "${TO_RUN[@]}"; do
     case "$OUTPUT_MODE" in
         human)
             printf "\n${WHITE}▸ Specialist: %s${NC}\n" "$name"
-            bash "$script"
+            bash "$script" "${SPEC_EXTRA_ARGS[@]}"
             rc=$?
             # Specialists com exit=2 fizeram pre-fail (ex: .env ausente) — saem
             # via fail() antes do render_results, então não há '=== Resumo ===' pra
@@ -230,7 +247,7 @@ for name in "${TO_RUN[@]}"; do
             if [ "$PROGRESS_ENABLED" = true ]; then
                 printf "  ⟳ [%d/%d] %s... " "$idx" "$total_specs" "$name" >&2
             fi
-            bash "$script" --quiet
+            bash "$script" --quiet "${SPEC_EXTRA_ARGS[@]}"
             rc=$?
             if [ "$PROGRESS_ENABLED" = true ]; then
                 if [ "$rc" -eq 0 ]; then
@@ -254,10 +271,10 @@ for name in "${TO_RUN[@]}"; do
             # — perdemos a captura mas não regredimos vs comportamento original.
             if [ -n "$STDERR_BUFFER" ]; then
                 : > "$STDERR_BUFFER"  # trunca antes da próxima captura
-                output="$(bash "$script" --json 2>"$STDERR_BUFFER")"
+                output="$(bash "$script" --json "${SPEC_EXTRA_ARGS[@]}" 2>"$STDERR_BUFFER")"
                 rc=$?
             else
-                output="$(bash "$script" --json 2>/dev/null)"
+                output="$(bash "$script" --json "${SPEC_EXTRA_ARGS[@]}" 2>/dev/null)"
                 rc=$?
             fi
             # Specialist que pre-falha (exit 2, ex: .env ausente) sai com stdout vazio.

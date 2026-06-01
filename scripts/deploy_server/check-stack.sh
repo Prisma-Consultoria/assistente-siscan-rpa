@@ -27,11 +27,15 @@ PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
 
 usage() {
     cat <<EOF
-Uso: bash $(basename "$0") [--env-file FILE] [--quiet | --json] [--help]
+Uso: bash $(basename "$0") [--env-file FILE] [--product NAME] [--quiet | --json] [--help]
 
 Verifica saúde da stack Docker conforme o manifesto products.json:
 compose file presente + parse OK, imagem disponível, serviços esperados
 rodando sem restart loop, portas externas livres.
+
+Opções específicas:
+  --product NAME   Define SISCAN_PRODUCT explicitamente (rpa | dashboard | full).
+                   Prioridade: --product > \$SISCAN_PRODUCT (env) > .env.
 
 Exit code: 0 = OK · 1 = FAIL · 2 = uso inválido
 EOF
@@ -53,11 +57,9 @@ done
 require_commands docker jq
 
 # Detectar produto + validar manifesto
-SISCAN_PRODUCT=""
-if [ -f "$ENV_FILE" ]; then
-    SISCAN_PRODUCT=$(grep -E '^SISCAN_PRODUCT=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2-)
-fi
-[ -n "$SISCAN_PRODUCT" ] || fail "SISCAN_PRODUCT não definido em $ENV_FILE — rode check-env"
+# TSK00.05.05: resolve SISCAN_PRODUCT por prioridade --product > $SISCAN_PRODUCT > .env
+resolve_product
+[ -n "${SISCAN_PRODUCT:-}" ] || fail "SISCAN_PRODUCT não definido (sem --product na CLI, sem env var, sem entrada em $ENV_FILE) — rode check-env ou passe --product"
 product_validate
 
 COMPOSE_FILE="${COMPOSE_DIR:-$(pwd)}/$(product_get compose_file)"

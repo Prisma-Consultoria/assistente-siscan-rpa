@@ -30,11 +30,15 @@ PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
 
 usage() {
     cat <<EOF
-Uso: bash $(basename "$0") [--env-file FILE] [--compose-dir DIR] [--quiet | --json] [--help]
+Uso: bash $(basename "$0") [--env-file FILE] [--compose-dir DIR] [--product NAME] [--quiet | --json] [--help]
 
 Valida ownership/permissões do COMPOSE_DIR, HOST_*_DIR (do manifesto),
 git safe.directory, data/.artifacts (UID 1000), chaves RSA em
 HOST_SECRETS_DIR e excel_columns_mapping.json (conforme o produto).
+
+Opções específicas:
+  --product NAME   Define SISCAN_PRODUCT explicitamente (rpa | dashboard | full).
+                   Prioridade: --product > \$SISCAN_PRODUCT (env) > .env.
 
 Exit code: 0 = OK · 1 = FAIL · 2 = uso inválido
 EOF
@@ -62,12 +66,12 @@ _read_env() {
 }
 
 CURRENT_USER="$(whoami)"
-SISCAN_PRODUCT=""
-[ -f "$ENV_FILE" ] && SISCAN_PRODUCT=$(_read_env SISCAN_PRODUCT)
+# TSK00.05.05: resolve SISCAN_PRODUCT por prioridade --product > $SISCAN_PRODUCT > .env
+resolve_product
 
 # Manifesto opcional aqui — se SISCAN_PRODUCT não definido, faz só os checks gerais
 HAS_PRODUCT=false
-if [ -n "$SISCAN_PRODUCT" ]; then
+if [ -n "${SISCAN_PRODUCT:-}" ]; then
     product_validate
     HAS_PRODUCT=true
 fi

@@ -490,6 +490,68 @@ product_extra() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
+# resolve_product — política de prioridade do contexto de produto (TSK00.05.05)
+#
+# Prioridade (máxima → mínima):
+#   1. SISCAN_PRODUCT_CLI  (setado por --product na CLI do specialist/doctor)
+#   2. $SISCAN_PRODUCT     (env var herdada — ex: exportada por
+#                           siscan-server-setup.sh durante o setup)
+#   3. SISCAN_PRODUCT do $ENV_FILE  (fallback — comportamento histórico, lido
+#                                    com _read_env_value se disponível, ou
+#                                    via grep inline equivalente)
+#
+# Pré-condição:
+#   - O specialist DEVE setar SISCAN_PRODUCT_CLI ANTES de chamar resolve_product
+#     (pelo parser de `--product NAME|--product=NAME`).
+#   - $ENV_FILE pode estar vazio/inexistente — resolve_product não exige.
+#
+# Side-effect:
+#   - Define + exporta a variável global SISCAN_PRODUCT (consumida pelos
+#     helpers product_validate / product_get / product_extra / product_has_extra).
+#   - Emite warning (somente em human mode, via warn()) se --product na CLI
+#     divergir do valor lido do .env — argumento sempre vence, mas o operador
+#     fica ciente da divergência.
+#
+# Motivação (TSK00.05.05): se o .env da VM em produção não tiver SISCAN_PRODUCT
+# (VMs provisionadas antes do products.json v2.0), categorias condicionais
+# como "Portal SISCAN" do check-network.sh eram silenciosamente puladas.
+# Workflows externos (siscan-rpa, siscan-dashboard) agora declaram o contexto
+# explicitamente via --product, independente de configuração local da VM.
+# ────────────────────────────────────────────────────────────────────────────
+SISCAN_PRODUCT_CLI="${SISCAN_PRODUCT_CLI:-}"
+
+# _resolve_product_read_env_var VAR
+#   Lê VAR do $ENV_FILE como dados (sem source/eval). Reusa o padrão dos
+#   specialists (_read_env) sem depender de cada um ter definido a função
+#   localmente — alguns specialists chamam resolve_product ANTES de declarar
+#   seu próprio _read_env, então este helper interno garante independência.
+_resolve_product_read_env_var() {
+    local var="$1"
+    [ -n "${ENV_FILE:-}" ] || return 0
+    [ -f "$ENV_FILE" ] || return 0
+    grep -E "^${var}=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/^["'\'']\(.*\)["'\'']$/\1/'
+}
+
+resolve_product() {
+    local from_cli="${SISCAN_PRODUCT_CLI:-}"
+    local from_env_var="${SISCAN_PRODUCT:-}"
+    local from_env_file=""
+    from_env_file=$(_resolve_product_read_env_var SISCAN_PRODUCT)
+
+    if [ -n "$from_cli" ]; then
+        if [ -n "$from_env_file" ] && [ "$from_cli" != "$from_env_file" ]; then
+            warn "--product=$from_cli sobrescreve SISCAN_PRODUCT=$from_env_file do ${ENV_FILE:-.env}"
+        fi
+        SISCAN_PRODUCT="$from_cli"
+    elif [ -n "$from_env_var" ]; then
+        SISCAN_PRODUCT="$from_env_var"
+    else
+        SISCAN_PRODUCT="$from_env_file"
+    fi
+    export SISCAN_PRODUCT
+}
+
+# ────────────────────────────────────────────────────────────────────────────
 # Parsing de flags comuns
 # common_parse_arg "$@" — retorna 0 se consumiu, 1 se não
 # Ajusta $shift_count (1 ou 2) conforme o tipo do arg.
@@ -501,6 +563,13 @@ common_parse_arg() {
         --json)      OUTPUT_MODE="json";  _setup_colors; return 0 ;;
         --timeout)   TIMEOUT_SEC="${2:-10}"; shift_count=2; return 0 ;;
         --timeout=*) TIMEOUT_SEC="${1#*=}"; return 0 ;;
+        # --product NAME (TSK00.05.05): consumido pelo resolve_product nos
+        # specialists product-aware. Specialists product-agnostic (check-docker,
+        # check-deps, check-resources, check-runner-tls) também aceitam aqui —
+        # só ignoram o valor, sem fail por arg desconhecido — pra que o doctor
+        # possa propagar --product sempre, sem branching por specialist.
+        --product)   SISCAN_PRODUCT_CLI="${2:-}"; shift_count=2; return 0 ;;
+        --product=*) SISCAN_PRODUCT_CLI="${1#*=}"; return 0 ;;
         *) return 1 ;;
     esac
 }

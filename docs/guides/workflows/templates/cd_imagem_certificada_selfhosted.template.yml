@@ -94,7 +94,13 @@ jobs:
           set -euo pipefail
           : "${COMPOSE_DIR:?COMPOSE_DIR não definido — re-execute Fase 8 do siscan-server-setup.sh}"
           cd "${COMPOSE_DIR}"
-          bash siscan-server-doctor.sh --quiet --json --pre-setup > pre-deploy-diag.json
+          # --product declara o contexto explicitamente (TSK00.05.05 — não
+          # depende de SISCAN_PRODUCT no .env da VM, que pode estar ausente em
+          # VMs antigas pré-products.json v2.0).
+          bash siscan-server-doctor.sh \
+            --quiet --json --pre-setup \
+            --product {{ PRODUCT_NAME }} \
+            > pre-deploy-diag.json
           cat pre-deploy-diag.json
 
       - name: Validar runner TLS (pré-flight)
@@ -230,7 +236,11 @@ jobs:
         run: |
           set -euo pipefail
           cd "${COMPOSE_DIR}"
-          bash siscan-server-doctor.sh --quiet --json --only check-stack > post-deploy-stack.json
+          # --product declara o contexto explicitamente (TSK00.05.05).
+          bash siscan-server-doctor.sh \
+            --quiet --json --only check-stack \
+            --product {{ PRODUCT_NAME }} \
+            > post-deploy-stack.json
           cat post-deploy-stack.json
 
       - name: Health check da aplicação

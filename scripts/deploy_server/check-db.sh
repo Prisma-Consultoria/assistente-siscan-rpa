@@ -27,10 +27,16 @@ TIMEOUT_SEC=5
 
 usage() {
     cat <<EOF
-Uso: bash $(basename "$0") [--env-file FILE] [--timeout SEC] [--quiet | --json] [--help]
+Uso: bash $(basename "$0") [--env-file FILE] [--product NAME] [--timeout SEC] [--quiet | --json] [--help]
 
 Verifica conectividade TCP/5432 + pg_isready (se disponível) com o(s)
 PostgreSQL externo(s) configurado(s) no .env do produto.
+
+Opções específicas:
+  --product NAME   Define SISCAN_PRODUCT explicitamente (rpa | dashboard | full).
+                   Prioridade: --product > \$SISCAN_PRODUCT (env) > .env.
+                   Útil quando o consumer (workflow CD) quer declarar o
+                   contexto independente do que está no .env da VM.
 
 Exit code: 0 = OK · 1 = FAIL · 2 = uso inválido
 EOF
@@ -57,7 +63,8 @@ _read_env() {
 
 [ -f "$ENV_FILE" ] || fail ".env não encontrado: $ENV_FILE"
 
-SISCAN_PRODUCT=$(_read_env SISCAN_PRODUCT)
+# TSK00.05.05: resolve SISCAN_PRODUCT por prioridade --product > $SISCAN_PRODUCT > .env
+resolve_product
 HAS_PG_ISREADY=false
 command -v pg_isready >/dev/null 2>&1 && HAS_PG_ISREADY=true
 
