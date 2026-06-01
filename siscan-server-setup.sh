@@ -345,6 +345,34 @@ ensure_host_paths_derived() {
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 
 # ── Seleção de produto ────────────────────────────────────────────────────
+# Política de prioridade (alinhada com resolve_product em _common.sh — TSK00.05.05):
+#   1. --product NAME na CLI (parseado acima → ${SISCAN_PRODUCT})
+#   2. $SISCAN_PRODUCT herdado do ambiente (mantido se já não-vazio)
+#   3. SISCAN_PRODUCT lido do .env existente em $COMPOSE_DIR ou $SCRIPT_DIR
+#      (idempotência: re-rodar setup numa VM provisionada não exige re-digitar)
+#   4. Prompt interativo (fluxo histórico — primeira instalação)
+if [ -z "${SISCAN_PRODUCT}" ]; then
+    # Fallback ao .env: tenta detectar produto de uma instalação anterior antes
+    # de entrar no prompt interativo. ${COMPOSE_DIR:-${SCRIPT_DIR}} reproduz a
+    # mesma derivação usada na linha 401 (sem antecipar o assignment global).
+    _setup_env_file_candidate="${COMPOSE_DIR:-${SCRIPT_DIR}}/.env"
+    if [ -f "${_setup_env_file_candidate}" ]; then
+        _setup_env_product="$(_read_env_value "${_setup_env_file_candidate}" "SISCAN_PRODUCT")"
+        if [ -n "${_setup_env_product}" ]; then
+            case "${_setup_env_product}" in
+                rpa|dashboard|full)
+                    SISCAN_PRODUCT="${_setup_env_product}"
+                    info "SISCAN_PRODUCT=${SISCAN_PRODUCT} herdado de ${_setup_env_file_candidate} (re-execução em VM já provisionada)"
+                    ;;
+                *)
+                    warn "SISCAN_PRODUCT='${_setup_env_product}' em ${_setup_env_file_candidate} é inválido — ignorado, caindo no prompt interativo"
+                    ;;
+            esac
+        fi
+    fi
+    unset _setup_env_file_candidate _setup_env_product
+fi
+
 if [ -z "${SISCAN_PRODUCT}" ]; then
     printf "\n${WHITE}╔════════════════════════════════════════════════════╗${NC}\n"
     printf "${WHITE}║  SISCAN — Setup do Servidor                        ║${NC}\n"
