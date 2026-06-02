@@ -3,7 +3,7 @@ name: LGPD guard
 # Falha o build se algum termo interno proibido (PII, identificadores do
 # parceiro, hostnames, IPs internos, chamados, tokens) reaparecer no conteúdo
 # versionado. A lista de termos NÃO fica no repo (re-vazaria): vive no secret
-# `LGPD_FORBIDDEN_PATTERNS` (um padrão ERE por linha; use \b e âncoras para
+# `LGPD_FORBIDDEN_PATTERNS` (um padrão PCRE por linha; use \b e âncoras para
 # evitar falsos positivos, ex.: `\bICI\b`). Em logs, só `arquivo:linha` é
 # impresso — nunca o trecho casado.
 
@@ -30,7 +30,7 @@ jobs:
           fi
           printf '%s\n' "${PATTERNS}" | grep -v '^[[:space:]]*$' > /tmp/lgpd_patterns.txt
           # Varre arquivos versionados, excluindo libs de teste de terceiros (vendored).
-          if git grep -nIEf /tmp/lgpd_patterns.txt -- . ':!tests/test_helper/**' ':!tests/bats/**' > /tmp/lgpd_hits.txt 2>/dev/null; then
+          if git grep -nIPf /tmp/lgpd_patterns.txt -- . ':!tests/test_helper/**' ':!tests/bats/**' > /tmp/lgpd_hits.txt 2>/dev/null; then
             echo "::error::Termo interno proibido detectado (LGPD). Localizações (conteúdo omitido):"
             cut -d: -f1,2 /tmp/lgpd_hits.txt | sort -u
             echo
