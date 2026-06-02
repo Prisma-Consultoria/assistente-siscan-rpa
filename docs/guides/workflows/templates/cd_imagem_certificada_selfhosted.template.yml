@@ -103,11 +103,16 @@ jobs:
             > pre-deploy-diag.json
           cat pre-deploy-diag.json
 
-      - name: Validar runner TLS (pré-flight)
+      - name: Coletar diagnóstico TLS do runner (pré-flight)
         run: |
           set -euo pipefail
           cd "${COMPOSE_DIR}"
-          bash scripts/deploy_server/check-runner-tls.sh --quiet --pre-flight
+          # check-runner-tls em modo human emite proxies, CAs custom e DNS de
+          # api.github.com no stderr — visível no log do Actions. NÃO use
+          # --quiet aqui: standalone (fora do agregador do doctor), --quiet
+          # suprime todo o bloco diagnóstico. Este step é coleta de info, não
+          # gate de bloqueio (specialist é best-effort).
+          bash scripts/deploy_server/check-runner-tls.sh --pre-flight
 
       - name: Publicar diagnóstico como artifact
         if: always()
