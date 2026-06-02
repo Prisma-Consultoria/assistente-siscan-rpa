@@ -219,8 +219,15 @@ ensure_host_paths() {
 # Suporta atualmente a única expressão usada em produção (TSK00.05.01):
 #   "dirname + /<subdir>"   →  $(dirname PARENT_VAL)/<subdir>
 #
-# Expressões desconhecidas retornam vazio (caller deve checar). Adicionar
-# novas formas exige só estender este switch — o consumidor não muda.
+# Retorno:
+#   - status 0 + valor em stdout: expressão reconhecida e aplicada
+#   - status 1, stdout vazio:     expressão desconhecida (caller deve checar
+#                                 status OU valor vazio — env_set_or_derive
+#                                 hoje usa o segundo via `[ -z "${val}" ]`)
+#   - status 0, stdout vazio:     PARENT_VAL vazio (early return — sem
+#                                 expressão pra aplicar)
+#
+# Adicionar novas formas exige só estender este switch — o consumidor não muda.
 # ────────────────────────────────────────────────────────────────────────────
 env_apply_derivation() {
     local derivation="${1}" parent_val="${2}"

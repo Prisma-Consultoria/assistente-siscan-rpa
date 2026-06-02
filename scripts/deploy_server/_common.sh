@@ -497,8 +497,10 @@ product_extra() {
 #   2. $SISCAN_PRODUCT     (env var herdada — ex: exportada por
 #                           siscan-server-setup.sh durante o setup)
 #   3. SISCAN_PRODUCT do $ENV_FILE  (fallback — comportamento histórico, lido
-#                                    com _read_env_value se disponível, ou
-#                                    via grep inline equivalente)
+#                                    via _resolve_product_read_env_var, helper
+#                                    interno que faz grep/cut/sed do arquivo
+#                                    sem source/eval — independente dos
+#                                    _read_env locais dos specialists)
 #
 # Pré-condição:
 #   - O specialist DEVE setar SISCAN_PRODUCT_CLI ANTES de chamar resolve_product
