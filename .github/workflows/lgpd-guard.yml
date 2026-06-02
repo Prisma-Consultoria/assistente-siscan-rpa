@@ -1,0 +1,40 @@
+name: LGPD guard
+
+# Falha o build se algum termo interno proibido (PII, identificadores do
+# parceiro, hostnames, IPs internos, chamados, tokens) reaparecer no conteúdo
+# versionado. A lista de termos NÃO fica no repo (re-vazaria): vive no secret
+# `LGPD_FORBIDDEN_PATTERNS` (um padrão ERE por linha; use \b e âncoras para
+# evitar falsos positivos, ex.: `\bICI\b`). Em logs, só `arquivo:linha` é
+# impresso — nunca o trecho casado.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  scan:
+    name: Scan for forbidden internal terms
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Scan
+        env:
+          PATTERNS: ${{ secrets.LGPD_FORBIDDEN_PATTERNS }}
+        run: |
+          if [ -z "${PATTERNS}" ]; then
+            echo "::warning::LGPD_FORBIDDEN_PATTERNS não configurado — guarda inativa (PRs de fork não têm acesso a secrets)."
+            exit 0
+          fi
+          printf '%s\n' "${PATTERNS}" | grep -v '^[[:space:]]*$' > /tmp/lgpd_patterns.txt
+          # Varre arquivos versionados, excluindo libs de teste de terceiros (vendored).
+          if git grep -nIEf /tmp/lgpd_patterns.txt -- . ':!tests/test_helper/**' ':!tests/bats/**' > /tmp/lgpd_hits.txt 2>/dev/null; then
+            echo "::error::Termo interno proibido detectado (LGPD). Localizações (conteúdo omitido):"
+            cut -d: -f1,2 /tmp/lgpd_hits.txt | sort -u
+            echo
+            echo "Sanitize os trechos acima antes de mergear. Padrões vivem no secret LGPD_FORBIDDEN_PATTERNS."
+            exit 1
+          fi
+          echo "OK — nenhum termo interno proibido encontrado."
