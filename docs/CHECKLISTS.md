@@ -1,8 +1,8 @@
 # Checklists Operacionais — Assistente SISCAN
 <a name="checklists"></a>
 
-Versão: 4.2
-Data: 2026-03-27
+Versão: 4.3
+Data: 2026-05-31
 
 Checklists para os três modos de deploy: HOST (PC local, produto `full`), Servidor RPA (produto `rpa`) e Servidor Dashboard (produto `dashboard`).
 
@@ -61,19 +61,21 @@ Este checklist se aplica a qualquer modo de deploy, independentemente do produto
 - [ ] Token de registro do runner gerado em: `siscan-rpa` → Settings → Actions → Runners.
 - [ ] `DATABASE_HOST` preenchido com IP/hostname do PostgreSQL (**não** usar `db`).
 - [ ] `SECRET_KEY` definida.
-- [ ] Caminhos `HOST_*` em formato Linux absoluto.
+- [ ] Caminhos `HOST_*` em formato Linux absoluto. **`HOST_SECRETS_DIR` e `HOST_BACKUPS_DIR` NÃO precisam ser declarados** — desde TSK00.05.01 ([#95](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/95)), o setup Fase 5 deriva automaticamente a partir de `HOST_LOG_DIR` e aplica `chmod 700` em `HOST_SECRETS_DIR` (vinculado às chaves RSA). Caso o operador declare manualmente, o valor é preservado.
 - [ ] `config/excel_columns_mapping.json` presente em `$COMPOSE_DIR/config/` (necessário para parsing dos laudos — ver [TROUBLESHOOTING — Problema 12](TROUBLESHOOTING.md#problema-12--excel_columns_mappingjson-ausente-em-config)).
 - [ ] Pré-flight do doctor: `bash siscan-server-doctor.sh --pre-setup` → `7/7 specialists OK` (gate obrigatório; o setup invoca como Fase 0; inclui `check-runner-tls` em modo pre-flight desde TSK00.04.10).
 - [ ] `siscan-server-setup.sh --product rpa` executado.
 
 ### Após configuração
 
-- [ ] Validação completa: `bash siscan-server-doctor.sh` → `10/10 specialists OK`.
+- [ ] Validação completa: `bash siscan-server-doctor.sh` → `10/10 specialists OK` (inclui `check-runner-tls`).
 - [ ] Containers em execução: `docker compose -f docker-compose.prd.rpa.yml ps` → `app` e `rpa-scheduler` com status `Up` / `healthy`.
 - [ ] Health: `http://<IP>:5001/health` → `"schema_status":"current"`.
 - [ ] Runner online: GitHub → `siscan-rpa` → Settings → Actions → Runners → status `Idle`.
 - [ ] Credenciais SISCAN cadastradas em `/admin/siscan-credentials`.
 - [ ] Primeira coleta manual executada com sucesso.
+- [ ] `HOST_SECRETS_DIR` existe com `chmod 700` (chaves RSA): `stat -c '%a' $(grep ^HOST_SECRETS_DIR $COMPOSE_DIR/.env | cut -d= -f2)` → `700`.
+- [ ] Operador ciente do [fluxo de propriedade do compose file](DEPLOY_SERVER.md#fluxo-do-compose-file-de-produção) — não editar manualmente o compose na VM (sobrescrita silenciosa no próximo CD).
 
 ### Verificação de consistência (instalação existente)
 
@@ -101,13 +103,16 @@ bash ./siscan-server-setup.sh --product rpa --check
 
 ### Após configuração
 
-- [ ] Validação completa: `bash siscan-server-doctor.sh` → `10/10 specialists OK`.
+- [ ] Validação completa: `bash siscan-server-doctor.sh` → `10/10 specialists OK` (inclui `check-runner-tls`).
 - [ ] Containers em execução: `docker compose -f docker-compose.prd.dashboard.yml ps` → `redis`, `app` e `sync` com status `Up` / `healthy`.
 - [ ] Redis operacional: `docker compose -f docker-compose.prd.dashboard.yml exec redis redis-cli ping` → `PONG`.
 - [ ] Health: `http://<IP>:5000/health` → `"schema_status":"current"`.
 - [ ] Runner online: GitHub → `siscan-dashboard` → Settings → Actions → Runners → status `Idle`.
 - [ ] Login funcional: admin / senha definida em `ADMIN_PASSWORD`.
 - [ ] Sync executado: dados do RPA visíveis no dashboard.
+- [ ] Operador ciente do [fluxo de propriedade do compose file](DEPLOY_SERVER.md#fluxo-do-compose-file-de-produção) — não editar manualmente o compose na VM (sobrescrita silenciosa no próximo CD).
+
+> **Adoção em parceiro novo (TSK00.05.03 [#97](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/97)):** se este checklist for usado para subir o SISCAN em uma VM de parceiro novo, os workflows CD do produto devem ser criados a partir dos templates canônicos em [`guides/workflows/templates/`](guides/workflows/templates/README.md), não copiados de repos existentes. Os templates encapsulam o padrão consolidado pós-F00.05 (delegação ao doctor + `check-runner-tls` + HOST_*_DIR derivados pelo setup).
 
 ### Verificação de consistência (instalação existente)
 

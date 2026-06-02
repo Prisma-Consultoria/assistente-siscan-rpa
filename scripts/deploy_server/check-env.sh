@@ -30,10 +30,14 @@ PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
 
 usage() {
     cat <<EOF
-Uso: bash $(basename "$0") [--env-file FILE] [--quiet | --json] [--help]
+Uso: bash $(basename "$0") [--env-file FILE] [--product NAME] [--quiet | --json] [--help]
 
 Valida o .env (default: \$COMPOSE_DIR/.env ou \$CWD/.env) com base em
 SISCAN_PRODUCT, consultando o manifesto scripts/data/products.json.
+
+Opções específicas:
+  --product NAME   Define SISCAN_PRODUCT explicitamente (rpa | dashboard | full).
+                   Prioridade: --product > \$SISCAN_PRODUCT (env) > .env.
 
 Exit code: 0 = OK · 1 = FAIL em obrigatórias · 2 = uso inválido / .env ausente
 EOF
@@ -72,9 +76,10 @@ CAT_WARN="Avisos (não impedem o boot)"
 # ────────────────────────────────────────────────────────────────────────────
 print_category_header "$CAT_PRODUCT" "SISCAN_PRODUCT define quais variáveis são obrigatórias. Lido do manifesto products.json."
 
-SISCAN_PRODUCT="$(_read_env SISCAN_PRODUCT)"
+# TSK00.05.05: resolve SISCAN_PRODUCT por prioridade --product > $SISCAN_PRODUCT > .env
+resolve_product
 if [ -z "$SISCAN_PRODUCT" ]; then
-    add_fail "$CAT_PRODUCT" env 0 "SISCAN_PRODUCT" "não definido — siscan-server-setup.sh persiste esse valor"
+    add_fail "$CAT_PRODUCT" env 0 "SISCAN_PRODUCT" "não definido (sem --product na CLI, sem env var, sem entrada no .env) — siscan-server-setup.sh persiste no .env, workflows CD devem passar --product"
     render_results
     finalize_exit
 fi

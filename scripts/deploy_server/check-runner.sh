@@ -33,10 +33,14 @@ RUNNER_DIR="${RUNNER_DIR:-${HOME}/actions-runner}"
 
 usage() {
     cat <<EOF
-Uso: bash $(basename "$0") [--env-file FILE] [--runner-dir DIR] [--quiet | --json] [--help]
+Uso: bash $(basename "$0") [--env-file FILE] [--runner-dir DIR] [--product NAME] [--quiet | --json] [--help]
 
 Valida estado do GitHub Actions self-hosted runner — instalação local,
 serviço, registro remoto e idade da última atualização (regra dos 30 dias).
+
+Opções específicas:
+  --product NAME   Define SISCAN_PRODUCT explicitamente (rpa | dashboard | full).
+                   Prioridade: --product > \$SISCAN_PRODUCT (env) > .env.
 
 Variáveis de ambiente opcionais:
   GH_TOKEN  Token com scope 'repo' (ou via 'gh auth status' configurado).
@@ -66,14 +70,14 @@ _read_env() {
 
 require_commands curl jq
 
-SISCAN_PRODUCT=""
-[ -f "$ENV_FILE" ] && SISCAN_PRODUCT=$(_read_env SISCAN_PRODUCT)
+# TSK00.05.05: resolve SISCAN_PRODUCT por prioridade --product > $SISCAN_PRODUCT > .env
+resolve_product
 
 # Dados do produto vêm do manifesto (substitui case hardcoded)
 REPO_OWNER=""
 REPO_NAME=""
 EXPECTED_NAME=""
-if [ -n "$SISCAN_PRODUCT" ]; then
+if [ -n "${SISCAN_PRODUCT:-}" ]; then
     product_validate
     repo_full=$(product_get repo)
     REPO_OWNER="${repo_full%%/*}"

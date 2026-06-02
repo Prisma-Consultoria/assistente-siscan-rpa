@@ -376,11 +376,67 @@ A tabela a seguir lista apenas as variáveis **obrigatórias** por produto — t
 
 ---
 
-## Compose file e `git pull` — por que não há conflito
+## Fluxo do compose file de produção
 
-Os workflows de CD sobrescrevem o compose file e o `.env` sample no servidor a cada deploy, baixando a versão mais recente da branch `main` do assistente via `curl`. Como o conteúdo baixado é idêntico ao que está na `main` do repositório remoto, o `git pull` subsequente não detecta diferença e executa normalmente (fast-forward).
+> **Auditoria de 2026-05-29 (F00.05 #94):** documenta o **fluxo de propriedade** do compose file (`docker-compose.prd.{rpa,dashboard}.yml`) ao longo do ciclo de vida — quem coloca, quem sobrescreve, quando o operador NÃO deve editar manualmente.
 
-O único cenário que causaria conflito é se o operador **modificar manualmente** o compose file ou o sample no servidor. Nesse caso, descarte as alterações locais antes do pull:
+O compose file de produção tem **2 fontes-de-verdade** ao longo do tempo, sincronizadas com o repositório do produto (siscan-rpa ou siscan-dashboard) como fonte canônica:
+
+1. **Setup inicial** (`siscan-server-setup.sh` Fase 4): copia o compose do diretório do assistente para `${COMPOSE_DIR}/` na VM. Bootstrap único.
+2. **Cada deploy** (`cd_imagem_certificada_selfhosted.yml` job `deploy`): sobrescreve o compose com `cp docker-compose.prd.X.yml ${COMPOSE_DIR}/...` a partir do **checkout do repositório do produto** (siscan-rpa ou siscan-dashboard).
+
+Não é bug — é **design intencional**: o repo do produto é a fonte canônica em uso, garantindo coerência entre versão de imagem e versão de compose. Mas se o operador editar `${COMPOSE_DIR}/docker-compose.prd.X.yml` manualmente para um quick-fix, o próximo deploy **sobrescreve silenciosamente** essa edição.
+
+### Diagrama de propriedade
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  Repositório do produto (siscan-rpa OU siscan-dashboard)           │
+│  → fonte canônica do compose                                       │
+└──────────────────────────────┬─────────────────────────────────────┘
+                               │
+                ┌──────────────┴────────────────┐
+                │                               │
+                ▼                               ▼
+   ┌──────────────────────┐         ┌──────────────────────────┐
+   │ Setup inicial        │         │ Cada CD via runner       │
+   │ Fase 4 do            │         │ Step "Atualizar          │
+   │ siscan-server-       │         │ docker-compose.*.yml"    │
+   │ setup.sh             │         │ — cp do checkout         │
+   └──────────┬───────────┘         └───────────┬──────────────┘
+              │                                 │
+              └───────────────┬─────────────────┘
+                              ▼
+   ┌─────────────────────────────────────────────────────┐
+   │ ${COMPOSE_DIR}/docker-compose.prd.<rpa|dashboard>.yml │
+   │ ⚠ NÃO EDITAR MANUALMENTE — será sobrescrito          │
+   │   silenciosamente no próximo deploy                  │
+   └─────────────────────────────────────────────────────┘
+```
+
+### Tabela "quem possui o quê"
+
+| Artefato | Fonte canônica | Propagação | Edição manual permitida? |
+|---|---|---|---|
+| `docker-compose.prd.<id>.yml` | Repo do produto, branch `main` | Setup (1×) + Deploy (cada push) | ❌ Não — sobrescrita silenciosa no próximo CD |
+| `.env` | Operador (Fase 5 do setup) | Setup (1× + idempotente) | ✅ Sim — `.env` NUNCA é sobrescrito pelo CD |
+| `.env.server-<id>.sample` | Repo do produto | Setup + Deploy | ❌ Sample é referência — edição manual revertida |
+| Bind mounts (`HOST_*`) | Operador (Fase 5) | Setup | ✅ Sim — operador tem total controle |
+| `HOST_SECRETS_DIR`, `HOST_BACKUPS_DIR` | Setup Fase 5 deriva do parent de `HOST_LOG_DIR` (TSK00.05.01 #95) | Setup (idempotente) | ✅ Sim — declaração no `.env` preservada se operador customizar |
+
+### Cenários comuns
+
+**Preciso mudar o compose temporariamente para investigar um problema em produção.**
+
+| Cenário | Como fazer |
+|---|---|
+| Quick fix permanente | Editar no repo do produto + cherry-pick para deploy emergencial (workflow_dispatch com tag específica). Após o merge, a alteração propaga ao próximo CD normal. |
+| Override permanente local na VM | Usar arquivo `docker-compose.override.yml` ao lado do compose principal (compose merge automático, e este arquivo **não é sobrescrito** pelo deploy). |
+| Debug temporário | Editar `${COMPOSE_DIR}/docker-compose.prd.X.yml` na VM com plena consciência de que o próximo push à `main` reverte. Anote a edição em um issue para não esquecer. |
+
+### Compose file e `git pull` — por que (geralmente) não há conflito
+
+O step "Atualizar `docker-compose.prd.X.yml`" do job `deploy` faz `cp` direto sobre o arquivo. Como `${COMPOSE_DIR}` tipicamente também é repositório git do assistente (para `git pull` dos scripts), uma edição manual ao compose **gera diff local** que pode bloquear o próximo `git pull origin main` do assistente. Nesse caso, descarte as alterações locais antes do pull:
 
 ```bash
 git checkout -- docker-compose.prd.rpa.yml docker-compose.prd.dashboard.yml
@@ -388,7 +444,7 @@ git checkout -- .env.server-rpa.sample .env.server-dashboard.sample
 git pull origin main
 ```
 
-> **Recomendação:** nunca edite os compose files nem os `.env` samples diretamente no servidor. Alterações devem ser feitas no repositório do assistente e propagadas automaticamente pelo workflow de CD.
+> **Recomendação consolidada:** nunca edite compose files ou `.env` samples diretamente na VM. Alterações de compose devem ir no repositório do produto; alterações de scripts/diagnóstico do assistente, neste repositório.
 
 ---
 

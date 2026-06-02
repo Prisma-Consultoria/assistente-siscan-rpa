@@ -101,6 +101,7 @@ bash siscan-server-doctor.sh --help
 | `--except LIST` | Roda todos **exceto** os listados (CSV) |
 | `--quiet` | Suprime saída pretty-print; imprime apenas linhas `FAIL [<specialist>] ...` |
 | `--json` | Saída estruturada — envelope consolidado `{summary, specialists: [...]}` |
+| `--product NAME` | Define `SISCAN_PRODUCT` explicitamente (`rpa`/`dashboard`/`full`) e propaga para todos os specialists (TSK00.05.05 — ver [Resolução do contexto de produto](#resolução-do-contexto-de-produto)) |
 | `--list` | Lista specialists descobertos + a primeira linha `# Summary:` do header de cada um, e sai |
 | `-h`, `--help` | Exibe ajuda inline e sai |
 | `--timeout SEC` | Repassado a specialists que aceitam (`check-network`, `check-db`) |
@@ -152,6 +153,36 @@ O cálculo de `TO_RUN` aplica os filtros nessa ordem:
 3. Senão: roda todos os specialists descobertos.
 
 A constante `EXCEPT_PRE_SETUP="check-runner,check-stack,check-db"` é fixa no script: esses 3 specialists dependem de etapas do `siscan-server-setup.sh` que ainda não rodaram antes da Fase 5 (runner não instalado, containers não subidos, `.env` final não materializado).
+
+## Resolução do contexto de produto
+
+A partir de **TSK00.05.05** (#102), o orquestrador e os 6 specialists product-aware (`check-db`, `check-env`, `check-network`, `check-permissions`, `check-runner`, `check-stack`) aceitam o argumento **`--product NAME`** (sendo `NAME` `rpa`, `dashboard` ou `full`). A resolução do valor efetivo de `SISCAN_PRODUCT` aplicado a cada specialist segue **política de prioridade descendente**:
+
+| # | Fonte | Quem seta | Quando usa |
+|---|---|---|---|
+| 1 | `--product NAME` na CLI | Consumer (workflow CD, operador manual) | Sempre vence quando presente |
+| 2 | `$SISCAN_PRODUCT` (env var) | Setup (`siscan-server-setup.sh` exporta no `exec sudo`), CI runner | Caiu aqui quando não há `--product` |
+| 3 | `SISCAN_PRODUCT` lida do `.env` da VM via `_read_env` | `siscan-server-setup.sh` Fase 5 persiste no `.env` | Fallback histórico — comportamento pré-TSK00.05.05 |
+
+Implementação centralizada em `scripts/deploy_server/_common.sh::resolve_product()`. Cada specialist chama `resolve_product` (depois de `common_parse_arg` ter populado `SISCAN_PRODUCT_CLI`), e o resultado é exportado em `SISCAN_PRODUCT` para os helpers `product_validate`/`product_get`/`product_extra` consumirem.
+
+**Comportamento de divergência**: se `--product=<X>` for passado mas o `.env` contém `SISCAN_PRODUCT=<Y>` com `X != Y`, o specialist emite um **warning** em human mode (`⚠ --product=X sobrescreve SISCAN_PRODUCT=Y do .env`). O argumento sempre vence — a mensagem só torna o override observável para o operador. Em `--quiet` e `--json` o warning é suprimido (contrato dos modos).
+
+**Specialists product-agnostic** (`check-docker`, `check-deps`, `check-resources`, `check-runner-tls`) também aceitam `--product` via `common_parse_arg`, mas **ignoram graciosamente** — isso simplifica o orquestrador (propaga `--product` sempre, sem branching por specialist).
+
+**Por que existe**: VMs em produção provisionadas **antes** do `products.json` v2.0 podiam ter `.env` sem `SISCAN_PRODUCT` declarado, fazendo o `check-network` pular silenciosamente a categoria condicional `Portal SISCAN` (probe crítica para o RPA autenticar). O workflow CD agora passa `--product rpa`/`--product dashboard` explicitamente, garantindo a cobertura independente da configuração local da VM.
+
+```bash
+# Workflow CD do siscan-rpa
+bash siscan-server-doctor.sh --quiet --json --pre-setup --product rpa
+
+# Workflow CD do siscan-dashboard
+bash siscan-server-doctor.sh --quiet --json --only check-stack --product dashboard
+
+# Local: --product diverge do .env (warning visível)
+SISCAN_PRODUCT=dashboard bash siscan-server-doctor.sh --product rpa --only check-env
+# ⚠ --product=rpa sobrescreve SISCAN_PRODUCT=dashboard do .env
+```
 
 ## Specialists disponíveis
 

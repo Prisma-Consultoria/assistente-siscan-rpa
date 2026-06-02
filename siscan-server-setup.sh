@@ -68,6 +68,11 @@ RUNNER_DIR="${RUNNER_DIR:-${HOME}/actions-runner}"
 CURRENT_USER="$(whoami)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SPECIALISTS_DIR="${SCRIPT_DIR}/scripts/deploy_server"
+# Manifesto declarativo de produtos — usado por ensure_host_paths_derived
+# (TSK00.05.01) para iterar variáveis com derivação automática (HOST_SECRETS_DIR,
+# HOST_BACKUPS_DIR). Consumidores em scripts/deploy_server/check-*.sh já usam
+# o mesmo PRODUCTS_FILE — manter consistente.
+PRODUCTS_FILE="${PRODUCTS_FILE:-${SCRIPT_DIR}/scripts/data/products.json}"
 
 # ────────────────────────────────────────────────────────────────────────────
 # Helpers de output — sourcing _common.sh (TSK00.04.13 #92)
@@ -206,12 +211,175 @@ ensure_host_paths() {
     return ${failed}
 }
 
+# ────────────────────────────────────────────────────────────────────────────
+# env_apply_derivation DERIVATION PARENT_VAL → stdout
+# Aplica uma expressão de derivação declarada no manifesto products.json
+# (campo host_dir_vars[].derivation) a um valor pai.
+#
+# Suporta atualmente a única expressão usada em produção (TSK00.05.01):
+#   "dirname + /<subdir>"   →  $(dirname PARENT_VAL)/<subdir>
+#
+# Retorno:
+#   - status 0 + valor em stdout: expressão reconhecida e aplicada
+#   - status 1, stdout vazio:     expressão desconhecida (caller deve checar
+#                                 status OU valor vazio — env_set_or_derive
+#                                 hoje usa o segundo via `[ -z "${val}" ]`)
+#   - status 0, stdout vazio:     PARENT_VAL vazio (early return — sem
+#                                 expressão pra aplicar)
+#
+# Adicionar novas formas exige só estender este switch — o consumidor não muda.
+# ────────────────────────────────────────────────────────────────────────────
+env_apply_derivation() {
+    local derivation="${1}" parent_val="${2}"
+    [ -z "${parent_val}" ] && return 0
+
+    case "${derivation}" in
+        "dirname + "/*)
+            # "dirname + /secrets" → /<dirname parent>/secrets
+            local subdir="${derivation#dirname + }"
+            printf '%s%s' "$(dirname "${parent_val}")" "${subdir}"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# env_set_or_derive ENV_FILE VAR_NAME PARENT_VAR DERIVATION [DEFAULT_MODE] [AUTO_CREATE]
+#
+# Idempotente. Garante que VAR_NAME esteja presente no ENV_FILE e que o
+# diretório correspondente exista com as permissões corretas.
+#
+#   - Se VAR_NAME já tem valor no .env: PRESERVA o valor (operador no
+#     comando). Apenas cria o diretório (se AUTO_CREATE=true) e aplica
+#     DEFAULT_MODE (se especificado) — preservando customizações.
+#   - Se VAR_NAME está ausente/vazio: deriva via DERIVATION a partir do
+#     valor de PARENT_VAR (também lido do .env). Grava o valor derivado
+#     no .env, cria o diretório, aplica DEFAULT_MODE.
+#   - Se PARENT_VAR também está vazio: pula (warn) — operador precisa
+#     preencher PARENT_VAR antes.
+#
+# Retorna 0 em sucesso, 1 em falha de criação/chmod, 2 em erro de uso.
+#
+# Esta função é parte do contrato consolidado da TSK00.05.01 (#95) —
+# Workflows CD downstream (siscan-rpa #694, siscan-dashboard #525)
+# REMOVEM o step inline "Garantir HOST_SECRETS_DIR e HOST_BACKUPS_DIR"
+# e confiam que o setup já entregou essas variáveis no .env.
+# ────────────────────────────────────────────────────────────────────────────
+env_set_or_derive() {
+    local env_file="${1}" var_name="${2}" parent_var="${3}" derivation="${4}"
+    local default_mode="${5:-}" auto_create="${6:-true}"
+
+    [ -z "${env_file}" ] || [ -z "${var_name}" ] || [ -z "${parent_var}" ] || [ -z "${derivation}" ] && return 2
+
+    local current parent val
+    current="$(_read_env_value "${env_file}" "${var_name}")"
+
+    if [ -n "${current}" ]; then
+        # Preservar valor existente — operador já configurou.
+        val="${current}"
+        ok "${var_name}=${val} (preservado do .env)"
+    else
+        # Derivar a partir do parent.
+        parent="$(_read_env_value "${env_file}" "${parent_var}")"
+        if [ -z "${parent}" ]; then
+            warn "${var_name} não pode ser derivado: ${parent_var} também está vazio no .env"
+            return 1
+        fi
+        val="$(env_apply_derivation "${derivation}" "${parent}")"
+        if [ -z "${val}" ]; then
+            warn "${var_name} não pode ser derivado: expressão '${derivation}' não reconhecida"
+            return 1
+        fi
+        _set_env_value "${env_file}" "${var_name}" "${val}"
+        ok "${var_name}=${val} (derivado de ${parent_var})"
+    fi
+
+    if [ "${auto_create}" = "true" ]; then
+        if ! mkdir -p "${val}" 2>/dev/null; then
+            warn "Não foi possível criar ${val} — verifique permissões em $(dirname "${val}")"
+            return 1
+        fi
+        if [ -n "${default_mode}" ]; then
+            if ! chmod "${default_mode}" "${val}" 2>/dev/null; then
+                warn "Não foi possível aplicar chmod ${default_mode} em ${val}"
+                return 1
+            fi
+            info "Modo ${default_mode} aplicado em ${val}"
+        fi
+    fi
+
+    return 0
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# ensure_host_paths_derived ENV_FILE
+# Itera os elementos OBJETO de host_dir_vars (schema v2.0) e aplica
+# env_set_or_derive para cada um. Strings da forma legada são ignoradas —
+# elas são tratadas pela coleta interativa anterior + ensure_host_paths.
+#
+# Pré-requisito: PRODUCTS_FILE e SISCAN_PRODUCT já definidos.
+# ────────────────────────────────────────────────────────────────────────────
+ensure_host_paths_derived() {
+    local env_file="${1}"
+    local total=0 failed=0
+
+    # Sem manifesto, não há nada a derivar (compat retroativa).
+    if [ -z "${PRODUCTS_FILE:-}" ] || [ ! -f "${PRODUCTS_FILE:-}" ]; then
+        return 0
+    fi
+    command -v jq >/dev/null 2>&1 || return 0
+
+    while IFS=$'\t' read -r name derived_from derivation default_mode auto_create _description; do
+        [ -z "${name}" ] && continue
+        # Sentinela "-" emitido por product_get_host_dir_vars_derived para
+        # preservar campos vazios em IFS=tab. Reverter pra valor real.
+        [ "${default_mode}" = "-" ] && default_mode=""
+        total=$((total + 1))
+        if ! env_set_or_derive "${env_file}" "${name}" "${derived_from}" "${derivation}" "${default_mode}" "${auto_create}"; then
+            failed=$((failed + 1))
+        fi
+    done < <(product_get_host_dir_vars_derived)
+
+    [ "${total}" -eq 0 ] && return 0
+    return "${failed}"
+}
+
 # ════════════════════════════════════════════════════════════════════════════
 # MAIN — só executa quando o script é chamado diretamente (não via source)
 # ════════════════════════════════════════════════════════════════════════════
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 
 # ── Seleção de produto ────────────────────────────────────────────────────
+# Política de prioridade (alinhada com resolve_product em _common.sh — TSK00.05.05):
+#   1. --product NAME na CLI (parseado acima → ${SISCAN_PRODUCT})
+#   2. $SISCAN_PRODUCT herdado do ambiente (mantido se já não-vazio)
+#   3. SISCAN_PRODUCT lido do .env existente em $COMPOSE_DIR ou $SCRIPT_DIR
+#      (idempotência: re-rodar setup numa VM provisionada não exige re-digitar)
+#   4. Prompt interativo (fluxo histórico — primeira instalação)
+if [ -z "${SISCAN_PRODUCT}" ]; then
+    # Fallback ao .env: tenta detectar produto de uma instalação anterior antes
+    # de entrar no prompt interativo. ${COMPOSE_DIR:-${SCRIPT_DIR}} reproduz a
+    # mesma derivação usada na linha 401 (sem antecipar o assignment global).
+    _setup_env_file_candidate="${COMPOSE_DIR:-${SCRIPT_DIR}}/.env"
+    if [ -f "${_setup_env_file_candidate}" ]; then
+        _setup_env_product="$(_read_env_value "${_setup_env_file_candidate}" "SISCAN_PRODUCT")"
+        if [ -n "${_setup_env_product}" ]; then
+            case "${_setup_env_product}" in
+                rpa|dashboard|full)
+                    SISCAN_PRODUCT="${_setup_env_product}"
+                    info "SISCAN_PRODUCT=${SISCAN_PRODUCT} herdado de ${_setup_env_file_candidate} (re-execução em VM já provisionada)"
+                    ;;
+                *)
+                    warn "SISCAN_PRODUCT='${_setup_env_product}' em ${_setup_env_file_candidate} é inválido — ignorado, caindo no prompt interativo"
+                    ;;
+            esac
+        fi
+    fi
+    unset _setup_env_file_candidate _setup_env_product
+fi
+
 if [ -z "${SISCAN_PRODUCT}" ]; then
     printf "\n${WHITE}╔════════════════════════════════════════════════════╗${NC}\n"
     printf "${WHITE}║  SISCAN — Setup do Servidor                        ║${NC}\n"
@@ -693,6 +861,17 @@ for var in "${HOST_PATH_VARS[@]}"; do
     fi
     printf "\n"
 done
+
+# ── HOST_* derivados (TSK00.05.01 #95) ──────────────────────────────────────
+# Variáveis declaradas como OBJETO em products.json.host_dir_vars[] — derivam
+# automaticamente do parent de uma variável-fonte (tipicamente HOST_LOG_DIR).
+# Hoje: HOST_SECRETS_DIR (mode 700) + HOST_BACKUPS_DIR para rpa/full.
+# Anteriormente: workflow CD do siscan-rpa fazia essa derivação inline
+# (linhas 311-352 do cd_imagem_certificada_selfhosted.yml) — movido pra cá
+# para que workflows passem a confiar no .env já configurado.
+printf "\n${WHITE}  Variáveis HOST_* derivadas automaticamente${NC}\n"
+printf "  ${GRAY}(declaradas em scripts/data/products.json — não requerem input)${NC}\n\n"
+ensure_host_paths_derived "${ENV_FILE}" || warn "Uma ou mais variáveis derivadas não puderam ser configuradas — revise ${ENV_FILE}"
 
 # ════════════════════════════════════════════════════════════════════════════
 step "FASE 6 — Criação dos diretórios HOST_*"

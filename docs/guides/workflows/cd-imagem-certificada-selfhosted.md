@@ -4,8 +4,8 @@ type: guide
 status: aceita
 confidencialidade: público
 owner: Time DevOps SISCAN
-updated: 2026-05-26
-versao: "1.0"
+updated: 2026-05-31
+versao: "1.1"
 related:
   - docs/DEPLOY_SERVER.md
   - docs/guides/siscan-server-setup.md
@@ -63,14 +63,17 @@ Cada job declara `runs-on: [self-hosted, producao-<produto>]` — esse par de la
 
 **Propósito**: validar a saúde da VM **antes** de tocar em qualquer coisa destrutiva. Se a VM não passar no diagnóstico, o deploy aborta sem mudar nada.
 
+> **Padrão pós-F00.05 (mai/2026):** o pre-deploy delega 100% do diagnóstico ao `siscan-server-doctor.sh` + `check-runner-tls.sh` em vez de replicar ~190 linhas de bash inline (estado anterior do `siscan-rpa`). Toda evolução do doctor (specialists novos, `--advisory-strict`, `warning_when_alone`) propaga automaticamente — sem manutenção paralela. Referência canônica em [`templates/cd_imagem_certificada_selfhosted.template.yml`](templates/cd_imagem_certificada_selfhosted.template.yml).
+
 | # | Step | O que faz |
 |---|---|---|
-| 1 | Coletar diagnóstico pré-deploy | Roda `bash siscan-server-doctor.sh --quiet --pre-setup`. O modo `--pre-setup` exclui specialists que dependem de estado pós-instalação (`check-runner` é o próprio runner que está rodando o workflow; `check-stack` validaria a stack atual mas vamos substituí-la; `check-db` precisa do `.env` finalizado). Saída esperada: `7/7 specialists OK` (inclui `check-runner-tls` em modo `--pre-flight` desde TSK00.04.10). |
-| 2 | Publicar relatório como artifact | Sempre executa (`if: always()`), mesmo se o step anterior falhou. Sobe o JSON de diagnóstico como artifact do workflow run para auditoria. Disponível em "Actions → run → Summary → Artifacts". |
+| 1 | Coletar diagnóstico pré-deploy | Roda `bash siscan-server-doctor.sh --quiet --json --pre-setup > pre-deploy-diag.json`. O modo `--pre-setup` exclui specialists que dependem de estado pós-instalação (`check-runner` é o próprio runner que está rodando o workflow; `check-stack` validaria a stack atual mas vamos substituí-la; `check-db` precisa do `.env` finalizado). Saída esperada: `7/7 specialists OK`. |
+| 2 | Coletar diagnóstico TLS do runner (`--pre-flight`) | Roda `bash scripts/deploy_server/check-runner-tls.sh --pre-flight` (step adicionado pós-F00.05). Em modo human (default), o specialist imprime no log do Actions: variáveis de proxy detectadas (com redação de credenciais), CAs custom em `/usr/local/share/ca-certificates/` e resolução DNS de `api.github.com`. **Coleta best-effort** — não bloqueia o deploy; serve para acelerar diagnóstico humano se um step posterior (`docker login ghcr.io` / `docker pull`) falhar por TLS. Introduzido em [TSK00.04.10](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/pull/93); para diagnóstico completo pós-falha de registro, ver o modo `--reactive` do specialist. |
+| 3 | Publicar relatório como artifact | Sempre executa (`if: always()`), mesmo se os steps anteriores falharam. Sobe o JSON de diagnóstico como artifact do workflow run para auditoria (`retention-days: 14`). Disponível em "Actions → run → Summary → Artifacts". |
 
 **Resultado**:
-- ✅ Se o doctor passar, o job termina com sucesso e libera o `deploy`
-- ❌ Se o doctor falhar, o job termina com erro; o `deploy` não executa (depende de `pre-deploy` via `needs:`); o artifact ainda é publicado para diagnóstico humano
+- Se o doctor passar e o TLS pre-flight passar, o job termina com sucesso e libera o `deploy`
+- Se algum step falhar, o job termina com erro; o `deploy` não executa (depende de `pre-deploy` via `needs:`); o artifact ainda é publicado para diagnóstico humano
 
 ## Job 2 — `deploy`
 
@@ -81,10 +84,10 @@ Cada job declara `runs-on: [self-hosted, producao-<produto>]` — esse par de la
 | 1 | Validar `COMPOSE_DIR` | Verifica se a variável `COMPOSE_DIR` está exportada no ambiente do runner (gravada pela Fase 8 do `siscan-server-setup.sh` em `~/actions-runner/.env`). Sem isso, o runner não sabe onde está a stack. |
 | 2 | Checkout do repositório | `actions/checkout` busca o código mais recente do repositório do produto (acessa apenas o repositório do próprio produto onde o workflow vive). |
 | 3 | Autenticar no GHCR | `docker login ghcr.io` usando o `GITHUB_TOKEN` injetado automaticamente pelo Actions. Necessário para o `docker pull` baixar a imagem certificada. |
-| 4 | Atualizar `docker-compose.prd.<produto>.yml` | Copia a versão mais recente do compose file do checkout para o `$COMPOSE_DIR`. Resolve o cenário "operador editou o compose manualmente" — o workflow sempre prevalece. |
+| 4 | Atualizar `docker-compose.prd.<produto>.yml` | Copia a versão mais recente do compose file do checkout para o `$COMPOSE_DIR`. Resolve o cenário "operador editou o compose manualmente" — o workflow sempre prevalece. Detalhes do fluxo de propriedade (1 fonte canônica, 2 propagações) em [`../../DEPLOY_SERVER.md`](../../DEPLOY_SERVER.md#fluxo-do-compose-file-de-produção). |
 | 5 | Atualizar `.env.server-<produto>.sample` | Mesma lógica do step 4 para o sample. **Não toca no `.env` real** — esse permanece com os valores que o operador preencheu na Fase 5 do setup. |
 | 6 | _(siscan-rpa apenas)_ Atualizar `backup_manager.sh` | Copia o script `scripts/clients/backup_manager.sh` para o `$COMPOSE_DIR/scripts/`. Disponibiliza a versão mais recente da ferramenta de backup. |
-| 7 | _(siscan-rpa apenas)_ Garantir `HOST_SECRETS_DIR` e `HOST_BACKUPS_DIR` | Cria os diretórios se ausentes (motivado pelo incidente de chaves RSA não-persistidas — ver [`../../ERRORS_TABLE.md`](../../ERRORS_TABLE.md) seção F23-F26). |
+| 7 | ~~_(siscan-rpa apenas)_ Garantir `HOST_SECRETS_DIR` e `HOST_BACKUPS_DIR`~~ **REMOVIDO** | **Removido pós-F00.05** (TSK00.05.01 [#95](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/95)): a derivação foi movida para `siscan-server-setup.sh` Fase 5 via schema v2.0 do `products.json` (`host_dir_vars[]` aceita objetos com `derived_from`/`derivation`/`default_mode`/`auto_create`). Workflows agora **confiam** que o `.env` já tem essas variáveis populadas. Workflows antigos do siscan-rpa removem esse step na T1 do refactor cross-repo ([#694](https://github.com/Prisma-Consultoria/siscan-rpa/issues/694)). |
 | 8 | Pull das novas imagens | `docker compose -f docker-compose.prd.<produto>.yml pull` baixa as imagens declaradas no compose. A imagem certificada do GHCR já está em cache local após o primeiro deploy; daí em diante o pull verifica apenas digest novo. |
 | 9 | Parar stacks órfãs com nome de projeto diferente | Detecta containers com label `com.docker.compose.project=<produto-antigo>` (resíduo de renomeações como `siscan_rpa-rpa` → `siscan-rpa-rpa`) e os derruba via `docker compose down`. Evita conflito de portas e bind mounts. |
 | 10 | Subir stack atualizada | `docker compose -f docker-compose.prd.<produto>.yml up -d --remove-orphans`. Recria containers que tiveram imagem nova; mantém volumes; remove containers que não estão mais no compose. |
@@ -100,10 +103,12 @@ Cada job declara `runs-on: [self-hosted, producao-<produto>]` — esse par de la
 
 **Propósito**: validar que a stack subiu saudável e fazer ajustes finais que dependem do banco já estar acessível (migrations aplicadas, dados de bootstrap).
 
+> **Padrão pós-F00.05 (mai/2026):** o post-deploy delega o gate principal (`check-stack`) ao doctor em vez de replicar lógica de polling/healthcheck em bash inline (~150 linhas a menos por consumer). Os steps específicos por produto (SISCAN auth no RPA; bootstrap admin + verificação MVP no dashboard) permanecem — são lógica de aplicação, não diagnóstico.
+
 | # | Step | O que faz |
 |---|---|---|
-| 1 | Aguardar estabilização dos containers | `sleep` curto + healthcheck. Dá tempo das migrations rodarem, dos workers do Gunicorn subirem e dos containers reportarem `healthy`. |
-| 2 | Coletar diagnóstico pós-deploy | Roda `bash siscan-server-doctor.sh --quiet` (sem `--pre-setup` desta vez — agora todos os 10 specialists fazem sentido). Saída esperada: `10/10 specialists OK` (ou `9/10` com RAM como exceção conhecida). |
+| 1 | Aguardar estabilização dos containers | Polling curto pelos services declarados em `COMPOSE_SERVICES` (template TSK00.05.03) com timeout de ~90s. Dá tempo das migrations rodarem, dos workers do Gunicorn subirem e dos containers reportarem `running`. |
+| 2 | Diagnóstico pós-deploy (`--only check-stack`) | Roda `bash siscan-server-doctor.sh --quiet --json --only check-stack > post-deploy-stack.json`. Delegação reduz o post-deploy de ~150 linhas inline para uma chamada. Para diagnóstico completo (10/10 specialists), o operador pode rodar manualmente `bash siscan-server-doctor.sh` na VM — útil para troubleshooting pós-mortem. |
 | 3 | _(siscan-rpa)_ Verificar carga inicial (`if: always()`) | Bate em `http://localhost:5001/health` e valida `schema_status: current`. Confirma que as migrations Alembic rodaram. |
 | 4 | _(siscan-dashboard)_ Aplicar CPF + senha do `system_admin` via secrets (`if: always()`) | Lê CPF e senha de [GitHub secrets do repositório](https://docs.github.com/actions/security-guides/encrypted-secrets) e cria/atualiza o usuário admin via comando da aplicação. Necessário para o primeiro acesso ao dashboard com identidade real (substitui o `ADMIN_PASSWORD` literal do `.env` que era temporário). |
 | 5 | _(siscan-dashboard, temporário)_ Verificação MVP gestão de usuários (`if: always()`) | Step transitório validando o fluxo de gestão de usuários (mvp em construção). Será removido quando a feature estabilizar. |
@@ -136,7 +141,7 @@ Variáveis lidas do `.env` da VM (não do workflow):
 | Compose file atualizado | `docker-compose.prd.rpa.yml` | `docker-compose.prd.dashboard.yml` |
 | Sample atualizado | `.env.server-rpa.sample` | `.env.server-dashboard.sample` |
 | Scripts auxiliares | `backup_manager.sh` copiado | — |
-| Diretórios garantidos | `HOST_SECRETS_DIR`, `HOST_BACKUPS_DIR` | — |
+| Diretórios garantidos | ~~`HOST_SECRETS_DIR`, `HOST_BACKUPS_DIR`~~ — derivados pelo setup Fase 5 (TSK00.05.01) | — |
 | Carga inicial verificada | `http://localhost:5001/health` (`schema_status`) | Via gestão MVP de usuários (step temporário) |
 | Secrets adicionais | — | `SYSTEM_ADMIN_CPF`, `SYSTEM_ADMIN_PASSWORD` |
 
@@ -158,7 +163,9 @@ Tudo o que o workflow precisa ter na VM antes do primeiro run é provisionado pe
 - Diretórios `HOST_*` criados (Fase 6) — bind mounts dos containers
 - `.env` da VM preenchido (Fase 5) — variáveis runtime
 
-Os 3 jobs do workflow consomem `siscan-server-doctor.sh` (`pre-deploy` step 1 e `post-deploy` step 2) como **gate de qualidade**, espelhando o gate da Fase 0 do setup.
+Os 3 jobs do workflow consomem `siscan-server-doctor.sh` (`pre-deploy` step 1 e `post-deploy` step 2) como **gate de qualidade**, espelhando o gate da Fase 0 do setup. O `pre-deploy` também consome `check-runner-tls.sh` (step 2) — único specialist do doctor com modo `--pre-flight` específico.
+
+> **Estado dos workflows externos (em 2026-05-31):** este guia descreve o **padrão alvo pós-F00.05**. Os workflows reais em `Prisma-Consultoria/siscan-rpa` (refactor em [#693](https://github.com/Prisma-Consultoria/siscan-rpa/issues/693)) e `Prisma-Consultoria/siscan-dashboard` (refactor em [#524](https://github.com/Prisma-Consultoria/siscan-dashboard/issues/524)) estão sendo migrados em PRs separados; até o merge, podem ainda usar bash inline. A fonte canônica do **padrão consolidado** é o template em [`templates/cd_imagem_certificada_selfhosted.template.yml`](templates/cd_imagem_certificada_selfhosted.template.yml). Quando T1/T2 dos consumers forem mergeados, este guia será revisado para refletir status final.
 
 ## Solução de problemas
 
@@ -172,9 +179,24 @@ Sintomas observáveis durante o workflow estão catalogados em [`../../TROUBLESH
 
 Para sequência operacional do deploy completo (do clone à primeira execução do workflow), ver [`../../DEPLOY_SERVER.md`](../../DEPLOY_SERVER.md).
 
+## Adoção em produto novo — templates canônicos
+
+> **Adicionado em 2026-05-29 (TSK00.05.03 [#97](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/97)):** quando um parceiro novo adotar o assistente, o workflow CD não deve ser copiado/colado de um repo existente — use os **templates parametrizados** em [`templates/`](templates/README.md). Eles são a **fonte canônica** do padrão consolidado pós-F00.05 (delegação ao doctor + check-runner-tls, HOST_*_DIR derivados pelo setup), com placeholders explícitos para customização.
+
+Fluxo resumido:
+
+```bash
+cp docs/guides/workflows/templates/cd_imagem_certificada_selfhosted.template.yml \
+   /path/to/PRODUCT_REPO/.github/workflows/cd_imagem_certificada_selfhosted.yml
+# substituir 6 placeholders via sed (PRODUCT_NAME, RUNNER_LABEL, ...)
+```
+
+Guia completo: [`templates/README.md`](templates/README.md) — placeholders, decisões arquiteturais incorporadas, Apêndice "como adaptar a outro parceiro".
+
 ## Veja também
 
 - [`./test.md`](./test.md) — workflow de testes unitários do próprio assistente (`test.yml`, repo público)
+- [`./templates/README.md`](./templates/README.md) — **fonte canônica** dos workflows parametrizados (adoção em produto novo)
 - [`../siscan-server-setup.md`](../siscan-server-setup.md) — provisionamento inicial da VM
 - [`../siscan-server-doctor/index.md`](../siscan-server-doctor/index.md) — diagnóstico usado pelo `pre-deploy` e `post-deploy`
 - [`../siscan-runner-recover.md`](../siscan-runner-recover.md) — recuperação do runner quando o workflow trava

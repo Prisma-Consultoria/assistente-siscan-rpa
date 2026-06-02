@@ -64,6 +64,11 @@ Opções:
   --timeout SEC            Timeout por check em segundos (padrão: 10)
   --endpoints-file FILE    Override do JSON de endpoints
                            (padrão: scripts/data/network-endpoints.json)
+  --product NAME           Define SISCAN_PRODUCT explicitamente (rpa | dashboard
+                           | full). Prioridade: --product > \$SISCAN_PRODUCT >
+                           .env. Útil para o workflow CD ativar categorias
+                           condicionais (ex: Portal SISCAN) mesmo se o .env da
+                           VM em produção não tiver SISCAN_PRODUCT declarado.
   --advisory-strict        Falhas em categorias advisory viram FAIL (bloqueante,
                            exit 1) em vez de SKIPPED (não-bloqueante). Útil em
                            CI/CD ou pipeline de provisionamento estrito que
@@ -261,11 +266,15 @@ done
 # Categoria condicional: SISCAN portal (P2)
 # Só ativa quando SISCAN_PRODUCT define siscan_portal_url_default no manifesto
 # (atualmente apenas rpa e full). URL pode ser sobrescrita via .env: SISCAN_URL.
+#
+# TSK00.05.05: resolve_product aplica prioridade --product > $SISCAN_PRODUCT >
+# .env. Permite que o workflow CD ative esta categoria mesmo se o .env da VM
+# em produção não tiver SISCAN_PRODUCT declarado (antes a categoria era
+# silenciosamente pulada, perdendo cobertura da probe de autenticação do RPA).
 # ────────────────────────────────────────────────────────────────────────────
-if [ -f "$ENV_FILE" ] && [ -f "$PRODUCTS_FILE" ]; then
-    siscan_product_local=$(grep -E '^SISCAN_PRODUCT=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2-)
-    if [ -n "$siscan_product_local" ]; then
-        SISCAN_PRODUCT="$siscan_product_local"
+if [ -f "$PRODUCTS_FILE" ]; then
+    resolve_product
+    if [ -n "${SISCAN_PRODUCT:-}" ]; then
         if product_validate >/dev/null 2>&1; then
             siscan_default=$(product_extra siscan_portal_url_default)
             if [ -n "$siscan_default" ]; then

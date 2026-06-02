@@ -419,9 +419,56 @@ product_get() {
 
 # product_get_array FIELD
 #   Emite cada elemento do array em linha separada (use com mapfile/<<<).
+#
+#   Tratamento especial para `host_dir_vars` (schema v2.0, TSK00.05.01):
+#   o array pode misturar strings (forma legada — variáveis obrigatórias,
+#   declaradas pelo operador) e objetos (forma nova — variáveis derivadas
+#   automaticamente pelo setup, opcionais para o operador).
+#
+#   Para preservar a SEMÂNTICA HISTÓRICA de `host_dir_vars` ("vars que precisam
+#   estar declaradas no .env, validadas por check-env/check-permissions"),
+#   esta função emite SOMENTE STRINGS — objetos são filtrados. Consumidores
+#   que precisam da metadata de derivação devem usar
+#   `product_get_host_dir_vars_derived` (que retorna SOMENTE os objetos).
+#
+#   Razão de design: check-env hoje falha se uma var de `host_dir_vars` está
+#   vazia no .env. Se HOST_SECRETS_DIR/HOST_BACKUPS_DIR (objetos derivados)
+#   entrassem aqui, VMs com .env pre-TSK00.05.01 (workflow CD derivava
+#   inline) ganhariam falsos FAILs até re-rodar setup. Manter os objetos
+#   fora deste loop preserva a transição não-disruptiva.
 product_get_array() {
     local field="$1"
-    jq -r ".products.\"$SISCAN_PRODUCT\".$field[]?" "$PRODUCTS_FILE" 2>/dev/null
+    if [ "$field" = "host_dir_vars" ]; then
+        # Schema v2.0: emite só strings (forma legada). Objetos derivados
+        # vão por product_get_host_dir_vars_derived.
+        jq -r ".products.\"$SISCAN_PRODUCT\".$field[]? | select(type == \"string\")" "$PRODUCTS_FILE" 2>/dev/null
+    else
+        jq -r ".products.\"$SISCAN_PRODUCT\".$field[]?" "$PRODUCTS_FILE" 2>/dev/null
+    fi
+}
+
+# product_get_host_dir_vars_derived
+#   Emite, em formato TSV "name<TAB>derived_from<TAB>derivation<TAB>default_mode<TAB>auto_create<TAB>description",
+#   uma linha por elemento OBJETO de `host_dir_vars` (TSK00.05.01).
+#   Strings da forma legada são IGNORADAS — esta função só retorna metadata
+#   de variáveis com derivação automática declarada.
+#
+#   Uso (Fase 5 do siscan-server-setup.sh):
+#     while IFS=$'\t' read -r name derived_from derivation mode auto_create _desc; do
+#       env_set_or_derive "$name" "$derived_from" "$derivation" "$mode" "$auto_create"
+#     done < <(product_get_host_dir_vars_derived)
+#
+#   Saída vazia para produtos cujo `host_dir_vars` é só strings (ex: dashboard).
+product_get_host_dir_vars_derived() {
+    # Importante: bash `read -r` com IFS=$'\t' COLAPSA tabs adjacentes (IFS é
+    # whitespace-only). Para preservar campos vazios (default_mode opcional),
+    # emitimos o sentinela "-" no lugar de strings vazias — o caller troca
+    # de volta para vazio antes de usar. Alternativa seria usar separador
+    # não-whitespace, mas | poderia colidir com paths.
+    jq -r '.products."'"$SISCAN_PRODUCT"'".host_dir_vars[]?
+        | select(type == "object")
+        | [.name, .derived_from, .derivation, (if (.default_mode // "") == "" then "-" else .default_mode end), (.auto_create // false | tostring), (.description // "-")]
+        | @tsv' "$PRODUCTS_FILE" 2>/dev/null
 }
 
 # product_has_extra KEY
@@ -443,6 +490,70 @@ product_extra() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
+# resolve_product — política de prioridade do contexto de produto (TSK00.05.05)
+#
+# Prioridade (máxima → mínima):
+#   1. SISCAN_PRODUCT_CLI  (setado por --product na CLI do specialist/doctor)
+#   2. $SISCAN_PRODUCT     (env var herdada — ex: exportada por
+#                           siscan-server-setup.sh durante o setup)
+#   3. SISCAN_PRODUCT do $ENV_FILE  (fallback — comportamento histórico, lido
+#                                    via _resolve_product_read_env_var, helper
+#                                    interno que faz grep/cut/sed do arquivo
+#                                    sem source/eval — independente dos
+#                                    _read_env locais dos specialists)
+#
+# Pré-condição:
+#   - O specialist DEVE setar SISCAN_PRODUCT_CLI ANTES de chamar resolve_product
+#     (pelo parser de `--product NAME|--product=NAME`).
+#   - $ENV_FILE pode estar vazio/inexistente — resolve_product não exige.
+#
+# Side-effect:
+#   - Define + exporta a variável global SISCAN_PRODUCT (consumida pelos
+#     helpers product_validate / product_get / product_extra / product_has_extra).
+#   - Emite warning (somente em human mode, via warn()) se --product na CLI
+#     divergir do valor lido do .env — argumento sempre vence, mas o operador
+#     fica ciente da divergência.
+#
+# Motivação (TSK00.05.05): se o .env da VM em produção não tiver SISCAN_PRODUCT
+# (VMs provisionadas antes do products.json v2.0), categorias condicionais
+# como "Portal SISCAN" do check-network.sh eram silenciosamente puladas.
+# Workflows externos (siscan-rpa, siscan-dashboard) agora declaram o contexto
+# explicitamente via --product, independente de configuração local da VM.
+# ────────────────────────────────────────────────────────────────────────────
+SISCAN_PRODUCT_CLI="${SISCAN_PRODUCT_CLI:-}"
+
+# _resolve_product_read_env_var VAR
+#   Lê VAR do $ENV_FILE como dados (sem source/eval). Reusa o padrão dos
+#   specialists (_read_env) sem depender de cada um ter definido a função
+#   localmente — alguns specialists chamam resolve_product ANTES de declarar
+#   seu próprio _read_env, então este helper interno garante independência.
+_resolve_product_read_env_var() {
+    local var="$1"
+    [ -n "${ENV_FILE:-}" ] || return 0
+    [ -f "$ENV_FILE" ] || return 0
+    grep -E "^${var}=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/^["'\'']\(.*\)["'\'']$/\1/'
+}
+
+resolve_product() {
+    local from_cli="${SISCAN_PRODUCT_CLI:-}"
+    local from_env_var="${SISCAN_PRODUCT:-}"
+    local from_env_file=""
+    from_env_file=$(_resolve_product_read_env_var SISCAN_PRODUCT)
+
+    if [ -n "$from_cli" ]; then
+        if [ -n "$from_env_file" ] && [ "$from_cli" != "$from_env_file" ]; then
+            warn "--product=$from_cli sobrescreve SISCAN_PRODUCT=$from_env_file do ${ENV_FILE:-.env}"
+        fi
+        SISCAN_PRODUCT="$from_cli"
+    elif [ -n "$from_env_var" ]; then
+        SISCAN_PRODUCT="$from_env_var"
+    else
+        SISCAN_PRODUCT="$from_env_file"
+    fi
+    export SISCAN_PRODUCT
+}
+
+# ────────────────────────────────────────────────────────────────────────────
 # Parsing de flags comuns
 # common_parse_arg "$@" — retorna 0 se consumiu, 1 se não
 # Ajusta $shift_count (1 ou 2) conforme o tipo do arg.
@@ -454,6 +565,13 @@ common_parse_arg() {
         --json)      OUTPUT_MODE="json";  _setup_colors; return 0 ;;
         --timeout)   TIMEOUT_SEC="${2:-10}"; shift_count=2; return 0 ;;
         --timeout=*) TIMEOUT_SEC="${1#*=}"; return 0 ;;
+        # --product NAME (TSK00.05.05): consumido pelo resolve_product nos
+        # specialists product-aware. Specialists product-agnostic (check-docker,
+        # check-deps, check-resources, check-runner-tls) também aceitam aqui —
+        # só ignoram o valor, sem fail por arg desconhecido — pra que o doctor
+        # possa propagar --product sempre, sem branching por specialist.
+        --product)   SISCAN_PRODUCT_CLI="${2:-}"; shift_count=2; return 0 ;;
+        --product=*) SISCAN_PRODUCT_CLI="${1#*=}"; return 0 ;;
         *) return 1 ;;
     esac
 }
