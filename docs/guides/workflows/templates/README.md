@@ -140,7 +140,7 @@ Antes do primeiro deploy via este workflow, a VM precisa ter:
 
 ## Apêndice — como adaptar a outro parceiro
 
-Idêntico ao padrão estabelecido pelo Apêndice A do documento v3 de whitelist multi-parceiro (`prisma-ccm-docs#275`).
+Idêntico ao padrão estabelecido pelo Apêndice A do documento técnico interno de whitelist (registro interno do projeto).
 
 Passos:
 

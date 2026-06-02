@@ -52,12 +52,12 @@ bash siscan-server-doctor.sh --only check-network
 | Código | Significado | Ação sugerida |
 |---|---|---|
 | `0` | Todos os endpoints alcançáveis | Prosseguir com setup / deploy |
-| `1` | Pelo menos um FAIL | Consulte [`../../TROUBLESHOOTING.md`](../../TROUBLESHOOTING.md#problema-d--falha-no-pull-por-rede-instável--firewall) ou abra requisição de reabertura de firewall (para VMs do servidor parceiro, referenciar requisição **753315**) |
+| `1` | Pelo menos um FAIL | Consulte [`../../TROUBLESHOOTING.md`](../../TROUBLESHOOTING.md#problema-d--falha-no-pull-por-rede-instável--firewall) ou abra requisição de reabertura de firewall (para VMs do servidor parceiro, referenciar o chamado interno de firewall **<chamado-firewall>**) |
 | `2` | Uso inválido, dependência ausente ou JSON inválido | Verificar mensagem de erro no stderr |
 
 ## Critério de aceitação
 
-Conforme seção 11.4 do PDF *Reativação de whitelist v2.0* (<chamado-firewall>):
+Conforme a seção 11.4 do documento técnico interno de whitelist (<chamado-firewall>):
 
 > **Qualquer resposta HTTP do servidor (200, 301, 302, 400, 403, 404, 405, ...) indica que o TLS subiu** — esse é o critério de sucesso para os checks HTTPS/443.
 
@@ -80,7 +80,7 @@ Não exige root.
 
 A lista verificada vive em [`../../../scripts/data/network-endpoints.json`](../../../scripts/data/network-endpoints.json) e combina duas fontes:
 
-1. Documento **Reativação de whitelist — VMs siscan-dashboard e siscan-rpa v2.0** (chamado interno de firewall), seções 3 a 7.
+1. Documento técnico interno de whitelist (chamado interno de firewall), seções 3 a 7.
 2. [Referência oficial atual do GitHub](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication) — seção *Communication*.
 
 Para atualizar a lista, edite o JSON diretamente. O schema é:
@@ -165,7 +165,7 @@ Saída típica em VM com whitelist estreita (somente endpoint base liberado):
 
 `SKIPPED` (em vez de `FAIL`) na categoria advisory garante que essas falhas **não bloqueiam** o pre-flight do doctor — são informativas para construção do pedido à TI. Variantes que voltarem como `SKIPPED` (HTTP=000) devem ser todas listadas na solicitação ao time de segurança; idealmente pedir **wildcard** `*.actions.githubusercontent.com` (e `*.blob.core.windows.net` se Azure Blob estiver bloqueado) numa única rodada.
 
-Origem operacional: [TSK00.04.09 #88](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/88), motivada pelo lab #259 (28/05/2026) onde `pipelinesghubeus6.actions.githubusercontent.com` ficou bloqueada mesmo após a base liberada (req 767679, 26/05). Decisão arquitetural: usar categoria advisory dentro do `network-endpoints.json` (single source of truth) em vez de arquivo paralelo, evitando risco de drift entre catálogos.
+Origem operacional: [TSK00.04.09 #88](https://github.com/Prisma-Consultoria/assistente-siscan-rpa/issues/88), motivada pelo lab #259 (28/05/2026) onde `pipelinesghubeus6.actions.githubusercontent.com` ficou bloqueada mesmo após a base liberada (<chamado-firewall>). Decisão arquitetural: usar categoria advisory dentro do `network-endpoints.json` (single source of truth) em vez de arquivo paralelo, evitando risco de drift entre catálogos.
 
 ### v1.5 — flag `--advisory-strict` + `warning_when_alone` + alinhamento doc oficial GitHub
 

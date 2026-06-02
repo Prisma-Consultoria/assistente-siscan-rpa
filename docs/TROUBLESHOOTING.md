@@ -122,7 +122,7 @@ Sintoma: `docker pull` falha intermitentemente, timeout, conexões TLS intercept
 | 3 | Traceroute para identificar hops problemáticos | **Windows:** `tracert ghcr.io`. **Linux:** `traceroute ghcr.io` | — (debug profundo, manual) |
 | 4 | Retry manual | **Windows:** `for ($i=0; $i -lt 3; $i++) { docker pull ghcr.io/prisma-consultoria/siscan-rpa-rpa:main; if ($?) { break }; Start-Sleep 30 }`. **Linux:** tentativas manuais com `docker pull` | — (ação corretiva) |
 | 5 | Se houver proxy corporativo | Configurar proxy no Docker: editar `~/.docker/config.json` com `"proxies"` ou via Docker Desktop → Settings → Resources → Proxies | — (ação corretiva) |
-| 6 | Envolver TI / equipe de infraestrutura | Fornecer saída de `bash siscan-server-doctor.sh --only check-network` (ou `bash scripts/deploy_server/check-network.sh` standalone) solicitando reabertura da regra de firewall. Para as VMs do servidor parceiro, referenciar requisição **753315 — Liberação para o GITHUB - Servidores SISCAN** | — (escalação) |
+| 6 | Envolver TI / equipe de infraestrutura | Fornecer saída de `bash siscan-server-doctor.sh --only check-network` (ou `bash scripts/deploy_server/check-network.sh` standalone) solicitando reabertura da regra de firewall. Para as VMs do servidor parceiro, referenciar o chamado interno de firewall (**<chamado-firewall>**) | — (escalação) |
 
 ---
 
