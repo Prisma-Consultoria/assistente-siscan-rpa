@@ -72,3 +72,8 @@ media/
 reports/
 
 *.txt
+
+# Estado de autoatualização do assistente (F00.06 — siscan-assistente-autoupdate.sh).
+# Por default vive fora do repo (${XDG_STATE_HOME:-$HOME/.local/state}/siscan-assistente/),
+# mas ignoramos o nome defensivamente caso SISCAN_UPDATE_STATE_FILE aponte para a árvore.
+update-state.json
