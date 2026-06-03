@@ -203,7 +203,28 @@ _state_write() {
 # ────────────────────────────────────────────────────────────────────────────
 # Subcomando: run
 # ────────────────────────────────────────────────────────────────────────────
+
+# cmd_run — wrapper que serializa a execução com um lock no arquivo de estado,
+# evitando que um run manual colida com o disparo do cron (gravações
+# concorrentes do estado → outcome 'failed' espúrio). Degrada gracioso: se
+# 'flock' não existir no host, segue sem lock (comportamento original).
 cmd_run() {
+    if command -v flock >/dev/null 2>&1; then
+        mkdir -p "$(dirname "$SISCAN_UPDATE_STATE_FILE")"
+        local lock_file="${SISCAN_UPDATE_STATE_FILE}.lock"
+        exec {lock_fd}>"$lock_file" || { _cmd_run_impl "$@"; return $?; }
+        if ! flock -n "$lock_fd"; then
+            warn "Outro 'run' está em andamento (lock $lock_file) — abortando para não colidir."
+            return 0
+        fi
+        _cmd_run_impl "$@"
+    else
+        _cmd_run_impl "$@"
+    fi
+}
+
+# _cmd_run_impl — corpo do run (pull --ff-only + gravação de estado).
+_cmd_run_impl() {
     require_commands git jq
 
     local repo="$DIR_SISCAN_ASSISTENTE"
@@ -242,15 +263,21 @@ cmd_run() {
     # Guarda de intervalo: se interval_days > 1 e o último sucesso é recente,
     # sai cedo com skipped-interval (cron dispara diário; o run decide o ciclo).
     if [ "${prev_interval:-1}" -gt 1 ] && [ -n "$prev_success" ]; then
-        local last_epoch now_epoch elapsed_days
+        local last_epoch now_epoch elapsed_secs interval_secs
         last_epoch="$(date -u -d "$prev_success" +%s 2>/dev/null || echo 0)"
         now_epoch="$(date -u +%s)"
         if [ "$last_epoch" -gt 0 ]; then
-            elapsed_days=$(( (now_epoch - last_epoch) / 86400 ))
-            if [ "$elapsed_days" -lt "$prev_interval" ]; then
+            # Compara em segundos com folga de 1h: o cron dispara diário e o
+            # horário real tem jitter de segundos/minutos; truncar para dias
+            # faria 47h59m virar "1 dia" e pular indevidamente o ciclo de 2 dias.
+            # A folga (interval*86400 - 3600) garante que ~N dias menos uma hora
+            # já conte como ciclo cumprido.
+            elapsed_secs=$(( now_epoch - last_epoch ))
+            interval_secs=$(( prev_interval * 86400 - 3600 ))
+            if [ "$elapsed_secs" -lt "$interval_secs" ]; then
                 _state_write "skipped-interval" "$branch" "$commit_before" "$commit_before" "" 0 "$now" "$prev_success" \
                     "$prev_interval" "$prev_at" "$prev_cron"
-                info "Fora do ciclo: ${elapsed_days}d desde o último sucesso < interval_days=${prev_interval}. Estado=skipped-interval."
+                info "Fora do ciclo: $(( elapsed_secs / 3600 ))h desde o último sucesso < interval_days=${prev_interval} (folga 1h). Estado=skipped-interval."
                 return 0
             fi
         fi
@@ -262,8 +289,9 @@ cmd_run() {
     if [ "$pull_rc" -ne 0 ]; then
         _state_write "failed" "$branch" "$commit_before" "$commit_before" "" 0 "$now" "$prev_success" \
             "$prev_interval" "$prev_at" "$prev_cron"
-        warn "git pull --ff-only falhou (divergência ou rede): $(printf '%s' "$pull_out" | tail -1)"
-        fail "git pull --ff-only rejeitado em $repo. Histórico divergente ou rede indisponível — reconcilie manualmente."
+        local pull_last; pull_last="$(printf '%s' "$pull_out" | tail -1)"
+        warn "git pull --ff-only falhou (divergência ou rede): $pull_last"
+        fail "git pull --ff-only rejeitado em $repo: ${pull_last:-erro desconhecido}. Reconcilie manualmente."
     fi
 
     local commit_after commits_pulled commit_subject outcome
@@ -379,10 +407,14 @@ cmd_schedule() {
     self="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
     local cron_line="$cron DIR_SISCAN_ASSISTENTE=\"$DIR_SISCAN_ASSISTENTE\" SISCAN_UPDATE_STATE_FILE=\"$SISCAN_UPDATE_STATE_FILE\" /usr/bin/env bash \"$self\" run --quiet"
 
+    # PATH explícito dentro do bloco: o cron roda com ambiente mínimo e algumas
+    # VMs instalam git/jq em /usr/local/bin (fora do PATH default do cron).
+    local cron_path="PATH=/usr/local/bin:/usr/bin:/bin"
+
     # Instala bloco gerenciado idempotente: remove o bloco antigo, anexa o novo.
     local base new_crontab
     base="$(_crontab_without_block)"
-    new_crontab="$(printf '%s\n%s\n%s\n%s\n' "$base" "$CRON_BEGIN" "$cron_line" "$CRON_END")"
+    new_crontab="$(printf '%s\n%s\n%s\n%s\n%s\n' "$base" "$CRON_BEGIN" "$cron_path" "$cron_line" "$CRON_END")"
     # Normaliza linhas em branco no topo (quando não havia crontab).
     new_crontab="$(printf '%s\n' "$new_crontab" | sed '/^$/N;/^\n$/D')"
     printf '%s\n' "$new_crontab" | crontab - || fail "Falha ao instalar o crontab."
@@ -446,9 +478,13 @@ cmd_status() {
     require_commands jq
 
     if [ "$OUTPUT_MODE" = "json" ]; then
-        # Fonte única para o pre-deploy. Ausente → {} (não falha).
+        # Fonte única para o pre-deploy (fundida em artifact de CI). Ausente →
+        # {} (não falha). Omitimos commit_subject: é texto livre de `git log -1
+        # %s` e o diagnóstico pre-deploy é publicado como artifact — não deve
+        # carregar conteúdo de mensagem de commit. O campo permanece no arquivo
+        # de estado e no `status` human (debug local).
         if [ -f "$SISCAN_UPDATE_STATE_FILE" ]; then
-            jq '.' "$SISCAN_UPDATE_STATE_FILE" 2>/dev/null || echo '{}'
+            jq 'del(.commit_subject)' "$SISCAN_UPDATE_STATE_FILE" 2>/dev/null || echo '{}'
         else
             echo '{}'
         fi
@@ -524,10 +560,10 @@ main() {
     done
 
     case "$subcmd" in
-        run)        cmd_run "${rest[@]:-}" ;;
-        schedule)   cmd_schedule "${rest[@]:-}" ;;
-        unschedule) cmd_unschedule "${rest[@]:-}" ;;
-        status)     cmd_status "${rest[@]:-}" ;;
+        run)        cmd_run "${rest[@]}" ;;
+        schedule)   cmd_schedule "${rest[@]}" ;;
+        unschedule) cmd_unschedule "${rest[@]}" ;;
+        status)     cmd_status "${rest[@]}" ;;
         *) printf "subcomando desconhecido: %s\n" "$subcmd" >&2; usage >&2; exit 2 ;;
     esac
 }

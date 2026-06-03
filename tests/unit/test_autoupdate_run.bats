@@ -108,6 +108,60 @@ EOF
     assert_equal "$(state_field '.schedule.interval_days')" "3"
 }
 
+@test "run: interval_days=2 com ~47.5h decorridas NÃO pula (folga de 1h)" {
+    # Guarda de intervalo compara em segundos com folga de 1h
+    # (interval*86400 - 3600). Para interval=2 o limiar é 169200s (47h).
+    # Com 47.5h (171000s) decorridos, o ciclo está cumprido → o run DEVE puxar,
+    # não gravar skipped-interval. Antes (truncando p/ dias), 47h virava "1 dia"
+    # < 2 → SKIP indevido. Este teste guarda contra essa derrapagem.
+    git -C "${CLONE}" reset -q --hard HEAD~1   # clone atrás → há o que puxar
+    local before; before="$(git -C "${CLONE}" rev-parse --short HEAD)"
+
+    mkdir -p "$(dirname "${STATE_FILE}")"
+    # last_success = agora - 47.5h (171000s).
+    local past; past="$(date -u -d "@$(( $(date -u +%s) - 171000 ))" +%Y-%m-%dT%H:%M:%SZ)"
+    cat > "${STATE_FILE}" <<EOF
+{"schema":"1.0","outcome":"updated","branch":"main","commit_before":"x","commit_after":"x","commit_subject":"s","commits_pulled":0,"last_attempt_utc":"${past}","last_success_utc":"${past}","schedule":{"interval_days":2,"at":"03:00","cron":"0 3 * * *"}}
+EOF
+
+    run bash "${SCRIPT}" run
+    assert_success
+    # NÃO pulou: ciclo cumprido → puxou e avançou.
+    assert_equal "$(state_field '.outcome')" "updated"
+    [ "${before}" != "$(git -C "${CLONE}" rev-parse --short HEAD)" ]
+}
+
+@test "run: interval_days=2 com ~24h decorridas pula (skipped-interval)" {
+    # Contraprova: 24h (86400s) << limiar 169200s → ainda dentro do ciclo de 2d.
+    git -C "${CLONE}" reset -q --hard HEAD~1
+    local head_before; head_before="$(git -C "${CLONE}" rev-parse HEAD)"
+
+    mkdir -p "$(dirname "${STATE_FILE}")"
+    local past; past="$(date -u -d "@$(( $(date -u +%s) - 86400 ))" +%Y-%m-%dT%H:%M:%SZ)"
+    cat > "${STATE_FILE}" <<EOF
+{"schema":"1.0","outcome":"updated","branch":"main","commit_before":"x","commit_after":"x","commit_subject":"s","commits_pulled":0,"last_attempt_utc":"${past}","last_success_utc":"${past}","schedule":{"interval_days":2,"at":"03:00","cron":"0 3 * * *"}}
+EOF
+
+    run bash "${SCRIPT}" run
+    assert_success
+    assert_equal "$(state_field '.outcome')" "skipped-interval"
+    assert_equal "$(git -C "${CLONE}" rev-parse HEAD)" "${head_before}"
+}
+
+# ── lock (M2) ────────────────────────────────────────────────────────────────
+
+@test "run: degrada gracioso sem flock no PATH (segue sem lock)" {
+    # PATH restrito a um bin sem 'flock', mas com git/jq via symlink p/ os reais.
+    local fakebin="${TEST_DIR}/nolock_bin"
+    mkdir -p "${fakebin}"
+    for c in bash git jq date mktemp mkdir mv rm sed awk cat dirname basename env tail printf grep; do
+        local p; p="$(command -v "$c" 2>/dev/null)" && ln -sf "$p" "${fakebin}/$c"
+    done
+    run env PATH="${fakebin}" bash "${SCRIPT}" run
+    assert_success
+    assert_equal "$(state_field '.outcome')" "already-current"
+}
+
 # ── failed-dirty ────────────────────────────────────────────────────────────
 
 @test "run: árvore suja (rastreado modificado) grava failed, repo intacto, exit 2" {

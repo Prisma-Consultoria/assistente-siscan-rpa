@@ -170,3 +170,36 @@ EOF
     run bash "${SCRIPT}" schedule --every-days abc --at 03:00
     assert_failure 2
 }
+
+# ── caminho interativo (regressão B1) ───────────────────────────────────────
+# Sem flags, o schedule entra em prompt interativo. O dispatch passa o array
+# 'rest' vazio aos subcomandos; com "${rest[@]:-}" (sob set -u) isso virava um
+# argumento de string vazia → caía no '*) argumento desconhecido' e o
+# interativo nunca rodava. Estes testes guardam contra essa regressão.
+
+@test "schedule interativo (frequência diária) instala o bloco de cron" {
+    # Stdin: 1=Diária, depois o horário.
+    run bash -c "printf '1\n03:00\n' | bash '${SCRIPT}' schedule"
+    assert_success
+    # Bloco gerenciado instalado com o horário escolhido.
+    grep -qF '# >>> siscan-assistente autoupdate (managed) >>>' "${FAKE_CRONTAB_FILE}"
+    grep -q '^0 3 \* \* \*' "${FAKE_CRONTAB_FILE}"
+    assert_equal "$(jq -r '.schedule.cron' "${STATE_FILE}")" "0 3 * * *"
+    assert_equal "$(jq -r '.schedule.interval_days' "${STATE_FILE}")" "1"
+}
+
+@test "schedule interativo (a cada N dias) instala o bloco com interval_days" {
+    # Stdin: 2=A cada N dias, N=3, horário.
+    run bash -c "printf '2\n3\n04:30\n' | bash '${SCRIPT}' schedule"
+    assert_success
+    grep -q '^30 4 \* \* \*' "${FAKE_CRONTAB_FILE}"
+    assert_equal "$(jq -r '.schedule.interval_days' "${STATE_FILE}")" "3"
+}
+
+@test "schedule interativo rejeita horário inválido com exit 2 e não instala bloco" {
+    run bash -c "printf '1\n25:00\n' | bash '${SCRIPT}' schedule"
+    assert_failure 2
+    assert_output --partial "Horário inválido"
+    # Nenhum bloco gerenciado deve ter sido escrito.
+    ! grep -qF '# >>> siscan-assistente autoupdate (managed) >>>' "${FAKE_CRONTAB_FILE}" 2>/dev/null
+}
