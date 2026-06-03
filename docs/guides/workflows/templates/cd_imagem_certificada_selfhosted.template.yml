@@ -103,6 +103,18 @@ jobs:
             > pre-deploy-diag.json
           cat pre-deploy-diag.json
 
+      - name: Anexar estado de autoatualização do assistente
+        run: |
+          set -euo pipefail
+          cd "${COMPOSE_DIR}"
+          # Funde o estado de autoatualização (F00.06) no diagnóstico pre-deploy.
+          # Só campos sem PII (SHAs, timestamps, outcome, schedule) — o estado
+          # vive fora do repo na VM e nunca carrega hostname/IP. Fallback {}
+          # mantém o step não-bloqueante em VMs sem o estado ainda.
+          bash siscan-assistente-autoupdate.sh status --json > assistant-update.json || echo '{}' > assistant-update.json
+          jq -s '.[0] + {assistant_update: .[1]}' pre-deploy-diag.json assistant-update.json > merged.json
+          mv merged.json pre-deploy-diag.json
+
       - name: Coletar diagnóstico TLS do runner (pré-flight)
         run: |
           set -euo pipefail
