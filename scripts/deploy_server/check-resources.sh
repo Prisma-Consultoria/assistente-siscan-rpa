@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # -------------------------------------------
 # Specialist: check-resources
-# Summary: CPU (>=4), RAM (>=8GB), disco livre (>=20GB) conforme DEPLOY_SERVER.md
+# Summary: vCPUs, RAM e disco livre — limiares POR PRODUTO em products.json
 # -------------------------------------------
-# Verifica que a VM atende aos requisitos mínimos de capacidade declarados na
-# tabela de pré-requisitos do DEPLOY_SERVER.md:
-#   - vCPUs >= 4
-#   - RAM >= 8 GB
-#   - Disco livre em $COMPOSE_DIR >= 20 GB
+# Verifica que a VM atende aos requisitos de capacidade declarados no manifesto
+# scripts/data/products.json (.products.<p>.resources, com fallback ao mínimo
+# aceitável GLOBAL .defaults.resources): min_vcpus, min_ram_mb (piso),
+# recommended_ram_mb (alvo; entre piso e recomendado = aviso) e min_disk_gb.
+# NÃO há limiar hardcoded aqui.
 #
 # Em VMs com menos recursos a stack até sobe, mas:
 #   - migrate + app + scheduler + redis disputam CPU em pull/up;
@@ -24,23 +24,24 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=./_common.sh
 source "$SCRIPT_DIR/_common.sh"
 
-# Limites do DEPLOY_SERVER.md (tabela de pré-requisitos)
-MIN_VCPUS=4
-MIN_RAM_MB=$((8 * 1024))   # 8 GB (recomendado)
-# Piso de RAM (bloqueante). Entre WARN_RAM_MB e MIN_RAM_MB é apenas AVISO
-# (não-bloqueante): a VM contratada do ICI (VMPRDAPP-RPADASHBOARD) tem 7,7 GB
-# (Anexo G); reprovar o deploy por estar ~0,3 GB abaixo de 8 GB era
-# mis-calibração — bloqueava todo deploy nessa VM.
-WARN_RAM_MB=$((7 * 1024))  # 7 GB
-MIN_DISK_GB=20
+PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
+ENV_FILE="${COMPOSE_DIR:-$(pwd)}/.env"
+
+# Limiares de recursos: a ÚNICA fonte da verdade é o manifesto products.json
+# (.products.<produto>.resources.*) — NÃO há valores hardcoded neste script
+# (issue #112). São lidos após o parse de args (dependem de --product), pois
+# VMs de produtos diferentes têm specs diferentes (ex.: VM do dashboard no
+# ICI = 7,7 GB). Semântica: min_ram_mb = piso bloqueante; recommended_ram_mb =
+# alvo (entre piso e recomendado => aviso não-bloqueante).
 COMPOSE_DIR_PROBE="${COMPOSE_DIR:-$(pwd)}"
 
 usage() {
     cat <<EOF
-Uso: bash $(basename "$0") [--quiet | --json] [--help]
+Uso: bash $(basename "$0") [--product NAME] [--quiet | --json] [--help]
 
-Verifica vCPUs, RAM e disco livre conforme DEPLOY_SERVER.md
-(mínimos: 4 vCPU, 8 GB RAM, 20 GB livres em \$COMPOSE_DIR).
+Verifica vCPUs, RAM e disco livre conforme os limiares do produto em
+scripts/data/products.json (.resources, fallback .defaults.resources).
+Requer produto: --product <rpa|dashboard|full> (ou SISCAN_PRODUCT / .env).
 
 Exit code: 0 = OK · 1 = abaixo do mínimo · 2 = uso inválido
 EOF
@@ -55,6 +56,28 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+# Limiares lidos do manifesto products.json (fonte única — sem hardcode):
+# DEFINIDOS POR PRODUTO em .products.<p>.resources. Exige produto resolvido;
+# falha se o bloco resources do produto não declarar o limiar.
+resolve_product
+[ -n "${SISCAN_PRODUCT:-}" ] || fail "SISCAN_PRODUCT não definido (sem --product, sem env var, sem entrada em $ENV_FILE) — passe --product ou rode check-env"
+product_validate
+
+# _resource KEY → .products.<SISCAN_PRODUCT>.resources.KEY
+_resource() {
+    jq -r ".products.\"$SISCAN_PRODUCT\".resources.$1 // empty" "$PRODUCTS_FILE" 2>/dev/null
+}
+MIN_VCPUS=$(_resource min_vcpus)
+MIN_RAM_MB=$(_resource min_ram_mb)
+RECOMMENDED_RAM_MB=$(_resource recommended_ram_mb)
+MIN_DISK_GB=$(_resource min_disk_gb)
+for _pair in "MIN_VCPUS:min_vcpus" "MIN_RAM_MB:min_ram_mb" "RECOMMENDED_RAM_MB:recommended_ram_mb" "MIN_DISK_GB:min_disk_gb"; do
+    _name="${_pair%%:*}"; _key="${_pair##*:}"
+    [ -n "${!_name}" ] || fail "resources.${_key} ausente em .products.$SISCAN_PRODUCT.resources (products.json) — issue #112"
+done
+min_ram_gb=$(awk -v m="$MIN_RAM_MB" 'BEGIN{printf "%.0f", m/1024}')
+rec_ram_gb=$(awk -v m="$RECOMMENDED_RAM_MB" 'BEGIN{printf "%.0f", m/1024}')
 
 CAT_CPU="vCPUs"
 CAT_RAM="Memória RAM"
@@ -74,17 +97,17 @@ fi
 # ────────────────────────────────────────────────────────────────────────────
 # RAM
 # ────────────────────────────────────────────────────────────────────────────
-print_category_header "$CAT_RAM" "DEPLOY_SERVER.md recomenda ≥ 8 GB. Entre 7 e 8 GB é aviso (não bloqueia — VM contratada do ICI = 7,7 GB); abaixo de 7 GB bloqueia."
+print_category_header "$CAT_RAM" "products.json: recomendado ≥ ${rec_ram_gb} GB; piso bloqueante ${min_ram_gb} GB. Entre o piso e o recomendado é aviso (não bloqueia — ex.: VM do dashboard no ICI = 7,7 GB)."
 ram_mb=$(free -m 2>/dev/null | awk '/^Mem:/ {print $2}')
 ram_mb=${ram_mb:-0}
 ram_gb=$(awk -v m="$ram_mb" 'BEGIN{printf "%.1f", m/1024}')
-if [ "$ram_mb" -ge "$MIN_RAM_MB" ] 2>/dev/null; then
-    add_ok "$CAT_RAM" ram 0 "$(hostname)" "${ram_gb} GB (>= 8 GB)"
-elif [ "$ram_mb" -ge "$WARN_RAM_MB" ] 2>/dev/null; then
+if [ "$ram_mb" -ge "$RECOMMENDED_RAM_MB" ] 2>/dev/null; then
+    add_ok "$CAT_RAM" ram 0 "$(hostname)" "${ram_gb} GB (>= ${rec_ram_gb} GB recomendado)"
+elif [ "$ram_mb" -ge "$MIN_RAM_MB" ] 2>/dev/null; then
     # Aviso NÃO-bloqueante (convenção do repo: add_ok com "(warn)" no detalhe).
-    add_ok "$CAT_RAM" ram 0 "$(hostname)" "${ram_gb} GB (warn) — abaixo do recomendado 8 GB, mas dentro da spec da VM; monitorar OOM sob carga"
+    add_ok "$CAT_RAM" ram 0 "$(hostname)" "${ram_gb} GB (warn) — abaixo do recomendado ${rec_ram_gb} GB, acima do piso ${min_ram_gb} GB; monitorar OOM sob carga"
 else
-    add_fail "$CAT_RAM" ram 0 "$(hostname)" "${ram_gb} GB (abaixo do piso de 7 GB; recomendado >= 8 GB) — risco de OOM kills"
+    add_fail "$CAT_RAM" ram 0 "$(hostname)" "${ram_gb} GB (abaixo do piso de ${min_ram_gb} GB; recomendado >= ${rec_ram_gb} GB) — risco de OOM kills"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────

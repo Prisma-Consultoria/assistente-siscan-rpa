@@ -23,7 +23,8 @@
       "description": "Descrição amigável para exibir no setup interativo."
     },
     "default_passwords_to_detect": "Valores de DATABASE_PASSWORD que indicam senha não alterada",
-    "extras": "Flags booleanas + defaults consumidos por specialists específicos"
+    "extras": "Flags booleanas + defaults consumidos por specialists específicos",
+    "resources": "Limiares mínimos aceitáveis da VM, definidos POR PRODUTO em cada .products.<p>.resources e lidos por check-resources.sh: min_vcpus, min_ram_mb (piso bloqueante), recommended_ram_mb (alvo; entre piso e recomendado = aviso não-bloqueante) e min_disk_gb. Sem hardcode nos scripts (issue #112)."
   },
   "products": {
     "rpa": {
@@ -34,6 +35,7 @@
       "env_sample": ".env.server-rpa.sample",
       "runner_label": "producao-rpa",
       "runner_name_suffix": "siscan-rpa",
+      "resources": { "min_vcpus": 4, "min_ram_mb": 7168, "recommended_ram_mb": 8192, "min_disk_gb": 20 },
       "session_secret_var": "SECRET_KEY",
       "expected_services": ["app", "rpa-scheduler"],
       "expected_external_ports": [5001],
@@ -84,6 +86,7 @@
       "env_sample": ".env.server-dashboard.sample",
       "runner_label": "producao-dashboard",
       "runner_name_suffix": "siscan-dashboard",
+      "resources": { "min_vcpus": 4, "min_ram_mb": 7168, "recommended_ram_mb": 8192, "min_disk_gb": 20 },
       "session_secret_var": "SESSION_SECRET",
       "expected_services": ["app", "sync", "redis"],
       "expected_external_ports": [5000],
@@ -117,6 +120,7 @@
       "env_sample": ".env.host.sample",
       "runner_label": "(modo HOST não usa runner)",
       "runner_name_suffix": "siscan-full",
+      "resources": { "min_vcpus": 4, "min_ram_mb": 7168, "recommended_ram_mb": 8192, "min_disk_gb": 20 },
       "session_secret_var": "SECRET_KEY",
       "expected_services": ["db", "app", "rpa-scheduler"],
       "expected_external_ports": [5000, 5001],
