@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # -------------------------------------------
 # Specialist: check-resources
-# Summary: vCPUs, RAM e disco livre — limiares POR PRODUTO em products.json
+# Summary: vCPUs, RAM e disco livre — limiares GLOBAIS em products.json
 # -------------------------------------------
 # Verifica que a VM atende aos requisitos de capacidade declarados no manifesto
-# scripts/data/products.json (.products.<p>.resources, com fallback ao mínimo
-# aceitável GLOBAL .defaults.resources): min_vcpus, min_ram_mb (piso),
-# recommended_ram_mb (alvo; entre piso e recomendado = aviso) e min_disk_gb.
-# NÃO há limiar hardcoded aqui.
+# scripts/data/products.json (.defaults.resources, com override POR PRODUTO em
+# .products.<p>.resources QUANDO o produto for resolvível): min_vcpus,
+# min_ram_mb (piso), recommended_ram_mb (alvo; entre piso e recomendado = aviso)
+# e min_disk_gb. NÃO há limiar hardcoded como configuração — apenas um fallback
+# de bootstrap (jq/manifesto ausentes) em paridade com o manifesto.
+#
+# É PRODUCT-AGNOSTIC: roda sempre, mesmo sem --product/SISCAN_PRODUCT (mede
+# CPU/RAM/disco, que não dependem de produto). Resolver produto é best-effort —
+# se houver produto resolvido E declarando .resources, sobrepõe os defaults;
+# caso contrário usa .defaults.resources. Nunca aborta por produto ausente.
 #
 # Em VMs com menos recursos a stack até sobe, mas:
 #   - migrate + app + scheduler + redis disputam CPU em pull/up;
@@ -24,25 +30,29 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=./_common.sh
 source "$SCRIPT_DIR/_common.sh"
 
-PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
+# PRODUCTS_FILE é overridável por env (testabilidade) — default aponta pro
+# manifesto do repo. O doctor invoca o specialist como subprocesso e não
+# exporta PRODUCTS_FILE, então em produção o default sempre vale.
+PRODUCTS_FILE="${PRODUCTS_FILE:-${REPO_ROOT}/scripts/data/products.json}"
 ENV_FILE="${COMPOSE_DIR:-$(pwd)}/.env"
 
 # Limiares de recursos: a fonte da verdade é o manifesto products.json — NÃO há
-# valores hardcoded neste script (issue #112). Lidos POR PRODUTO em
-# .products.<produto>.resources.* (VMs de produtos diferentes têm specs
-# diferentes — ex.: VMs com 7–8 GB de RAM) e, quando o produto não
-# declara um limiar, cai no fallback GLOBAL .defaults.resources.*. São lidos
-# após o parse de args (dependem de --product). Semântica: min_ram_mb = piso
-# bloqueante; recommended_ram_mb = alvo (entre piso e recomendado => aviso).
+# valores hardcoded como configuração (issue #112). Lidos do GLOBAL
+# .defaults.resources.* e, QUANDO há produto resolvido, sobrepostos pelo
+# .products.<produto>.resources.* (VMs de produtos diferentes podem crescer
+# independentemente). São lidos após o parse de args (--product é best-effort).
+# Semântica: min_ram_mb = piso bloqueante; recommended_ram_mb = alvo (entre piso
+# e recomendado => aviso).
 COMPOSE_DIR_PROBE="${COMPOSE_DIR:-$(pwd)}"
 
 usage() {
     cat <<EOF
 Uso: bash $(basename "$0") [--product NAME] [--quiet | --json] [--help]
 
-Verifica vCPUs, RAM e disco livre conforme os limiares do produto em
-scripts/data/products.json (.resources, fallback .defaults.resources).
-Requer produto: --product <rpa|dashboard|full> (ou SISCAN_PRODUCT / .env).
+Verifica vCPUs, RAM e disco livre conforme os limiares em
+scripts/data/products.json (.defaults.resources, com override por produto em
+.products.<p>.resources). PRODUCT-AGNOSTIC: roda sem --product; quando um
+produto é resolvido e declara .resources, ele sobrepõe os defaults.
 
 Exit code: 0 = OK · 1 = abaixo do mínimo · 2 = uso inválido
 EOF
@@ -58,26 +68,38 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Limiares lidos do manifesto products.json (fonte única — sem hardcode):
-# POR PRODUTO em .products.<p>.resources, com fallback GLOBAL em
-# .defaults.resources. Exige produto resolvido; falha só se NEM o produto NEM
-# o defaults declararem o limiar.
+# Resolver produto é BEST-EFFORT — check-resources é product-agnostic (mede
+# CPU/RAM/disco, que não dependem de produto). Sem produto resolvível, usa
+# .defaults.resources. NUNCA aborta por produto ausente (issues #112; F1/F2).
 resolve_product
-[ -n "${SISCAN_PRODUCT:-}" ] || fail "SISCAN_PRODUCT não definido (sem --product, sem env var, sem entrada em $ENV_FILE) — passe --product ou rode check-env"
-product_validate
 
-# _resource KEY → .products.<SISCAN_PRODUCT>.resources.KEY (fallback .defaults.resources.KEY)
+# _resource KEY → override do produto (.products.<p>.resources.KEY) se houver
+# produto resolvido, senão GLOBAL .defaults.resources.KEY. // empty preserva 0.
 _resource() {
-    jq -r ".products.\"$SISCAN_PRODUCT\".resources.$1 // .defaults.resources.$1 // empty" "$PRODUCTS_FILE" 2>/dev/null
+    local key="$1"
+    if [ -n "${SISCAN_PRODUCT:-}" ]; then
+        jq -r ".products.\"$SISCAN_PRODUCT\".resources.$key // .defaults.resources.$key // empty" "$PRODUCTS_FILE" 2>/dev/null
+    else
+        jq -r ".defaults.resources.$key // empty" "$PRODUCTS_FILE" 2>/dev/null
+    fi
 }
-MIN_VCPUS=$(_resource min_vcpus)
-MIN_RAM_MB=$(_resource min_ram_mb)
-RECOMMENDED_RAM_MB=$(_resource recommended_ram_mb)
-MIN_DISK_GB=$(_resource min_disk_gb)
-for _pair in "MIN_VCPUS:min_vcpus" "MIN_RAM_MB:min_ram_mb" "RECOMMENDED_RAM_MB:recommended_ram_mb" "MIN_DISK_GB:min_disk_gb"; do
-    _name="${_pair%%:*}"; _key="${_pair##*:}"
-    [ -n "${!_name}" ] || fail "resources.${_key} ausente em .products.$SISCAN_PRODUCT.resources e em .defaults.resources (products.json) — issue #112"
-done
+MIN_VCPUS=""
+MIN_RAM_MB=""
+RECOMMENDED_RAM_MB=""
+MIN_DISK_GB=""
+if command -v jq >/dev/null 2>&1 && [ -f "$PRODUCTS_FILE" ]; then
+    MIN_VCPUS=$(_resource min_vcpus)
+    MIN_RAM_MB=$(_resource min_ram_mb)
+    RECOMMENDED_RAM_MB=$(_resource recommended_ram_mb)
+    MIN_DISK_GB=$(_resource min_disk_gb)
+fi
+# Fallback de bootstrap (jq ausente / manifesto ilegível) — modo degradado, não
+# é a fonte da verdade; mantém os valores em paridade com .defaults.resources do
+# manifesto. Mesmo padrão de check-deps/check-db (F2/F6): degrada, não aborta.
+: "${MIN_VCPUS:=4}"
+: "${MIN_RAM_MB:=7168}"
+: "${RECOMMENDED_RAM_MB:=8192}"
+: "${MIN_DISK_GB:=20}"
 min_ram_gb=$(awk -v m="$MIN_RAM_MB" 'BEGIN{printf "%.0f", m/1024}')
 rec_ram_gb=$(awk -v m="$RECOMMENDED_RAM_MB" 'BEGIN{printf "%.0f", m/1024}')
 
