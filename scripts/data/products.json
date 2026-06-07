@@ -24,7 +24,7 @@
     },
     "default_passwords_to_detect": "Valores de DATABASE_PASSWORD que indicam senha não alterada",
     "extras": "Flags booleanas + defaults consumidos por specialists específicos",
-    "resources": "Limiares mínimos aceitáveis da VM, lidos por check-resources.sh: min_vcpus, min_ram_mb (piso bloqueante), recommended_ram_mb (alvo; entre piso e recomendado = aviso não-bloqueante) e min_disk_gb. Podem ser definidos POR PRODUTO em .products.<p>.resources; quando ausentes, o specialist cai no fallback GLOBAL .defaults.resources. Sem hardcode nos scripts (issue #112).",
+    "resources": "Limiares mínimos aceitáveis da VM, lidos por check-resources.sh: min_vcpus, min_ram_mb (piso bloqueante), recommended_ram_mb (alvo; entre piso e recomendado = aviso não-bloqueante) e min_disk_gb. Declarados GLOBALMENTE em .defaults.resources (iguais para todo produto hoje). Override OPCIONAL por produto em .products.<p>.resources APENAS quando um produto realmente divergir — declare só então (YAGNI; check-resources é product-agnostic e usa .defaults quando o produto não declara). Sem hardcode nos scripts (issue #112).",
     "defaults": "Padrões GLOBAIS (iguais para todo produto). .defaults.resources = fallback dos limiares de VM quando o produto não declara .products.<p>.resources (issue #112). .defaults.host_requirements = requisitos de host da tabela de pré-requisitos do DEPLOY_SERVER.md, lidos pelos specialists: min_docker_major (piso) e recommended_docker_major (alvo; entre piso e alvo = aviso) — check-deps; min_compose_version (versão mínima do plugin Docker Compose, comparada com sort -V; abaixo = aviso) — check-deps; min_postgres_major (alvo) e supported_postgres_major (piso funcional; abaixo do piso = fail) — check-db via SHOW server_version; ubuntu_target_major (alvo) e ubuntu_supported_major (mínimo ainda suportado; abaixo do alvo = aviso) — check-deps; required_binaries (binários genéricos verificados por check-deps; docker e docker compose são runtime-críticos e verificados com lógica dedicada). Sem hardcode nos scripts (issue #113)."
   },
   "defaults": {
@@ -49,7 +49,6 @@
       "env_sample": ".env.server-rpa.sample",
       "runner_label": "producao-rpa",
       "runner_name_suffix": "siscan-rpa",
-      "resources": { "min_vcpus": 4, "min_ram_mb": 7168, "recommended_ram_mb": 8192, "min_disk_gb": 20 },
       "session_secret_var": "SECRET_KEY",
       "expected_services": ["app", "rpa-scheduler"],
       "expected_external_ports": [5001],
@@ -100,7 +99,6 @@
       "env_sample": ".env.server-dashboard.sample",
       "runner_label": "producao-dashboard",
       "runner_name_suffix": "siscan-dashboard",
-      "resources": { "min_vcpus": 4, "min_ram_mb": 7168, "recommended_ram_mb": 8192, "min_disk_gb": 20 },
       "session_secret_var": "SESSION_SECRET",
       "expected_services": ["app", "sync", "redis"],
       "expected_external_ports": [5000],
@@ -134,7 +132,6 @@
       "env_sample": ".env.host.sample",
       "runner_label": "(modo HOST não usa runner)",
       "runner_name_suffix": "siscan-full",
-      "resources": { "min_vcpus": 4, "min_ram_mb": 7168, "recommended_ram_mb": 8192, "min_disk_gb": 20 },
       "session_secret_var": "SECRET_KEY",
       "expected_services": ["db", "app", "rpa-scheduler"],
       "expected_external_ports": [5000, 5001],
