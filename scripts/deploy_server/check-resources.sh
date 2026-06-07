@@ -27,12 +27,13 @@ source "$SCRIPT_DIR/_common.sh"
 PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
 ENV_FILE="${COMPOSE_DIR:-$(pwd)}/.env"
 
-# Limiares de recursos: a ÚNICA fonte da verdade é o manifesto products.json
-# (.products.<produto>.resources.*) — NÃO há valores hardcoded neste script
-# (issue #112). São lidos após o parse de args (dependem de --product), pois
-# VMs de produtos diferentes têm specs diferentes (ex.: VM do dashboard no
-# ICI = 7,7 GB). Semântica: min_ram_mb = piso bloqueante; recommended_ram_mb =
-# alvo (entre piso e recomendado => aviso não-bloqueante).
+# Limiares de recursos: a fonte da verdade é o manifesto products.json — NÃO há
+# valores hardcoded neste script (issue #112). Lidos POR PRODUTO em
+# .products.<produto>.resources.* (VMs de produtos diferentes têm specs
+# diferentes — ex.: VMs com 7–8 GB de RAM) e, quando o produto não
+# declara um limiar, cai no fallback GLOBAL .defaults.resources.*. São lidos
+# após o parse de args (dependem de --product). Semântica: min_ram_mb = piso
+# bloqueante; recommended_ram_mb = alvo (entre piso e recomendado => aviso).
 COMPOSE_DIR_PROBE="${COMPOSE_DIR:-$(pwd)}"
 
 usage() {
@@ -58,15 +59,16 @@ while [ $# -gt 0 ]; do
 done
 
 # Limiares lidos do manifesto products.json (fonte única — sem hardcode):
-# DEFINIDOS POR PRODUTO em .products.<p>.resources. Exige produto resolvido;
-# falha se o bloco resources do produto não declarar o limiar.
+# POR PRODUTO em .products.<p>.resources, com fallback GLOBAL em
+# .defaults.resources. Exige produto resolvido; falha só se NEM o produto NEM
+# o defaults declararem o limiar.
 resolve_product
 [ -n "${SISCAN_PRODUCT:-}" ] || fail "SISCAN_PRODUCT não definido (sem --product, sem env var, sem entrada em $ENV_FILE) — passe --product ou rode check-env"
 product_validate
 
-# _resource KEY → .products.<SISCAN_PRODUCT>.resources.KEY
+# _resource KEY → .products.<SISCAN_PRODUCT>.resources.KEY (fallback .defaults.resources.KEY)
 _resource() {
-    jq -r ".products.\"$SISCAN_PRODUCT\".resources.$1 // empty" "$PRODUCTS_FILE" 2>/dev/null
+    jq -r ".products.\"$SISCAN_PRODUCT\".resources.$1 // .defaults.resources.$1 // empty" "$PRODUCTS_FILE" 2>/dev/null
 }
 MIN_VCPUS=$(_resource min_vcpus)
 MIN_RAM_MB=$(_resource min_ram_mb)
@@ -74,7 +76,7 @@ RECOMMENDED_RAM_MB=$(_resource recommended_ram_mb)
 MIN_DISK_GB=$(_resource min_disk_gb)
 for _pair in "MIN_VCPUS:min_vcpus" "MIN_RAM_MB:min_ram_mb" "RECOMMENDED_RAM_MB:recommended_ram_mb" "MIN_DISK_GB:min_disk_gb"; do
     _name="${_pair%%:*}"; _key="${_pair##*:}"
-    [ -n "${!_name}" ] || fail "resources.${_key} ausente em .products.$SISCAN_PRODUCT.resources (products.json) — issue #112"
+    [ -n "${!_name}" ] || fail "resources.${_key} ausente em .products.$SISCAN_PRODUCT.resources e em .defaults.resources (products.json) — issue #112"
 done
 min_ram_gb=$(awk -v m="$MIN_RAM_MB" 'BEGIN{printf "%.0f", m/1024}')
 rec_ram_gb=$(awk -v m="$RECOMMENDED_RAM_MB" 'BEGIN{printf "%.0f", m/1024}')
@@ -97,7 +99,7 @@ fi
 # ────────────────────────────────────────────────────────────────────────────
 # RAM
 # ────────────────────────────────────────────────────────────────────────────
-print_category_header "$CAT_RAM" "products.json: recomendado ≥ ${rec_ram_gb} GB; piso bloqueante ${min_ram_gb} GB. Entre o piso e o recomendado é aviso (não bloqueia — ex.: VM do dashboard no ICI = 7,7 GB)."
+print_category_header "$CAT_RAM" "products.json: recomendado ≥ ${rec_ram_gb} GB; piso bloqueante ${min_ram_gb} GB. Entre o piso e o recomendado é aviso (não bloqueia — ex.: VMs com 7–8 GB de RAM)."
 ram_mb=$(free -m 2>/dev/null | awk '/^Mem:/ {print $2}')
 ram_mb=${ram_mb:-0}
 ram_gb=$(awk -v m="$ram_mb" 'BEGIN{printf "%.1f", m/1024}')
