@@ -96,13 +96,15 @@ O workflow de CD nos produtos consome `siscan-server-doctor.sh` como gate em **p
 
 Antes de provisionar a VM e executar o setup, garanta que ela atende aos requisitos mínimos abaixo. O doctor (próxima seção) valida automaticamente todos eles, mas dimensionamento de hardware/SO precisa ser combinado com a equipe de infraestrutura antes.
 
+Os limiares de recursos (vCPUs, RAM, disco) e de versão (Docker, Compose, Ubuntu, PostgreSQL) verificados pelos specialists têm como fonte única o manifesto `scripts/data/products.json` (`.defaults.resources` e `.defaults.host_requirements`) — esta tabela é a contraparte humana desses valores e deve ser mantida coerente com ele.
+
 ### VM de aplicação (RPA ou Dashboard)
 
 | Requisito | Mínimo | Validado por |
 |---|---|---|
 | Sistema operacional | Ubuntu 24.04 LTS | `check-deps` |
 | vCPUs | 4 | `check-resources` |
-| Memória RAM | 8 GB | `check-resources` |
+| Memória RAM | recomendado 8 GB · piso 7 GB (7–8 GB = aviso, não bloqueia) | `check-resources` |
 | Disco livre em `$COMPOSE_DIR` | 20 GB | `check-resources` |
 | Docker Engine | ≥ 24 (recomendado 28+) | `check-deps` + `check-docker` |
 | Docker Compose | ≥ 2.37 | `check-deps` |
