@@ -25,12 +25,16 @@
     "default_passwords_to_detect": "Valores de DATABASE_PASSWORD que indicam senha não alterada",
     "extras": "Flags booleanas + defaults consumidos por specialists específicos",
     "resources": "Limiares mínimos aceitáveis da VM, lidos por check-resources.sh: min_vcpus, min_ram_mb (piso bloqueante), recommended_ram_mb (alvo; entre piso e recomendado = aviso não-bloqueante) e min_disk_gb. Podem ser definidos POR PRODUTO em .products.<p>.resources; quando ausentes, o specialist cai no fallback GLOBAL .defaults.resources. Sem hardcode nos scripts (issue #112).",
-    "defaults": "Padrões GLOBAIS (iguais para todo produto). .defaults.resources = fallback dos limiares de VM quando o produto não declara .products.<p>.resources (issue #112). .defaults.host_requirements = requisitos de host lidos por check-deps.sh: min_docker_major (major mínimo recomendado do Docker Engine), ubuntu_target_major (major alvo testado no DEPLOY_SERVER.md), ubuntu_supported_major (major mínimo ainda suportado; abaixo do alvo = aviso), required_binaries (binários genéricos verificados por check-deps; docker e docker compose são runtime-críticos e verificados com lógica dedicada, usando min_docker_major como limiar). Sem hardcode nos scripts (issue #113)."
+    "defaults": "Padrões GLOBAIS (iguais para todo produto). .defaults.resources = fallback dos limiares de VM quando o produto não declara .products.<p>.resources (issue #112). .defaults.host_requirements = requisitos de host da tabela de pré-requisitos do DEPLOY_SERVER.md, lidos pelos specialists: min_docker_major (piso) e recommended_docker_major (alvo; entre piso e alvo = aviso) — check-deps; min_compose_version (versão mínima do plugin Docker Compose, comparada com sort -V; abaixo = aviso) — check-deps; min_postgres_major (alvo) e supported_postgres_major (piso funcional; abaixo do piso = fail) — check-db via SHOW server_version; ubuntu_target_major (alvo) e ubuntu_supported_major (mínimo ainda suportado; abaixo do alvo = aviso) — check-deps; required_binaries (binários genéricos verificados por check-deps; docker e docker compose são runtime-críticos e verificados com lógica dedicada). Sem hardcode nos scripts (issue #113)."
   },
   "defaults": {
     "resources": { "min_vcpus": 4, "min_ram_mb": 7168, "recommended_ram_mb": 8192, "min_disk_gb": 20 },
     "host_requirements": {
       "min_docker_major": 24,
+      "recommended_docker_major": 28,
+      "min_compose_version": "2.37",
+      "min_postgres_major": 16,
+      "supported_postgres_major": 14,
       "ubuntu_target_major": 24,
       "ubuntu_supported_major": 22,
       "required_binaries": ["curl", "jq", "openssl", "sudo", "timeout", "getent", "git"]

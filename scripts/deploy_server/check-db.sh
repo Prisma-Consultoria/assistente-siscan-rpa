@@ -30,6 +30,20 @@ PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
 # projeto usam a porta padrão 5432/TCP, então externalizar não agregaria.
 TIMEOUT_SEC=5
 
+# Limiar de versão do PostgreSQL: lido do manifesto global
+# (.defaults.host_requirements, issue #113) — NÃO hardcoded. min_postgres_major =
+# alvo; supported_postgres_major = piso funcional (abaixo => fail). Fallback de
+# bootstrap (jq ausente / manifesto ilegível) em paridade com o manifesto.
+_hostreq() { jq -r ".defaults.host_requirements.$1 // empty" "$PRODUCTS_FILE" 2>/dev/null; }
+MIN_PG_MAJOR=""
+SUPPORTED_PG_MAJOR=""
+if command -v jq >/dev/null 2>&1 && [ -f "$PRODUCTS_FILE" ]; then
+    MIN_PG_MAJOR=$(_hostreq min_postgres_major)
+    SUPPORTED_PG_MAJOR=$(_hostreq supported_postgres_major)
+fi
+: "${MIN_PG_MAJOR:=16}"
+: "${SUPPORTED_PG_MAJOR:=14}"
+
 usage() {
     cat <<EOF
 Uso: bash $(basename "$0") [--env-file FILE] [--product NAME] [--timeout SEC] [--quiet | --json] [--help]
@@ -97,19 +111,19 @@ _check_db_target() {
         info "pg_isready ausente (apt install postgresql-client) — validação restrita a TCP/$port"
     fi
 
-    # Versão do PostgreSQL (DEPLOY_SERVER.md pré-req: >= 16). Requer psql + senha.
-    # Skip controlado se psql ausente ou senha vazia.
+    # Versão do PostgreSQL (limiar do manifesto, DEPLOY_SERVER.md pré-req).
+    # Requer psql + senha. Skip controlado se psql ausente ou senha vazia.
     if command -v psql >/dev/null 2>&1 && [ -n "$password" ] && [ -n "$user" ] && [ -n "$db" ]; then
         ver_raw=$(PGPASSWORD="$password" psql -h "$host" -p "$port" -U "$user" -d "$db" \
                     -tAc "SHOW server_version" 2>/dev/null | head -1)
         if [ -n "$ver_raw" ]; then
             ver_major=$(echo "$ver_raw" | cut -d. -f1)
-            if [ "$ver_major" -ge 16 ] 2>/dev/null; then
-                add_ok "$category" pg "$port" "${host}/${db}" "PostgreSQL $ver_raw (>= 16)"
-            elif [ "$ver_major" -ge 14 ] 2>/dev/null; then
-                add_ok "$category" pg "$port" "${host}/${db}" "PostgreSQL $ver_raw (anterior ao alvo 16 mas funcional)"
+            if [ "$ver_major" -ge "$MIN_PG_MAJOR" ] 2>/dev/null; then
+                add_ok "$category" pg "$port" "${host}/${db}" "PostgreSQL $ver_raw (>= ${MIN_PG_MAJOR})"
+            elif [ "$ver_major" -ge "$SUPPORTED_PG_MAJOR" ] 2>/dev/null; then
+                add_ok "$category" pg "$port" "${host}/${db}" "PostgreSQL $ver_raw (anterior ao alvo ${MIN_PG_MAJOR} mas funcional)"
             else
-                add_fail "$category" pg "$port" "${host}/${db}" "PostgreSQL $ver_raw muito antigo — DEPLOY_SERVER.md exige >= 16"
+                add_fail "$category" pg "$port" "${host}/${db}" "PostgreSQL $ver_raw muito antigo — DEPLOY_SERVER.md exige >= ${MIN_PG_MAJOR}"
             fi
         else
             info "psql disponível mas SHOW server_version falhou (auth/network?) — versão não verificada"

@@ -53,11 +53,15 @@ done
 # ────────────────────────────────────────────────────────────────────────────
 _hostreq() { jq -r ".defaults.host_requirements.$1 // empty" "$PRODUCTS_FILE" 2>/dev/null; }
 MIN_DOCKER_MAJOR=""
+RECOMMENDED_DOCKER_MAJOR=""
+MIN_COMPOSE_VERSION=""
 UBUNTU_TARGET_MAJOR=""
 UBUNTU_SUPPORTED_MAJOR=""
 REQUIRED_BINARIES=()
 if command -v jq >/dev/null 2>&1 && [ -f "$PRODUCTS_FILE" ]; then
     MIN_DOCKER_MAJOR=$(_hostreq min_docker_major)
+    RECOMMENDED_DOCKER_MAJOR=$(_hostreq recommended_docker_major)
+    MIN_COMPOSE_VERSION=$(_hostreq min_compose_version)
     UBUNTU_TARGET_MAJOR=$(_hostreq ubuntu_target_major)
     UBUNTU_SUPPORTED_MAJOR=$(_hostreq ubuntu_supported_major)
     while IFS= read -r _bin; do
@@ -67,6 +71,8 @@ fi
 # Fallback de bootstrap (jq ausente / manifesto ilegível) — modo degradado, não
 # é a fonte da verdade; mantém os valores em paridade com o manifesto.
 : "${MIN_DOCKER_MAJOR:=24}"
+: "${RECOMMENDED_DOCKER_MAJOR:=28}"
+: "${MIN_COMPOSE_VERSION:=2.37}"
 : "${UBUNTU_TARGET_MAJOR:=24}"
 : "${UBUNTU_SUPPORTED_MAJOR:=22}"
 if [ "${#REQUIRED_BINARIES[@]}" -eq 0 ]; then
@@ -98,11 +104,15 @@ print_category_header "$CAT_RUNTIME" "Docker Engine e plugin Compose v2 — pré
 if command -v docker >/dev/null 2>&1; then
     docker_ver=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo "")
     if [ -n "$docker_ver" ]; then
+        # Camadas (manifesto): >= recomendado (alvo) ok; entre piso e alvo = aviso;
+        # abaixo do piso = aviso mais forte (advisory — versão não bloqueia o deploy).
         major=$(echo "$docker_ver" | cut -d. -f1)
-        if [ "$major" -ge "$MIN_DOCKER_MAJOR" ] 2>/dev/null; then
+        if [ "$major" -ge "$RECOMMENDED_DOCKER_MAJOR" ] 2>/dev/null; then
             add_ok "$CAT_RUNTIME" cmd 0 "docker" "$docker_ver"
+        elif [ "$major" -ge "$MIN_DOCKER_MAJOR" ] 2>/dev/null; then
+            add_ok "$CAT_RUNTIME" cmd 0 "docker" "$docker_ver (warn) — atende o piso ${MIN_DOCKER_MAJOR}, recomendado >= ${RECOMMENDED_DOCKER_MAJOR}"
         else
-            add_ok "$CAT_RUNTIME" cmd 0 "docker" "$docker_ver (recomendado >= ${MIN_DOCKER_MAJOR})"
+            add_ok "$CAT_RUNTIME" cmd 0 "docker" "$docker_ver (warn) — abaixo do piso ${MIN_DOCKER_MAJOR}; recomendado >= ${RECOMMENDED_DOCKER_MAJOR}"
         fi
     else
         add_fail "$CAT_RUNTIME" cmd 0 "docker" "daemon não acessível"
@@ -112,8 +122,19 @@ else
 fi
 
 if docker compose version >/dev/null 2>&1; then
-    compose_ver=$(docker compose version --short 2>/dev/null || echo "presente")
-    add_ok "$CAT_RUNTIME" cmd 0 "docker compose" "$compose_ver"
+    compose_ver=$(docker compose version --short 2>/dev/null || echo "")
+    if [ -z "$compose_ver" ]; then
+        add_ok "$CAT_RUNTIME" cmd 0 "docker compose" "presente (versão não detectável)"
+    else
+        # Compara com o piso do manifesto via sort -V (lida com sufixos tipo
+        # 2.38.1-desktop.1). Abaixo do piso = aviso não-bloqueante.
+        compose_num="${compose_ver#v}"
+        if [ "$(printf '%s\n%s\n' "$MIN_COMPOSE_VERSION" "$compose_num" | sort -V | head -1)" = "$MIN_COMPOSE_VERSION" ]; then
+            add_ok "$CAT_RUNTIME" cmd 0 "docker compose" "$compose_ver (>= ${MIN_COMPOSE_VERSION})"
+        else
+            add_ok "$CAT_RUNTIME" cmd 0 "docker compose" "$compose_ver (warn) — abaixo do recomendado ${MIN_COMPOSE_VERSION}"
+        fi
+    fi
 else
     add_fail "$CAT_RUNTIME" cmd 0 "docker compose" "plugin v2 ausente — sudo apt install docker-compose-plugin"
 fi
