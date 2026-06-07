@@ -15,7 +15,8 @@ set -uo pipefail
 SPECIALIST_NAME="check-deps"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
+# PRODUCTS_FILE overridável por env (testabilidade); default = manifesto do repo.
+PRODUCTS_FILE="${PRODUCTS_FILE:-${REPO_ROOT}/scripts/data/products.json}"
 
 # shellcheck source=./_common.sh
 source "$SCRIPT_DIR/_common.sh"
@@ -24,8 +25,12 @@ usage() {
     cat <<EOF
 Uso: bash $(basename "$0") [--quiet | --json] [--help]
 
-Verifica disponibilidade local de: docker, docker compose, curl, jq,
-sudo, openssl, timeout, getent, e sincronização NTP do relógio.
+Verifica versão do Docker Engine e do plugin Docker Compose (comparada com o
+piso do manifesto), a versão do Ubuntu, a sincronização NTP do relógio e a
+disponibilidade dos binários genéricos exigidos. A lista de binários e os
+limiares de versão vêm de scripts/data/products.json
+(.defaults.host_requirements: required_binaries, min/recommended_docker_major,
+min_compose_version, ubuntu_target/supported_major).
 
 Exit code: 0 = OK · 1 = pelo menos uma dependência ausente · 2 = uso inválido
 EOF
@@ -51,7 +56,8 @@ done
 # valores do manifesto) só pra não travar o diagnóstico nesse cenário; o próprio
 # jq ausente já é reportado como FAIL na seção Network tools abaixo.
 # ────────────────────────────────────────────────────────────────────────────
-_hostreq() { jq -r ".defaults.host_requirements.$1 // empty" "$PRODUCTS_FILE" 2>/dev/null; }
+# hostreq (lê .defaults.host_requirements.KEY) vem de _common.sh (#113) — evita
+# duplicar a função idêntica em check-deps e check-db.
 MIN_DOCKER_MAJOR=""
 RECOMMENDED_DOCKER_MAJOR=""
 MIN_COMPOSE_VERSION=""
@@ -59,11 +65,11 @@ UBUNTU_TARGET_MAJOR=""
 UBUNTU_SUPPORTED_MAJOR=""
 REQUIRED_BINARIES=()
 if command -v jq >/dev/null 2>&1 && [ -f "$PRODUCTS_FILE" ]; then
-    MIN_DOCKER_MAJOR=$(_hostreq min_docker_major)
-    RECOMMENDED_DOCKER_MAJOR=$(_hostreq recommended_docker_major)
-    MIN_COMPOSE_VERSION=$(_hostreq min_compose_version)
-    UBUNTU_TARGET_MAJOR=$(_hostreq ubuntu_target_major)
-    UBUNTU_SUPPORTED_MAJOR=$(_hostreq ubuntu_supported_major)
+    MIN_DOCKER_MAJOR=$(hostreq min_docker_major)
+    RECOMMENDED_DOCKER_MAJOR=$(hostreq recommended_docker_major)
+    MIN_COMPOSE_VERSION=$(hostreq min_compose_version)
+    UBUNTU_TARGET_MAJOR=$(hostreq ubuntu_target_major)
+    UBUNTU_SUPPORTED_MAJOR=$(hostreq ubuntu_supported_major)
     while IFS= read -r _bin; do
         [ -n "$_bin" ] && REQUIRED_BINARIES+=("$_bin")
     done < <(jq -r '.defaults.host_requirements.required_binaries[]? // empty' "$PRODUCTS_FILE" 2>/dev/null)
