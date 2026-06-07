@@ -26,7 +26,12 @@ source "$SCRIPT_DIR/_common.sh"
 
 # Limites do DEPLOY_SERVER.md (tabela de pré-requisitos)
 MIN_VCPUS=4
-MIN_RAM_MB=$((8 * 1024))   # 8 GB
+MIN_RAM_MB=$((8 * 1024))   # 8 GB (recomendado)
+# Piso de RAM (bloqueante). Entre WARN_RAM_MB e MIN_RAM_MB é apenas AVISO
+# (não-bloqueante): a VM contratada do ICI (VMPRDAPP-RPADASHBOARD) tem 7,7 GB
+# (Anexo G); reprovar o deploy por estar ~0,3 GB abaixo de 8 GB era
+# mis-calibração — bloqueava todo deploy nessa VM.
+WARN_RAM_MB=$((7 * 1024))  # 7 GB
 MIN_DISK_GB=20
 COMPOSE_DIR_PROBE="${COMPOSE_DIR:-$(pwd)}"
 
@@ -69,14 +74,17 @@ fi
 # ────────────────────────────────────────────────────────────────────────────
 # RAM
 # ────────────────────────────────────────────────────────────────────────────
-print_category_header "$CAT_RAM" "DEPLOY_SERVER.md exige ≥ 8 GB — Python heap, cache Redis (dashboard) e Playwright (RPA) somam várias centenas de MB cada."
+print_category_header "$CAT_RAM" "DEPLOY_SERVER.md recomenda ≥ 8 GB. Entre 7 e 8 GB é aviso (não bloqueia — VM contratada do ICI = 7,7 GB); abaixo de 7 GB bloqueia."
 ram_mb=$(free -m 2>/dev/null | awk '/^Mem:/ {print $2}')
 ram_mb=${ram_mb:-0}
 ram_gb=$(awk -v m="$ram_mb" 'BEGIN{printf "%.1f", m/1024}')
 if [ "$ram_mb" -ge "$MIN_RAM_MB" ] 2>/dev/null; then
     add_ok "$CAT_RAM" ram 0 "$(hostname)" "${ram_gb} GB (>= 8 GB)"
+elif [ "$ram_mb" -ge "$WARN_RAM_MB" ] 2>/dev/null; then
+    # Aviso NÃO-bloqueante (convenção do repo: add_ok com "(warn)" no detalhe).
+    add_ok "$CAT_RAM" ram 0 "$(hostname)" "${ram_gb} GB (warn) — abaixo do recomendado 8 GB, mas dentro da spec da VM; monitorar OOM sob carga"
 else
-    add_fail "$CAT_RAM" ram 0 "$(hostname)" "${ram_gb} GB (esperado >= 8 GB) — pode causar OOM kills sob carga"
+    add_fail "$CAT_RAM" ram 0 "$(hostname)" "${ram_gb} GB (abaixo do piso de 7 GB; recomendado >= 8 GB) — risco de OOM kills"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
