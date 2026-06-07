@@ -471,6 +471,14 @@ product_get_host_dir_vars_derived() {
         | @tsv' "$PRODUCTS_FILE" 2>/dev/null
 }
 
+# hostreq KEY
+#   Lê .defaults.host_requirements.KEY do manifesto (requisitos de host GLOBAIS,
+#   iguais para todo produto — issue #113). Emite vazio se jq/manifesto ausentes
+#   ou chave inexistente; o caller aplica fallback de bootstrap (: "${VAR:=…}").
+#   Usa `// empty` (não `// 0`) pra preservar o valor 0 e permitir o fallback
+#   distinguir "ausente" de "zero". Requer PRODUCTS_FILE definido pelo specialist.
+hostreq() { jq -r ".defaults.host_requirements.$1 // empty" "$PRODUCTS_FILE" 2>/dev/null; }
+
 # product_has_extra KEY
 #   Retorna 0 se extras.KEY == true, 1 caso contrário.
 product_has_extra() {
