@@ -14,6 +14,12 @@
 #   - /var/run/docker.sock existe
 #   - daemon.json: pool size sane (se configurado)
 #   - TESTE REAL: docker network create teste && rm teste (gold standard)
+#
+# Convenções padrão do Docker — avaliadas na issue #113 e MANTIDAS no specialist
+# (não externalizadas ao products.json): /var/run/docker.sock, /etc/docker/daemon.json
+# e o pool default 172.17.0.0/16 são caminhos/convenções fixas do próprio Docker,
+# idênticos em qualquer host e produto. Não variam por produto — externalizar não
+# agregaria.
 # -------------------------------------------
 
 set -uo pipefail

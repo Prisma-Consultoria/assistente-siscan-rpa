@@ -24,7 +24,16 @@
     },
     "default_passwords_to_detect": "Valores de DATABASE_PASSWORD que indicam senha não alterada",
     "extras": "Flags booleanas + defaults consumidos por specialists específicos",
-    "resources": "Limiares mínimos aceitáveis da VM, definidos POR PRODUTO em cada .products.<p>.resources e lidos por check-resources.sh: min_vcpus, min_ram_mb (piso bloqueante), recommended_ram_mb (alvo; entre piso e recomendado = aviso não-bloqueante) e min_disk_gb. Sem hardcode nos scripts (issue #112)."
+    "resources": "Limiares mínimos aceitáveis da VM, definidos POR PRODUTO em cada .products.<p>.resources e lidos por check-resources.sh: min_vcpus, min_ram_mb (piso bloqueante), recommended_ram_mb (alvo; entre piso e recomendado = aviso não-bloqueante) e min_disk_gb. Sem hardcode nos scripts (issue #112).",
+    "defaults": "Requisitos GLOBAIS de host (iguais para todo produto), lidos por check-deps.sh de .defaults.host_requirements: min_docker_major (major mínimo recomendado do Docker Engine), ubuntu_target_major (major alvo testado no DEPLOY_SERVER.md), ubuntu_supported_major (major mínimo ainda suportado; abaixo do alvo = aviso), required_binaries (binários genéricos verificados por check-deps; docker e docker compose são runtime-críticos e verificados com lógica dedicada, usando min_docker_major como limiar). Sem hardcode nos scripts (issue #113)."
+  },
+  "defaults": {
+    "host_requirements": {
+      "min_docker_major": 24,
+      "ubuntu_target_major": 24,
+      "ubuntu_supported_major": 22,
+      "required_binaries": ["curl", "jq", "openssl", "sudo", "timeout", "getent", "git"]
+    }
   },
   "products": {
     "rpa": {

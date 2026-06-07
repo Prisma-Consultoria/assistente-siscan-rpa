@@ -14,6 +14,8 @@ set -uo pipefail
 
 SPECIALIST_NAME="check-deps"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
 
 # shellcheck source=./_common.sh
 source "$SCRIPT_DIR/_common.sh"
@@ -38,6 +40,38 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+# ────────────────────────────────────────────────────────────────────────────
+# Requisitos de host (GLOBAIS — iguais para todo produto). Fonte única da
+# verdade: scripts/data/products.json (.defaults.host_requirements). NÃO há
+# limiares hardcoded como configuração (issue #113).
+#
+# Bootstrap: check-deps é justamente o specialist que detecta jq ausente. Sem
+# jq o manifesto é ilegível — então mantemos um fallback mínimo (idêntico aos
+# valores do manifesto) só pra não travar o diagnóstico nesse cenário; o próprio
+# jq ausente já é reportado como FAIL na seção Network tools abaixo.
+# ────────────────────────────────────────────────────────────────────────────
+_hostreq() { jq -r ".defaults.host_requirements.$1 // empty" "$PRODUCTS_FILE" 2>/dev/null; }
+MIN_DOCKER_MAJOR=""
+UBUNTU_TARGET_MAJOR=""
+UBUNTU_SUPPORTED_MAJOR=""
+REQUIRED_BINARIES=()
+if command -v jq >/dev/null 2>&1 && [ -f "$PRODUCTS_FILE" ]; then
+    MIN_DOCKER_MAJOR=$(_hostreq min_docker_major)
+    UBUNTU_TARGET_MAJOR=$(_hostreq ubuntu_target_major)
+    UBUNTU_SUPPORTED_MAJOR=$(_hostreq ubuntu_supported_major)
+    while IFS= read -r _bin; do
+        [ -n "$_bin" ] && REQUIRED_BINARIES+=("$_bin")
+    done < <(jq -r '.defaults.host_requirements.required_binaries[]? // empty' "$PRODUCTS_FILE" 2>/dev/null)
+fi
+# Fallback de bootstrap (jq ausente / manifesto ilegível) — modo degradado, não
+# é a fonte da verdade; mantém os valores em paridade com o manifesto.
+: "${MIN_DOCKER_MAJOR:=24}"
+: "${UBUNTU_TARGET_MAJOR:=24}"
+: "${UBUNTU_SUPPORTED_MAJOR:=22}"
+if [ "${#REQUIRED_BINARIES[@]}" -eq 0 ]; then
+    REQUIRED_BINARIES=(curl jq openssl sudo timeout getent git)
+fi
 
 CAT_RUNTIME="Container runtime (Docker)"
 CAT_NETWORK="Network tools"
@@ -65,10 +99,10 @@ if command -v docker >/dev/null 2>&1; then
     docker_ver=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo "")
     if [ -n "$docker_ver" ]; then
         major=$(echo "$docker_ver" | cut -d. -f1)
-        if [ "$major" -ge 24 ] 2>/dev/null; then
+        if [ "$major" -ge "$MIN_DOCKER_MAJOR" ] 2>/dev/null; then
             add_ok "$CAT_RUNTIME" cmd 0 "docker" "$docker_ver"
         else
-            add_ok "$CAT_RUNTIME" cmd 0 "docker" "$docker_ver (recomendado >= 24)"
+            add_ok "$CAT_RUNTIME" cmd 0 "docker" "$docker_ver (recomendado >= ${MIN_DOCKER_MAJOR})"
         fi
     else
         add_fail "$CAT_RUNTIME" cmd 0 "docker" "daemon não acessível"
@@ -84,22 +118,58 @@ else
     add_fail "$CAT_RUNTIME" cmd 0 "docker compose" "plugin v2 ausente — sudo apt install docker-compose-plugin"
 fi
 
-# Network tools
-print_category_header "$CAT_NETWORK" "Ferramentas usadas pelo check-network e por scripts de geração de chave/manipulação de JSON."
-_check_bin "$CAT_NETWORK" curl    "curl --version | head -1 | awk '{print \$2}'"
-_check_bin "$CAT_NETWORK" jq      "jq --version | head -1"
-_check_bin "$CAT_NETWORK" openssl "openssl version | awk '{print \$2}'"
+# Binários genéricos: QUAIS verificar vem do manifesto
+# (.defaults.host_requirements.required_binaries, #113). A categoria e o comando
+# de versão de cada um são apresentação/lógica de shell — ficam no specialist,
+# resolvidos por nome. Imprime o cabeçalho da categoria quando ela muda
+# (a ordem do manifesto agrupa por categoria).
+_bin_category() {
+    case "$1" in
+        curl|jq|openssl)         echo "$CAT_NETWORK" ;;
+        sudo|timeout|getent|git) echo "$CAT_SYSTEM" ;;
+        *)                       echo "" ;;
+    esac
+}
+_bin_version_cmd() {
+    case "$1" in
+        curl)    echo "curl --version | head -1 | awk '{print \$2}'" ;;
+        jq)      echo "jq --version | head -1" ;;
+        openssl) echo "openssl version | awk '{print \$2}'" ;;
+        sudo)    echo "sudo --version | head -1 | awk '{print \$3}'" ;;
+        timeout) echo "timeout --version | head -1 | awk '{print \$NF}'" ;;
+        git)     echo "git --version | awk '{print \$3}'" ;;
+        getent)  echo "" ;;
+        *)       echo "" ;;
+    esac
+}
+_cat_desc() {
+    case "$1" in
+        "$CAT_NETWORK") echo "Ferramentas usadas pelo check-network e por scripts de geração de chave/manipulação de JSON." ;;
+        "$CAT_SYSTEM")  echo "Comandos básicos usados pelo siscan-server-setup.sh e pelos specialists." ;;
+        *)              echo "" ;;
+    esac
+}
 
-# Sistema
-print_category_header "$CAT_SYSTEM" "Comandos básicos usados pelo siscan-server-setup.sh e pelos specialists."
-_check_bin "$CAT_SYSTEM" sudo    "sudo --version | head -1 | awk '{print \$3}'"
-_check_bin "$CAT_SYSTEM" timeout "timeout --version | head -1 | awk '{print \$NF}'"
-_check_bin "$CAT_SYSTEM" getent  ""
-_check_bin "$CAT_SYSTEM" git     "git --version | awk '{print \$3}'"
+_last_cat=""
+for _bin in "${REQUIRED_BINARIES[@]}"; do
+    _cat="$(_bin_category "$_bin")"
+    if [ -z "$_cat" ]; then
+        # Binário exigido no manifesto sem rotina de verificação aqui: drift
+        # entre products.json e o specialist — reporta como FAIL na categoria Sistema.
+        [ "$_last_cat" = "$CAT_SYSTEM" ] || { print_category_header "$CAT_SYSTEM" "$(_cat_desc "$CAT_SYSTEM")"; _last_cat="$CAT_SYSTEM"; }
+        add_fail "$CAT_SYSTEM" cmd 0 "$_bin" "exigido em .defaults.host_requirements.required_binaries (products.json) mas sem rotina de verificação no check-deps — drift manifesto↔specialist (#113)"
+        continue
+    fi
+    if [ "$_cat" != "$_last_cat" ]; then
+        print_category_header "$_cat" "$(_cat_desc "$_cat")"
+        _last_cat="$_cat"
+    fi
+    _check_bin "$_cat" "$_bin" "$(_bin_version_cmd "$_bin")"
+done
 
-# Sistema operacional (DEPLOY_SERVER.md pré-req: Ubuntu 24.04 LTS)
+# Sistema operacional — alvo lido do manifesto (.defaults.host_requirements, #113)
 CAT_OS="Sistema operacional"
-print_category_header "$CAT_OS" "Ubuntu 24.04 LTS é o alvo testado no DEPLOY_SERVER.md — versões mais antigas podem ter Docker/Compose desatualizados."
+print_category_header "$CAT_OS" "Ubuntu ${UBUNTU_TARGET_MAJOR}.04 LTS é o alvo testado no DEPLOY_SERVER.md — versões mais antigas podem ter Docker/Compose desatualizados."
 os_id=""
 os_ver=""
 if [ -f /etc/os-release ]; then
@@ -111,17 +181,17 @@ fi
 if [ -z "$os_id" ]; then
     add_fail "$CAT_OS" os 0 "OS" "/etc/os-release ausente — não dá pra identificar a distro"
 elif [ "$os_id" = "ubuntu" ]; then
-    # Compara major version (24, 22, 20...)
+    # Compara major version (24, 22, 20...) contra os limiares do manifesto
     os_major="${os_ver%%.*}"
-    if [ "$os_major" -ge 24 ] 2>/dev/null; then
+    if [ "$os_major" -ge "$UBUNTU_TARGET_MAJOR" ] 2>/dev/null; then
         add_ok "$CAT_OS" os 0 "Ubuntu $os_ver" "alvo do DEPLOY_SERVER.md"
-    elif [ "$os_major" -ge 22 ] 2>/dev/null; then
-        add_ok "$CAT_OS" os 0 "Ubuntu $os_ver" "anterior ao alvo (24.04) mas suportado — pode ter Docker/Compose desatualizados"
+    elif [ "$os_major" -ge "$UBUNTU_SUPPORTED_MAJOR" ] 2>/dev/null; then
+        add_ok "$CAT_OS" os 0 "Ubuntu $os_ver" "anterior ao alvo (${UBUNTU_TARGET_MAJOR}.04) mas suportado — pode ter Docker/Compose desatualizados"
     else
-        add_fail "$CAT_OS" os 0 "Ubuntu $os_ver" "muito antiga — DEPLOY_SERVER.md exige 24.04 LTS"
+        add_fail "$CAT_OS" os 0 "Ubuntu $os_ver" "muito antiga — DEPLOY_SERVER.md exige >= ${UBUNTU_TARGET_MAJOR}.04 LTS"
     fi
 else
-    add_fail "$CAT_OS" os 0 "$os_id $os_ver" "distro não testada — DEPLOY_SERVER.md exige Ubuntu 24.04 LTS"
+    add_fail "$CAT_OS" os 0 "$os_id $os_ver" "distro não testada — DEPLOY_SERVER.md exige Ubuntu ${UBUNTU_TARGET_MAJOR}.04 LTS"
 fi
 
 # Sincronização de tempo

@@ -23,6 +23,11 @@ source "$SCRIPT_DIR/_common.sh"
 
 ENV_FILE="${COMPOSE_DIR:-$(pwd)}/.env"
 PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
+# Defaults de conveniência — avaliados na issue #113 e MANTIDOS no specialist
+# (não migrados ao products.json) por já serem configuráveis e não variarem por
+# produto: TIMEOUT_SEC é sobrescrevível por --timeout; a porta do Postgres é
+# lida do .env (DATABASE_PORT, default 5432 logo abaixo) — todos os bancos do
+# projeto usam a porta padrão 5432/TCP, então externalizar não agregaria.
 TIMEOUT_SEC=5
 
 usage() {
