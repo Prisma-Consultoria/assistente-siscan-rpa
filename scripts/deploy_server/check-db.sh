@@ -22,7 +22,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SCRIPT_DIR/_common.sh"
 
 ENV_FILE="${COMPOSE_DIR:-$(pwd)}/.env"
-PRODUCTS_FILE="${REPO_ROOT}/scripts/data/products.json"
+# PRODUCTS_FILE overridável por env (testabilidade); default = manifesto do repo.
+PRODUCTS_FILE="${PRODUCTS_FILE:-${REPO_ROOT}/scripts/data/products.json}"
 # Defaults de conveniência — avaliados na issue #113 e MANTIDOS no specialist
 # (não migrados ao products.json) por já serem configuráveis e não variarem por
 # produto: TIMEOUT_SEC é sobrescrevível por --timeout; a porta do Postgres é
@@ -34,12 +35,13 @@ TIMEOUT_SEC=5
 # (.defaults.host_requirements, issue #113) — NÃO hardcoded. min_postgres_major =
 # alvo; supported_postgres_major = piso funcional (abaixo => fail). Fallback de
 # bootstrap (jq ausente / manifesto ilegível) em paridade com o manifesto.
-_hostreq() { jq -r ".defaults.host_requirements.$1 // empty" "$PRODUCTS_FILE" 2>/dev/null; }
+# hostreq (lê .defaults.host_requirements.KEY) vem de _common.sh (#113) — evita
+# duplicar a função idêntica em check-deps e check-db.
 MIN_PG_MAJOR=""
 SUPPORTED_PG_MAJOR=""
 if command -v jq >/dev/null 2>&1 && [ -f "$PRODUCTS_FILE" ]; then
-    MIN_PG_MAJOR=$(_hostreq min_postgres_major)
-    SUPPORTED_PG_MAJOR=$(_hostreq supported_postgres_major)
+    MIN_PG_MAJOR=$(hostreq min_postgres_major)
+    SUPPORTED_PG_MAJOR=$(hostreq supported_postgres_major)
 fi
 : "${MIN_PG_MAJOR:=16}"
 : "${SUPPORTED_PG_MAJOR:=14}"
@@ -121,7 +123,7 @@ _check_db_target() {
             if [ "$ver_major" -ge "$MIN_PG_MAJOR" ] 2>/dev/null; then
                 add_ok "$category" pg "$port" "${host}/${db}" "PostgreSQL $ver_raw (>= ${MIN_PG_MAJOR})"
             elif [ "$ver_major" -ge "$SUPPORTED_PG_MAJOR" ] 2>/dev/null; then
-                add_ok "$category" pg "$port" "${host}/${db}" "PostgreSQL $ver_raw (anterior ao alvo ${MIN_PG_MAJOR} mas funcional)"
+                add_ok "$category" pg "$port" "${host}/${db}" "PostgreSQL $ver_raw (anterior ao alvo ${MIN_PG_MAJOR}, acima do piso ${SUPPORTED_PG_MAJOR} — funcional)"
             else
                 add_fail "$category" pg "$port" "${host}/${db}" "PostgreSQL $ver_raw muito antigo — DEPLOY_SERVER.md exige >= ${MIN_PG_MAJOR}"
             fi
