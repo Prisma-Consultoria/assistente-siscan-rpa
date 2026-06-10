@@ -146,10 +146,18 @@ O `status --json` é a **fonte única** consumida pelo step de `pre-deploy` dos 
 - name: Anexar estado de autoatualização do assistente
   run: |
     set -euo pipefail
+    : "${COMPOSE_DIR:?COMPOSE_DIR não definido — re-execute Fase 8 do siscan-server-setup.sh}"
     cd "${COMPOSE_DIR}"
     bash siscan-assistente-autoupdate.sh status --json > assistant-update.json || echo '{}' > assistant-update.json
-    jq -s '.[0] + {assistant_update: .[1]}' pre-deploy-diag.json assistant-update.json > merged.json
-    mv merged.json pre-deploy-diag.json
+    # Anexação não-bloqueante (diagnóstico): normaliza pre-deploy-diag não-objeto
+    # para {} e preserva o original em qualquer falha residual do jq.
+    if jq -s 'if (.[0]|type)=="object" then .[0] else {} end + {assistant_update: .[1]}' \
+          pre-deploy-diag.json assistant-update.json > merged.json; then
+      mv merged.json pre-deploy-diag.json
+    else
+      rm -f merged.json
+      echo "Aviso: merge do estado de autoatualização falhou — mantendo pre-deploy-diag.json original."
+    fi
 ```
 
 Esse step já está no template `docs/guides/workflows/templates/cd_imagem_certificada_selfhosted.template.yml`; a adoção nos consumers (`siscan-rpa`, `siscan-dashboard`) é propagada automaticamente pelo template.
@@ -186,6 +194,7 @@ Todos os timestamps são UTC ISO-8601 (`date -u +%Y-%m-%dT%H:%M:%SZ`). O arquivo
 | Sintoma | Causa provável | Resolução |
 |---|---|---|
 | `outcome: failed` + "Árvore de trabalho suja" | Arquivos **rastreados** modificados localmente. | Reconcilie manualmente: `git -C $DIR_SISCAN_ASSISTENTE status`, depois `git stash` / `git checkout -- <arquivo>` / `git commit`. O script nunca descarta alterações por conta própria. |
+| `outcome: failed` + "Árvore de trabalho suja" **logo após um deploy** | O job de `deploy` dos workflows CD copia `docker-compose`/`.env sample` **para dentro do `${COMPOSE_DIR}`** — o mesmo clone que o `run` atualiza. Se esses arquivos forem rastreados e o conteúdo copiado divergir do `HEAD`, a árvore fica suja e o `run` grava `failed` até a reconciliação. O `flock` protege apenas `run`×`run`, **não** `run`×`deploy`. | Verifique `git -C $COMPOSE_DIR status` — se os únicos arquivos sujos forem os copiados pelo CD (compose/env-sample), restaure-os (`git checkout -- <arquivo>`) ou comite-os; o `run` volta a puxar no próximo ciclo. Falha **segura** (não puxa durante a janela de deploy), mas pode mascarar-se de "autoupdate quebrado". |
 | `outcome: failed` + "git pull --ff-only rejeitado" | Histórico divergente (commit local fora de `origin/main`) ou rede indisponível. | Verifique conectividade e `git -C $DIR_SISCAN_ASSISTENTE log --oneline origin/main..HEAD`. Resolva a divergência antes de reagendar. |
 | `outcome: failed` + "Branch '...' != main" | O clone não está em `main`. | `git -C $DIR_SISCAN_ASSISTENTE checkout main`. |
 | `outcome: skipped-interval` toda execução | `interval_days > 1` e ainda não passou o ciclo. | Esperado. Para forçar agora, rode `run` após zerar/ajustar o intervalo via novo `schedule --daily`. |
