@@ -213,6 +213,8 @@ Atualiza o próprio script `siscan-assistente.sh` (ou `.ps1`) com **rollback aut
 
 Após sucesso, o assistente **encerra** — você precisa relançá-lo para usar a nova versão.
 
+> **Modo SERVIDOR (VMs de produção)**: a atualização do clone do assistente é **agendável via cron** com [`siscan-assistente-autoupdate.sh`](./siscan-assistente-autoupdate.md) (`git pull --ff-only` + estado auditável). Aquele utilitário cobre o cenário servidor; a Opção 7 aqui é para o modo HOST/PC local.
+
 ### Opção 8 — Sair
 
 Retorna ao shell sem desligar containers. A stack permanece como está (rodando se estava rodando).

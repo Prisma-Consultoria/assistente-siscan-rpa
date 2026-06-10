@@ -76,6 +76,7 @@ Este checklist se aplica a qualquer modo de deploy, independentemente do produto
 - [ ] Primeira coleta manual executada com sucesso.
 - [ ] `HOST_SECRETS_DIR` existe com `chmod 700` (chaves RSA): `stat -c '%a' $(grep ^HOST_SECRETS_DIR $COMPOSE_DIR/.env | cut -d= -f2)` → `700`.
 - [ ] Operador ciente do [fluxo de propriedade do compose file](DEPLOY_SERVER.md#fluxo-do-compose-file-de-produção) — não editar manualmente o compose na VM (sobrescrita silenciosa no próximo CD).
+- [ ] Autoatualização do assistente agendada: `bash siscan-assistente-autoupdate.sh schedule --daily --at 03:00` e conferida com `bash siscan-assistente-autoupdate.sh status` (ver [guia](guides/siscan-assistente-autoupdate.md)).
 
 ### Verificação de consistência (instalação existente)
 

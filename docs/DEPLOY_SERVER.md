@@ -323,6 +323,29 @@ bash siscan-server-doctor.sh --pre-setup
 
 A última linha valida que o ambiente continua íntegro após o pull. Saída esperada: `7/7 specialists OK` (modo `--pre-setup` inclui `check-runner-tls` pre-flight + 6 prévios).
 
+### Autoatualização agendada (cron) — `siscan-assistente-autoupdate.sh`
+
+Para eliminar o `git pull` manual repetido, agende a atualização do clone via cron. O `siscan-assistente-autoupdate.sh` faz `git pull --ff-only origin main`, grava um **estado auditável** (commit, timestamp, resultado) fora do repo e expõe esse estado no `pre-deploy-diag.json` de todo deploy (chave `assistant_update`). Política de árvore suja fixada: se houver modificação em arquivos **rastreados**, o `run` grava `outcome: failed` e **não** toca no repo (nunca stasha silenciosamente).
+
+```bash
+cd $COMPOSE_DIR   # tipicamente /app/assistente-siscan-rpa
+
+# Agendar (diário às 03:00, ou a cada N dias; sem args entra em prompt interativo)
+bash siscan-assistente-autoupdate.sh schedule --daily --at 03:00
+bash siscan-assistente-autoupdate.sh schedule --every-days 3 --at 04:30
+
+# Conferir o estado da última atualização
+bash siscan-assistente-autoupdate.sh status
+
+# Rodar uma atualização agora (mesmo alvo do cron)
+bash siscan-assistente-autoupdate.sh run
+
+# Remover o agendamento (preserva o resto do crontab)
+bash siscan-assistente-autoupdate.sh unschedule
+```
+
+"A cada N dias" usa guarda de intervalo: o cron dispara diariamente e o `run` decide o ciclo comparando `last_success_utc` com `interval_days`. Detalhe dos subcomandos, esquema do estado e troubleshooting: [`guides/siscan-assistente-autoupdate.md`](guides/siscan-assistente-autoupdate.md).
+
 ### Cenários complexos (runner offline, auto-removed, primeira atualização ampla)
 
 Para recuperação cirúrgica do runner — auto-removido após 14 dias offline, regra dos 30 dias de auto-update, bootstrap em VM nova, serviço systemd ausente, entre outros — use `siscan-runner-recover.sh`. O script detecta automaticamente um entre **9 cenários auto-resolvíveis** (`OK`, `N/A`, `1`, `2`, `C`, `A`, `A2`, `B`, `WARN`) + 1 inconclusivo (`UNKNOWN`), compartilha a lógica de download/registro/instalação com `siscan-server-setup.sh` e valida ao final via `check-runner`. Detalhe de cada cenário, flags (`--token`, `--pat`, `--env-file`, `--product`), resolução do `ENV_FILE` e geração do PAT classic: [`guides/siscan-runner-recover.md`](guides/siscan-runner-recover.md).
