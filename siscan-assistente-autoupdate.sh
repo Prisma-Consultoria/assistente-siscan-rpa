@@ -169,6 +169,14 @@ _state_write() {
     local tmp
     tmp="$(mktemp "${SISCAN_UPDATE_STATE_FILE}.XXXXXX")" || fail "Falha ao criar arquivo temporário do estado."
 
+    # Sanitiza os campos numéricos antes do --argjson: se o valor (lido de volta
+    # do estado, possivelmente editado à mão/gravação parcial) não for inteiro,
+    # normaliza para o default. Sem isso, um campo corrompido faria o jq -n
+    # abortar (--argjson exige JSON válido) e travaria o run em falha perpétua —
+    # o estado nunca se auto-curaria. Default coerente: 1 dia / 0 commits.
+    [[ "${commits_pulled:-0}" =~ ^[0-9]+$ ]] || commits_pulled=0
+    [[ "${interval_days:-1}" =~ ^[0-9]+$ ]] || interval_days=1
+
     # commits_pulled e interval_days são numéricos; demais são strings.
     # last_success_utc pode ser vazio (nunca houve sucesso) → null no JSON.
     jq -n \
@@ -215,9 +223,15 @@ cmd_run() {
         exec {lock_fd}>"$lock_file" || { _cmd_run_impl "$@"; return $?; }
         if ! flock -n "$lock_fd"; then
             warn "Outro 'run' está em andamento (lock $lock_file) — abortando para não colidir."
+            exec {lock_fd}>&-
             return 0
         fi
-        _cmd_run_impl "$@"
+        local rc=0
+        _cmd_run_impl "$@" || rc=$?
+        # Fecha o fd explicitamente (libera o flock) em vez de delegar ao término
+        # do processo — torna a intenção clara e libera o lock no caminho de sucesso.
+        exec {lock_fd}>&-
+        return "$rc"
     else
         _cmd_run_impl "$@"
     fi
@@ -233,6 +247,11 @@ _cmd_run_impl() {
     # Estado pré-existente: preservamos schedule + last_success na regravação.
     local prev_interval prev_at prev_cron prev_success
     prev_interval="$(_state_read_schedule interval_days)"; prev_interval="${prev_interval:-1}"
+    # Normaliza intervalo não-numérico lido do estado: evita que a guarda de
+    # intervalo (comparação aritmética `-gt` adiante) emita "integer expression
+    # expected" no stderr — em cron --quiet isso vira e-mail espúrio e a guarda
+    # seria silenciosamente ignorada (decisão de ciclo incorreta).
+    [[ "$prev_interval" =~ ^[0-9]+$ ]] || prev_interval=1
     prev_at="$(_state_read_schedule at)"
     prev_cron="$(_state_read_schedule cron)"
     prev_success="$(_state_read_field last_success_utc)"
@@ -356,7 +375,14 @@ cmd_schedule() {
                 fi
                 freq="every-days"; interval_days="$2"; shift 2 ;;
             --every-days=*)  freq="every-days"; interval_days="${1#*=}"; shift ;;
-            --at)            [ $# -ge 2 ] || fail "--at requer HH:MM."; at="$2"; shift 2 ;;
+            --at)
+                # Rejeita $2 ausente, vazio ou iniciado por '-' (outra flag),
+                # alinhado com --every-days; sem isso `--at --daily` aceitaria
+                # at="--daily" e só falharia depois com "Horário inválido".
+                if [ $# -lt 2 ] || [ -z "${2:-}" ] || [[ "$2" == -* ]]; then
+                    fail "--at requer HH:MM."
+                fi
+                at="$2"; shift 2 ;;
             --at=*)          at="${1#*=}"; shift ;;
             *)               fail "argumento desconhecido para schedule: $1" ;;
         esac

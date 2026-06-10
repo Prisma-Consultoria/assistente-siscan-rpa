@@ -197,6 +197,39 @@ EOF
     assert_equal "$(state_field '.branch')" "outra"
 }
 
+# ── estado corrompido (F1/F2) ─────────────────────────────────────────────────
+
+@test "run: interval_days não-numérico no estado não trava o run (auto-cura, exit 0)" {
+    # Estado adulterado/parcial: interval_days="abc". Antes, o --argjson do
+    # _state_write abortava (jq: invalid JSON) → fail → exit 2 em TODA execução,
+    # travando o run permanentemente. Agora o campo é sanitizado para o default.
+    mkdir -p "$(dirname "${STATE_FILE}")"
+    cat > "${STATE_FILE}" <<'EOF'
+{"schema":"1.0","outcome":"updated","branch":"main","commit_before":"x","commit_after":"x","commit_subject":"s","commits_pulled":0,"last_attempt_utc":null,"last_success_utc":null,"schedule":{"interval_days":"abc","at":"03:00","cron":"0 3 * * *"}}
+EOF
+    run bash "${SCRIPT}" run
+    assert_success
+    # Estado regravado com o campo normalizado para inteiro (default 1).
+    assert_equal "$(state_field '.schedule.interval_days')" "1"
+    # Sem poluição de stderr ("integer expression expected").
+    refute_output --partial "integer expression expected"
+}
+
+@test "run: commits_pulled não-numérico no estado não trava o run (auto-cura)" {
+    # F1: commits_pulled também é passado via --argjson. Valor não-numérico
+    # lido de volta (gravação parcial/edição) deve normalizar para 0, não abortar.
+    git -C "${CLONE}" reset -q --hard HEAD~1   # há o que puxar
+    mkdir -p "$(dirname "${STATE_FILE}")"
+    cat > "${STATE_FILE}" <<'EOF'
+{"schema":"1.0","outcome":"updated","branch":"main","commit_before":"x","commit_after":"x","commit_subject":"s","commits_pulled":"oops","last_attempt_utc":null,"last_success_utc":null,"schedule":{"interval_days":1,"at":"03:00","cron":"0 3 * * *"}}
+EOF
+    run bash "${SCRIPT}" run
+    assert_success
+    assert_equal "$(state_field '.outcome')" "updated"
+    # commits_pulled regravado como número válido (1 commit puxado).
+    assert_equal "$(state_field '.commits_pulled')" "1"
+}
+
 @test "status --json sem estado retorna {} e sai 0" {
     rm -f "${STATE_FILE}"
     run bash "${SCRIPT}" status --json

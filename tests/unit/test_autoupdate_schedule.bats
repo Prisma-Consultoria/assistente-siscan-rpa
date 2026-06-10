@@ -171,6 +171,15 @@ EOF
     assert_failure 2
 }
 
+@test "schedule --at seguido de outra flag é rejeitado com a mensagem do --at (F6)" {
+    # Antes, '--at --daily' fazia at="--daily" e só falhava depois com
+    # "Horário inválido" — mensagem confusa. Agora --at rejeita um valor
+    # iniciado por '-' (alinhado com --every-days), com a mensagem correta.
+    run bash "${SCRIPT}" schedule --at --daily
+    assert_failure 2
+    assert_output --partial "--at requer HH:MM."
+}
+
 # ── caminho interativo (regressão B1) ───────────────────────────────────────
 # Sem flags, o schedule entra em prompt interativo. O dispatch passa o array
 # 'rest' vazio aos subcomandos; com "${rest[@]:-}" (sob set -u) isso virava um
