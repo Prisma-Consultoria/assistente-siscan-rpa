@@ -261,7 +261,9 @@ Cada specialist é callable standalone (`bash scripts/deploy_server/check-<nome>
 
 > **Comportamento não-óbvio**: o specialist faz **pre-fail (exit 2)** via `fail()` em `_common.sh` se `gh` CLI ausente **e** `GH_TOKEN` não setado, mas só para o check remoto (que é pulado com `warn()`). Os checks locais/systemd/idade continuam rodando.
 
-### `check-stack` — compose ps + port collision + restart loop
+### `check-stack` — compose ps + exec + daemon + port collision + restart loop
+
+Referência detalhada das categorias com prazo (exec, processos, daemon): [`./specialists/check-stack.md`](./specialists/check-stack.md).
 
 **O que verifica** (todos os parâmetros vêm do manifesto):
 
@@ -272,8 +274,12 @@ Cada specialist é callable standalone (`bash scripts/deploy_server/check-<nome>
    - GHCR remoto (`docker manifest inspect`) — detecta `manifest unknown` (tag nunca publicada). `unauthorized`/`denied` é apenas `info()` (pull via CD usa `GITHUB_TOKEN`).
 4. **Containers esperados** (`products.json: expected_services`): cada serviço com `State == "running"`.
 5. **Restart loop**: `[.[] | select(.State == "restarting")]` — caso real 20/03 (jinja2 ausente em container reiniciando).
-6. **Healthcheck**: `[.[] | select(.Health == "unhealthy")]`.
-7. **Port collision** (`products.json: expected_external_ports`): `ss -tlnp` (fallback `netstat -tlnp`). Se ocupada pelo Docker → OK; por outro processo → FAIL. Detecta caso 27/03 (porta já em uso por outro serviço da VM).
+6. **Healthcheck**: `[.[] | select(.Health == "unhealthy")]`; para cada um, o `detail` traz `FailingStreak`, o código de saída e a saída da última tentativa (`docker inspect` de `.State.Health`).
+7. **Exec nos containers**: cada serviço running responde a `docker compose exec -T <serviço> true` dentro de `SISCAN_STACK_EXEC_TIMEOUT`.
+8. **Processos nos containers**: `docker top` — total e quantos `defunct`.
+9. **Processos no host**: clientes `docker exec` / `docker compose exec` vivos há mais de `SISCAN_STACK_EXEC_STALE_SECONDS`.
+10. **Daemon Docker**: `docker info` dentro de `SISCAN_STACK_DOCKER_TIMEOUT` e, com systemd, `systemctl is-active docker`.
+11. **Port collision** (`products.json: expected_external_ports`): `ss -tlnp` (fallback `netstat -tlnp`). Se ocupada pelo Docker → OK; por outro processo → FAIL. Detecta caso 27/03 (porta já em uso por outro serviço da VM).
 
 > **Comportamento não-óbvio**: normaliza `docker compose ps --format json` para suportar tanto Compose v2.21+ (array JSON) quanto v2.20 (linhas separadas) — usa `head -c1 | grep '\['` para detectar.
 
@@ -321,6 +327,9 @@ Abaixo do mínimo gera FAIL com motivação operacional (`OOM kills sob carga`, 
 | `OUTPUT_MODE` | `_common.sh` | `human` (default), `quiet` ou `json`. Sobrescrita por `--quiet` / `--json`. |
 | `NO_COLOR` | `_common.sh` | Desativa cores ANSI (útil em logs persistidos). |
 | `TIMEOUT_SEC` | `check-network` (default 10), `check-db` (default 5) | Timeout por probe. Configurável via `--timeout SEC`. |
+| `SISCAN_STACK_EXEC_TIMEOUT` | `check-stack` (default 15) | Prazo, em segundos, do `docker compose exec -T <serviço> true` de cada serviço. |
+| `SISCAN_STACK_DOCKER_TIMEOUT` | `check-stack` (default 10) | Prazo, em segundos, de `docker inspect`, `docker top`, `docker info` e `systemctl is-active docker`. |
+| `SISCAN_STACK_EXEC_STALE_SECONDS` | `check-stack` (default 900) | Idade a partir da qual um cliente `docker exec` vivo no host reprova. |
 | `GH_TOKEN` | `check-runner` | Token com scope `repo` para chamar a API GitHub Actions. Fallback de `gh auth status`. Sem token, o check remoto é pulado com `warn()`. |
 | `RUNNER_DIR` | `check-runner` | Default `$HOME/actions-runner`. Configurável via `--runner-dir DIR`. |
 | `PRODUCTS_FILE` | Todos os specialists product-aware | Default `$REPO_ROOT/scripts/data/products.json`. |
@@ -428,6 +437,7 @@ Qualquer FAIL aparece em `journalctl -t siscan-doctor` e no `/var/log/siscan-doc
 - [`docs/TROUBLESHOOTING.md`](../../TROUBLESHOOTING.md) — sintomas conhecidos e resolução manual + matriz "coberto por <specialist>".
 - [`./products-manifest.md`](./products-manifest.md) — schema do `products.json` e checklist para adicionar produto.
 - [`./specialists/check-network.md`](./specialists/check-network.md) — referência detalhada do `check-network` + manifesto de endpoints.
+- [`./specialists/check-stack.md`](./specialists/check-stack.md) — categorias com prazo do `check-stack` (exec, processos, daemon) e como ler cada reprovação.
 - [`../siscan-server-setup.md`](../siscan-server-setup.md) — guia paralelo (instalação inicial — invoca o doctor como gate na Fase 0).
 - [`../siscan-runner-recover.md`](../siscan-runner-recover.md) — guia paralelo (recuperação cirúrgica do runner — diagnostica via doctor antes de agir).
 - [`scripts/deploy_server/`](../../../scripts/deploy_server/) — código dos specialists + `_common.sh`.
