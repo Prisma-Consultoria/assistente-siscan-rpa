@@ -35,7 +35,7 @@ Quando o prazo estoura, o `timeout` manda `TERM` e, depois de alguns segundos, `
 | `Processos nos containers` | `service <nome>` | `docker top` respondeu e nenhum processo está `defunct` | `N processo(s), M defunct`: há processos zumbis que nenhum processo recolhe. `docker top não respondeu` é falha do próprio daemon ao listar o contêiner. |
 | `Processos no host` | `docker exec` | Nenhum cliente `docker exec` / `docker compose exec` mais velho que o limite | `N cliente(s) exec vivo(s) há mais de Ss; o mais antigo (PID P) há Ts`. Só saem PID e idade, porque a linha de comando pode carregar `-e VAR=valor`. Para ver o comando, rode `ps -o args= -p P` no host. |
 | `Daemon Docker` | `docker info` | O daemon respondeu dentro do prazo | `não respondeu em Ns`: o daemon está travado ou sobrecarregado, e as outras verificações tendem a reprovar junto. |
-| `Daemon Docker` | `systemctl docker` | `active` (só com systemd) | `estado: <estado>`. |
+| `Daemon Docker` | `systemctl docker` | `active`, quando o systemd é o init (existe `/run/systemd/system`, o marcador do `sd_booted`) | `estado: <estado>`. Com `systemctl` instalado mas sem systemd como init (WSL, contêiner), sai `skipped`, e não reprovação. |
 
 ## Como rodar
 

@@ -69,6 +69,9 @@ require_commands docker jq timeout
 STACK_EXEC_TIMEOUT="${SISCAN_STACK_EXEC_TIMEOUT:-15}"
 STACK_DOCKER_TIMEOUT="${SISCAN_STACK_DOCKER_TIMEOUT:-10}"
 STACK_EXEC_STALE_SECONDS="${SISCAN_STACK_EXEC_STALE_SECONDS:-900}"
+# Marcador de "systemd é o init" (o mesmo que o sd_booted lê). Sobrescrevível
+# para que os testes exercitem os dois lados sem depender do host.
+STACK_SYSTEMD_RUN_DIR="${SISCAN_STACK_SYSTEMD_RUN_DIR:-/run/systemd/system}"
 
 # Detectar produto + validar manifesto
 # TSK00.05.05: resolve SISCAN_PRODUCT por prioridade --product > $SISCAN_PRODUCT > .env
@@ -295,13 +298,19 @@ else
     add_fail "$CAT_DAEMON" daemon 0 "docker info" "não respondeu em ${STACK_DOCKER_TIMEOUT}s"
 fi
 
-if command -v systemctl >/dev/null 2>&1; then
+# `systemctl` instalado não prova que o systemd é o init: em WSL ou dentro de
+# container ele existe e responde "offline", e o check reprovaria um daemon
+# saudável. O diretório /run/systemd/system é o marcador que o próprio systemd
+# usa (sd_booted); sem ele, o estado do serviço não se aplica.
+if command -v systemctl >/dev/null 2>&1 && [ -d "$STACK_SYSTEMD_RUN_DIR" ]; then
     active=$(timeout -k 2 "$STACK_DOCKER_TIMEOUT" systemctl is-active docker 2>/dev/null || true)
     if [ "$active" = "active" ]; then
         add_ok "$CAT_DAEMON" daemon 0 "systemctl docker" "active"
     else
         add_fail "$CAT_DAEMON" daemon 0 "systemctl docker" "estado: ${active:-sem resposta em ${STACK_DOCKER_TIMEOUT}s}"
     fi
+elif command -v systemctl >/dev/null 2>&1; then
+    add_skipped "$CAT_DAEMON" daemon 0 "systemctl docker" "systemd não é o init (sem ${STACK_SYSTEMD_RUN_DIR}); estado do serviço não se aplica"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────

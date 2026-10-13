@@ -75,7 +75,14 @@ teardown() {
 _checks() {
     env PATH="${STUB_DIR}" COMPOSE_DIR="${WORK_DIR}" \
         SISCAN_STACK_EXEC_TIMEOUT=2 SISCAN_STACK_DOCKER_TIMEOUT=2 SISCAN_STACK_EXEC_STALE_SECONDS=900 \
+        SISCAN_STACK_SYSTEMD_RUN_DIR="${WORK_DIR}/run-systemd-system" \
         bash "$SPECIALIST" --product rpa --json > "${WORK_DIR}/out.json" 2>/dev/null || true
+}
+
+# _stub_systemctl ESTADO — `systemctl is-active docker` imprime ESTADO.
+_stub_systemctl() {
+    printf '#!/usr/bin/env bash\necho %s\n' "$1" > "${STUB_DIR}/systemctl"
+    chmod +x "${STUB_DIR}/systemctl"
 }
 
 # _detail CATEGORIA TARGET STATUS — imprime o detail do check que casar.
@@ -161,4 +168,21 @@ EOF
     _checks
     run _detail "Processos nos containers" "service app" fail
     assert_output --partial "3 processo(s), 2 defunct"
+}
+
+@test "systemctl sem systemd como init (WSL, container) não reprova o daemon" {
+    _stub_systemctl offline
+    _checks
+    run _detail "Daemon Docker" "systemctl docker" skipped
+    assert_output --partial "systemd não é o init"
+    run _detail "Daemon Docker" "systemctl docker" fail
+    assert_output ""
+}
+
+@test "com systemd como init, serviço docker inativo reprova" {
+    _stub_systemctl inactive
+    mkdir -p "${WORK_DIR}/run-systemd-system"
+    _checks
+    run _detail "Daemon Docker" "systemctl docker" fail
+    assert_output "estado: inactive"
 }
